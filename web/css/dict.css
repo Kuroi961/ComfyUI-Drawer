@@ -1,0 +1,76 @@
+﻿/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — DictService Dropdown
+   Shared autocomplete dropdown styles for dictionary suggestion UI.
+   Renamed from TagComplete (tc-*) → DictService (dc-*).
+   ═══════════════════════════════════════════════════════ */
+
+.dc-dropdown * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dc-dropdown {
+    position: fixed;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--cd-panel);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    z-index: 200000;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+    min-width: 250px;
+}
+
+.dc-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    border-bottom: 1px solid var(--cd-divider);
+    transition: background 0.15s ease;
+}
+
+.dc-item:hover,
+.dc-item.active {
+    background: var(--cd-shell);
+}
+
+.dc-name {
+    font-weight: 500;
+}
+
+.dc-count {
+    color: var(--cd-text-dim);
+    font-size: 11px;
+}
+
+/* Category colors (Danbooru tag types) */
+.dc-cat-0 .dc-name { color: oklch(0.68 0.12 250); }  /* General — blue */
+.dc-cat-1 .dc-name { color: oklch(0.68 0.15 350); }  /* Artist — pink */
+.dc-cat-3 .dc-name { color: oklch(0.68 0.15 310); }  /* Copyright — purple */
+.dc-cat-4 .dc-name { color: oklch(0.68 0.12 160); }  /* Character — green */
+.dc-cat-5 .dc-name { color: oklch(0.68 0.12 60); }   /* Meta — orange */
+.dc-cat--1 .dc-name { color: oklch(0.78 0.15 85); }   /* User — gold */
+
+/* Partial-match separator */
+.dc-separator {
+    padding: 4px 12px;
+    font-size: 10px;
+    color: var(--cd-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-top: 1px solid var(--cd-divider);
+    background: var(--cd-s1);
+}
+
+/* Partial-match items — slightly dimmed */
+.dc-item.dc-partial {
+    opacity: 0.8;
+}
+.dc-item.dc-partial:hover,
+.dc-item.dc-partial.active {
+    opacity: 1;
+}

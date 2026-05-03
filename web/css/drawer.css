@@ -1,0 +1,540 @@
+/* ── Platform Accent Color Tokens ──────────────────────────────────────────
+   JS writes to --cd-accent (and derivatives) when the user changes the
+   accent color in Settings. All gadget-local accent variables are mapped
+   here so a single SettingsService entry repaints the whole platform.
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+    --cd-accent:        #7c5cfc;
+    --cd-accent-hover:  #6a4be0;
+    --cd-accent-dark:   #5c3cd6;
+    --cd-accent-glow:   rgba(124, 92, 252, 0.33);
+    --cd-accent-dim:    rgba(124, 92, 252, 0.20);
+    --cd-accent-subtle: rgba(124, 92, 252, 0.13);
+    --cd-accent-mid:    rgba(124, 92, 252, 0.60);
+    --cd-accent-low:    rgba(124, 92, 252, 0.40);
+
+    /* Danger / Cancel color */
+    --cd-danger:        #cc3355;
+    --cd-danger-dark:   #6b2a2a;
+    --cd-danger-glow:   rgba(120, 40, 40, 0.50);
+    --cd-danger-low:    rgba(204, 51, 85, 0.40);
+    --cd-danger-subtle: rgba(204, 51, 85, 0.13);
+
+
+    /* Redirect gadget-local accent variables → platform accent */
+    --gg-accent:      var(--cd-accent);
+    --gg-accent-dim:  var(--cd-accent-dim);
+    --gg-accent-glow: var(--cd-accent-glow);
+    --hm-accent:      var(--cd-accent);
+    --hm-accent-dim:  var(--cd-accent-dim);
+    --mv-accent:      var(--cd-accent);
+    --mv-accent-dim:  var(--cd-accent-dim);
+    --mv-accent-glow: var(--cd-accent-glow);
+
+    /* Shell Color — overall window/panel tint ──────────────────────────────
+       _applyShell() in comfy-drawer.js computes ALL of these from a single
+       hex input using HSL lightness steps. --cd-panel is the exact base
+       color. The values here are defaults overwritten at runtime by JS.     */
+
+    --cd-panel:      #0d0d0d;   /* drawer frame / tab bar        (base)       */
+    --cd-shell:      #1c1c1c;   /* card / section bg             (L+1 step)   */
+    --cd-s1:         #2b2b2b;   /* input / field bg              (L+2 step)   */
+    --cd-s2:         #3a3a3a;   /* raised surfaces: slider, toggle (L+3 step) */
+    --cd-divider:    rgba(255,255,255,0.09);  /* translucent separator / border */
+    --cd-text:       #e0e0e0;   /* main text                     (derived)    */
+    --cd-text-dim:   #858585;   /* dim / label text              (derived)    */
+
+    /* Legacy aliases — CSS files that still reference old names still work  */
+    --cd-shell-deep: var(--cd-panel);
+    --cd-shell-1:    var(--cd-s1);
+    --cd-shell-2:    var(--cd-s2);
+    --cd-shell-3:    var(--cd-divider);
+    --cd-shell-4:    var(--cd-divider);
+    --cd-shell-5:    var(--cd-s2);
+
+    /* Panel oklch tokens — set by JS; these fallbacks match defaults above   */
+    --cd-panel-d:    #0d0d0d;   /* darker areas (tab bar underline)           */
+    --cd-panel-l:    var(--cd-s1);  /* lighter areas (dialog / overlay)       */
+
+    /* Redirect gadget surface tokens → unified shell palette */
+    --gg-bg-elevated: var(--cd-shell);
+    --gg-bg-hover:    var(--cd-s2);
+    --gg-bg-surface:  var(--cd-s1);
+    --gg-border:      var(--cd-divider);
+    --gg-text:        var(--cd-text);
+    --gg-bg-base:     var(--cd-panel);
+
+}
+
+/* ── Light theme: invert mask-service & stepper button box-shadows ────────── */
+.cd-theme-light .ms-tb-btn {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Shell UI
+   CSS Layer: drawer-shell
+   ═══════════════════════════════════════════════════════ */
+@layer drawer-shell {
+
+
+    /* ── Root Container ──
+       pointer-events: none on root so clicks pass through to ComfyUI.
+       No backdrop — ComfyUI stays fully interactive while drawer is open. */
+    .comfy-drawer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 9995;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        pointer-events: none;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    .comfy-drawer * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Allow text selection in editable form fields */
+    .comfy-drawer input,
+    .comfy-drawer textarea,
+    .comfy-drawer [contenteditable] {
+        -webkit-user-select: text;
+        user-select: text;
+    }
+
+    /* ── Panel ──
+       When closed: height=0, invisible, no layout space.
+       When open: height is set via JS, slides via transition. */
+    .comfy-drawer-panel {
+        width: 100%;
+        height: 0;
+        background: var(--cd-panel);
+        border-radius: 16px 16px 0 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        pointer-events: none;
+        transition: height 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    /* Allow text selection in input fields and note displays */
+    .comfy-drawer-panel input,
+    .comfy-drawer-panel textarea,
+    .comfy-drawer-panel [contenteditable="true"],
+    .comfy-drawer-panel .dk-note-display {
+        -webkit-user-select: text;
+        user-select: text;
+    }
+
+    .comfy-drawer.open .comfy-drawer-panel {
+        /* height set by JS */
+        border-top: 1px solid var(--cd-divider);
+        border-left: 1px solid var(--cd-divider);
+        border-right: 1px solid var(--cd-divider);
+        pointer-events: auto;
+        transition: height 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+                    border-color 0.3s ease,
+                    box-shadow 0.3s ease;
+    }
+
+    /* Focus indicator — border only, no glow */
+    .comfy-drawer.open.focused .comfy-drawer-panel {
+        border-top: 1px solid var(--cd-accent-mid);
+        border-left: 1px solid var(--cd-accent-mid);
+        border-right: 1px solid var(--cd-accent-mid);
+    }
+
+    /* ── Resize Handle ── */
+    .comfy-drawer-resize {
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: ns-resize;
+        flex-shrink: 0;
+        touch-action: none;
+    }
+
+    .comfy-drawer-resize-bar {
+        width: 48px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--cd-divider);
+        transition: background 0.2s, width 0.2s;
+    }
+
+    /* Brighten handle when drawer is focused */
+    .comfy-drawer.open.focused .comfy-drawer-resize-bar {
+        background: var(--cd-s2);
+    }
+
+    .comfy-drawer-resize:hover .comfy-drawer-resize-bar,
+    .comfy-drawer-resize:active .comfy-drawer-resize-bar {
+        background: var(--cd-s2);
+        width: 64px;
+    }
+
+    /* ── Panel Body ── */
+    .comfy-drawer-body {
+        flex: 1;
+        overflow: hidden;
+        position: relative;
+        zoom: 1.1;
+    }
+
+    .comfy-drawer-gadget {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /* ── Tab Bar (Floating Pill) ──
+       Pill-shaped, auto-width, floats above ComfyUI's native bottom bar.
+       Only the pill itself captures pointer events. */
+    .comfy-drawer-tabs {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 6px;
+        margin-bottom: 6px;
+        background: var(--cd-panel-d);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--cd-divider);
+        border-radius: 12px;
+        pointer-events: auto;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+        zoom: 1.05;
+    }
+
+    /* When panel is open, tab bar docks to panel bottom edge */
+    .comfy-drawer.open .comfy-drawer-tabs {
+        margin-bottom: 0;
+        border-radius: 0;
+        border: none;
+        border-top: 1px solid var(--cd-divider);
+        background: var(--cd-panel-d);
+        backdrop-filter: none;
+        box-shadow: none;
+        display: flex;
+        width: 100%;
+        justify-content: center;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;   /* Firefox */
+        zoom: 1;  /* Reset zoom — with zoom:1.05 the rendered width exceeds JS-set maxWidth */
+    }
+
+    .comfy-drawer.open .comfy-drawer-tabs::-webkit-scrollbar {
+        display: none;           /* Chrome / Safari */
+    }
+
+    .comfy-drawer-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--cd-text-dim);
+        font-size: 12px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        white-space: nowrap;
+        min-width: 0;
+        flex-shrink: 0;
+        overflow: hidden;
+    }
+
+    .comfy-drawer-tab:hover {
+        background: var(--cd-shell);
+        color: var(--cd-text);
+    }
+
+    .comfy-drawer-tab.active {
+        background: var(--cd-s1);
+        color: var(--cd-text);
+        box-shadow: 0 0 0 1px var(--cd-divider);
+    }
+
+    .comfy-drawer-tab-icon {
+        display: flex;
+        align-items: center;
+        width: 18px;
+        height: 18px;
+    }
+
+    .comfy-drawer-tab-icon svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .comfy-drawer-tab-label {
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* ── Tab drag & drop reorder ── */
+    .comfy-drawer-tab.dragging {
+        opacity: 0.4;
+    }
+
+    .comfy-drawer-tab.drag-over {
+        box-shadow: inset 0 0 0 2px var(--cd-accent);
+        border-radius: 8px;
+    }
+
+    /* ── Responsive: Mobile ──
+       On mobile, hide labels and push the pill higher
+       to avoid overlapping the mobile status bar / bottom nav. */
+    @media (max-width: 600px) {
+        .comfy-drawer-tabs {
+            margin-bottom: 54px;
+        }
+
+        .comfy-drawer.open .comfy-drawer-tabs {
+            margin-bottom: 0;
+        }
+
+        .comfy-drawer-tab-label {
+            display: none;
+        }
+
+        .comfy-drawer-tab {
+            padding: 10px 14px;
+        }
+
+        .comfy-drawer-tab-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .comfy-drawer-tab-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .comfy-drawer-panel {
+            border-radius: 12px 12px 0 0;
+        }
+
+        .comfy-drawer.open .comfy-drawer-panel,
+        .comfy-drawer.open.focused .comfy-drawer-panel {
+            border-left: none;
+            border-right: none;
+        }
+
+        /* Burger menu: larger touch targets */
+        .comfy-drawer-burger-menu {
+            min-width: 220px;
+            padding: 6px;
+        }
+
+        .comfy-drawer-burger-item {
+            min-height: 48px;
+            padding: 12px 16px;
+            gap: 12px;
+            font-size: 15px;
+        }
+
+        .comfy-drawer-burger-item .comfy-drawer-tab-icon {
+            width: 22px;
+            height: 22px;
+        }
+
+        .comfy-drawer-burger-item .comfy-drawer-tab-icon svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .comfy-drawer-burger-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .comfy-drawer-burger-sep {
+            margin: 6px 12px;
+        }
+    }
+
+    /* ── Compact: mobile-like layout when panel is narrow on desktop ── */
+    .comfy-drawer.compact .comfy-drawer-tab-label {
+        display: none;
+    }
+
+    .comfy-drawer.compact .comfy-drawer-tab {
+        padding: 8px 12px;
+    }
+
+    /* ── Desktop: Corner Resize + Alignment ── */
+    .comfy-drawer-panel {
+        position: relative;
+    }
+
+    .comfy-drawer-corner-handle {
+        position: absolute;
+        top: 0;
+        width: 24px;
+        height: 24px;
+        z-index: 10;
+        display: none;
+        transition: background 0.15s;
+    }
+
+    .comfy-drawer-corner-handle.left  {
+        left: 0;
+        cursor: nwse-resize;
+        border-radius: 12px 0 0 0;
+    }
+    .comfy-drawer-corner-handle.right {
+        right: 0;
+        cursor: nesw-resize;
+        border-radius: 0 12px 0 0;
+    }
+
+    .comfy-drawer-corner-handle:hover,
+    .comfy-drawer-corner-handle:active {
+        background: var(--cd-accent-dim);
+    }
+
+    .comfy-drawer-align-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 8px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--cd-text-dim);
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-left: 4px;
+        font-family: inherit;
+    }
+
+    .comfy-drawer-align-btn:hover {
+        background: var(--cd-shell);
+        color: var(--cd-text);
+    }
+
+    /* ── Side Edge Handles (horizontal-only resize) ── */
+    .comfy-drawer-edge-handle {
+        position: absolute;
+        top: 24px;
+        bottom: 0;
+        width: 6px;
+        cursor: ew-resize;
+        z-index: 10;
+        display: none;
+        transition: background 0.15s;
+    }
+
+    .comfy-drawer-edge-handle.left  { left: 0; }
+    .comfy-drawer-edge-handle.right { right: 0; }
+
+    .comfy-drawer-edge-handle:hover,
+    .comfy-drawer-edge-handle:active {
+        background: var(--cd-accent-dim);
+    }
+
+    /* ── Hamburger Menu ── */
+    .comfy-drawer-burger {
+        opacity: 0.6;
+        position: relative;
+    }
+
+    .comfy-drawer-burger:hover {
+        opacity: 1;
+    }
+
+    .comfy-drawer-burger-menu {
+        /* position set dynamically by JS */
+        min-width: 180px;
+        padding: 4px;
+        background: var(--cd-panel);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--cd-divider);
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        z-index: 100;
+        pointer-events: auto;
+        animation: drawerBurgerIn 0.15s ease-out;
+    }
+
+    @keyframes drawerBurgerIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .comfy-drawer-burger-sep {
+        height: 1px;
+        margin: 4px 8px;
+        background: var(--cd-divider);
+    }
+
+    .comfy-drawer-burger-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 14px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--cd-text);
+        font-size: 15px;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .comfy-drawer-burger-item:hover {
+        background: var(--cd-s2);
+        color: var(--cd-text);
+    }
+
+    .comfy-drawer-burger-item .comfy-drawer-tab-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .comfy-drawer-burger-item .comfy-drawer-tab-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .comfy-drawer-burger-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .comfy-drawer-burger-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+}

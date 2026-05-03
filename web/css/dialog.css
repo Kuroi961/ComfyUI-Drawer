@@ -1,0 +1,332 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Dialog Service CSS
+   Shared dialog/popup overlay for alerts, confirms, prompts,
+   and custom form dialogs.
+   Scoped via .cd-dialog prefix (shared component).
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Backdrop ── */
+.cd-dialog-backdrop *,
+.cd-dialog * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.cd-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-dialog-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ── Dialog Container ── */
+.cd-dialog {
+    position: relative;
+    width: min(520px, 90vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    background: var(--cd-panel);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        0 0 0 1px var(--cd-divider) inset;
+    overflow: hidden;
+    transform: none;
+    opacity: 1;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--cd-text);
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-dialog input,
+.cd-dialog textarea,
+.cd-dialog select,
+.cd-dialog [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.cd-dialog-backdrop.visible .cd-dialog {
+    transform: none;
+    opacity: 1;
+}
+
+/* ── Header ── */
+.cd-dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--cd-divider);
+    flex-shrink: 0;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-dialog-icon {
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cd-accent);
+}
+
+.cd-dialog-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.cd-dialog-warning .cd-dialog-icon {
+    color: oklch(0.78 0.15 85);
+}
+
+.cd-dialog-danger .cd-dialog-icon {
+    color: var(--cd-danger);
+}
+
+.cd-dialog-prompt .cd-dialog-icon {
+    color: var(--cd-accent);
+}
+
+.cd-dialog-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cd-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cd-dialog-close {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--cd-text-dim);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+}
+
+.cd-dialog-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+.cd-dialog-close:hover {
+    background: var(--cd-s2);
+    color: var(--cd-text);
+}
+
+/* ── Body ── */
+.cd-dialog-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 13px;
+    color: var(--cd-text);
+    line-height: 1.6;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Message text */
+.cd-dialog-message {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--cd-text);
+    line-height: 1.6;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-dialog-message:last-child {
+    margin-bottom: 0;
+}
+
+/* ── Input field (for prompt mode) ── */
+.cd-dialog-input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    background: var(--cd-s1);
+    color: var(--cd-text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+
+.cd-dialog-input:focus {
+    border-color: var(--cd-accent);
+}
+
+.cd-dialog-input::placeholder {
+    color: var(--cd-text-dim);
+    opacity: 0.6;
+}
+
+/* Textarea variant */
+textarea.cd-dialog-input {
+    min-height: 80px;
+    max-height: 200px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+/* ── Footer (buttons) ── */
+.cd-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 18px 14px;
+    border-top: 1px solid var(--cd-divider);
+    flex-shrink: 0;
+}
+
+.cd-dialog-btn {
+    padding: 7px 16px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    background: var(--cd-s2);
+    color: var(--cd-text);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    white-space: nowrap;
+    min-width: 64px;
+    text-align: center;
+}
+
+.cd-dialog-btn:hover {
+    background: var(--cd-s1);
+    color: var(--cd-text);
+}
+
+.cd-dialog-btn:active {
+    background: var(--cd-shell);
+}
+
+/* Primary (confirm) */
+.cd-dialog-btn-primary {
+    background: var(--cd-accent);
+    border-color: var(--cd-accent-hover);
+    color: #fff;
+}
+
+.cd-dialog-btn-primary:hover {
+    background: var(--cd-accent-hover);
+    border-color: var(--cd-accent-hover);
+    color: #fff;
+}
+
+.cd-dialog-btn-primary:active {
+    background: var(--cd-accent-dark);
+}
+
+/* Danger */
+.cd-dialog-btn-danger {
+    background: var(--cd-danger);
+    border-color: var(--cd-danger);
+    color: #fff;
+}
+
+.cd-dialog-btn-danger:hover {
+    opacity: 0.85;
+    color: #fff;
+}
+
+.cd-dialog-btn-danger:active {
+    opacity: 0.70;
+}
+
+/* ── Custom content styles ── */
+.cd-dialog-body label:not(.mv-info-target) {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cd-text-dim);
+    margin-bottom: 4px;
+}
+
+.cd-dialog-body .cd-dialog-field {
+    margin-bottom: 12px;
+}
+
+.cd-dialog-body .cd-dialog-field:last-child {
+    margin-bottom: 0;
+}
+
+/* Select dropdown */
+.cd-dialog-select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    background: var(--cd-s1);
+    color: var(--cd-text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.cd-dialog-select:focus {
+    border-color: var(--cd-accent);
+}
+
+/* ── Mobile ── */
+@media (max-width: 520px) {
+    .cd-dialog {
+        width: 94vw;
+        max-height: 85vh;
+        border-radius: 12px;
+    }
+
+    .cd-dialog-header {
+        padding: 12px 14px 8px;
+    }
+
+    .cd-dialog-body {
+        padding: 12px 14px;
+    }
+
+    .cd-dialog-footer {
+        padding: 8px 14px 12px;
+    }
+
+    .cd-dialog-btn {
+        padding: 8px 14px;
+        flex: 1;
+    }
+}

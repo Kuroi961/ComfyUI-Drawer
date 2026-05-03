@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Editors and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local agent/workspace files
+.handoff/
+.response/
+.agent/
+
+# Runtime/user-generated data
+data/user_dicts/
+*.db
+*.db-wal
+*.db-shm
+*.bak

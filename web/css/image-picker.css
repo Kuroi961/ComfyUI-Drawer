@@ -1,0 +1,298 @@
+﻿/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — ImagePicker CSS
+   Thumbnail-based file picker popup for selecting images.
+   Scoped via .cd-picker prefix (shared component).
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Backdrop ── */
+.cd-picker-backdrop *,
+.cd-picker * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.cd-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+}
+
+.cd-picker-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ── Panel ── */
+.cd-picker {
+    position: relative;
+    width: min(560px, 92vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    background: var(--cd-panel);
+    border: 1px solid var(--cd-divider);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    overflow: hidden;
+    transform: scale(0.92) translateY(8px);
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.18s ease;
+    opacity: 0;
+}
+
+.cd-picker-backdrop.visible .cd-picker {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+}
+
+/* ── Header ── */
+.cd-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--cd-divider);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.cd-picker-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cd-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cd-picker-close {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--cd-text-dim);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+}
+
+.cd-picker-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+.cd-picker-close:hover {
+    background: var(--cd-s2);
+    color: var(--cd-text);
+}
+
+/* ── Breadcrumb ── */
+.cd-picker-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--cd-divider);
+    flex-shrink: 0;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.cd-picker-crumbs::-webkit-scrollbar {
+    display: none;
+}
+
+.cd-picker-crumb {
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background 0.12s, color 0.12s;
+}
+
+.cd-picker-crumb:hover {
+    background: var(--cd-s2);
+    color: var(--cd-text);
+}
+
+.cd-picker-crumb:last-child {
+    color: var(--cd-text);
+    font-weight: 600;
+}
+
+.cd-picker-crumb-sep {
+    color: var(--cd-text-dim);
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+/* ── Body (scrollable grid area) ── */
+.cd-picker-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+/* ── Loading / Empty ── */
+.cd-picker-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 16px;
+    color: var(--cd-text-dim);
+    font-size: 13px;
+    user-select: none;
+}
+
+/* ── Grid ── */
+.cd-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+}
+
+/* ── Folder item ── */
+.cd-picker-folder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 12px 6px;
+    border-radius: 10px;
+    background: var(--cd-s1);
+    border: 1px solid var(--cd-divider);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, transform 0.12s;
+    user-select: none;
+}
+
+.cd-picker-folder:hover {
+    background: var(--cd-s2);
+    border: 1px solid var(--cd-divider);
+    transform: translateY(-1px);
+}
+
+.cd-picker-folder-icon {
+    color: var(--cd-accent);
+    line-height: 1;
+}
+
+.cd-picker-folder-icon svg {
+    width: 30px;
+    height: 30px;
+    display: block;
+}
+
+.cd-picker-folder-name {
+    font-size: 11px;
+    color: var(--cd-text-dim);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* ── File item ── */
+.cd-picker-file {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--cd-panel);
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+    aspect-ratio: 1;
+}
+
+.cd-picker-file:hover {
+    border-color: var(--cd-accent);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cd-picker-file.selected {
+    border-color: var(--cd-accent-hover);
+    box-shadow: 0 0 0 2px var(--cd-accent-glow);
+}
+
+.cd-picker-file img,
+.cd-picker-file video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cd-picker-file-name {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 3px 6px;
+    font-size: 10px;
+    color: #fff;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Audio item ── */
+.cd-picker-audio-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 36px;
+    gap: 4px;
+}
+
+.cd-picker-audio-icon > svg {
+    width: 42px;
+    height: 42px;
+    color: var(--cd-accent);
+    flex: 0 0 auto;
+}
+
+.cd-picker-audio-icon audio {
+    width: 90%;
+    height: 26px;
+    margin-top: 4px;
+}
+
+/* ── Mobile ── */
+@media (max-width: 520px) {
+    .cd-picker {
+        width: 96vw;
+        max-height: 88vh;
+        border-radius: 12px;
+    }
+
+    .cd-picker-grid {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 6px;
+    }
+}

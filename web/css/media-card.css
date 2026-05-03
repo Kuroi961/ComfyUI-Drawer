@@ -1,0 +1,122 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — MediaCard Component
+   CSS Layer: media-card
+   Shared thumbnail/media card styling used by all gadgets.
+   ═══════════════════════════════════════════════════════ */
+@layer media-card {
+
+    /* ── Card ── */
+    .mc-card {
+        border-radius: 10px;
+        overflow: hidden;
+        background: transparent;
+        cursor: pointer;
+        transition: background 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        animation: mcFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+
+    .mc-card:hover {
+        background: var(--cd-s1);
+    }
+
+    /* ── Thumbnail wrapper ── */
+    .mc-thumb-wrap {
+        width: 100%;
+        overflow: hidden;
+        background: var(--cd-s1);
+        position: relative;
+    }
+
+    /* ── Thumbnail (img / video) ── */
+    .mc-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .mc-thumb[data-loaded="false"] {
+        opacity: 0;
+    }
+
+    .mc-thumb[data-loaded="true"] {
+        opacity: 1;
+        transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Info container (gadgets add content here) ── */
+    .mc-info {
+        padding: 6px 8px;
+        font-size: 11px;
+    }
+
+    .mc-info:empty {
+        display: none;
+    }
+
+    /* ── Custom drag ghost (follows cursor) ── */
+    .mc-drag-ghost {
+        position: fixed;
+        z-index: 100000;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(1);
+        width: 96px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--cd-shell);
+        border: none;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+        opacity: 0.78;
+    }
+
+    .mc-drag-ghost img {
+        width: 100%;
+        display: block;
+    }
+
+    .mc-drag-ghost-label {
+        padding: 4px 6px;
+        font-size: 9px;
+        color: var(--cd-text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-align: center;
+    }
+
+    @keyframes mcGhostIn {
+        from {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.96);
+        }
+        to {
+            opacity: 0.78;
+            transform: translate(-50%, -50%) scale(1);
+        }
+    }
+
+    /* ── Grid container ── */
+    .mc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(var(--mc-col-min, 140px), 1fr));
+        gap: var(--mc-gap, 10px);
+    }
+
+    /* Compact mode */
+    .comfy-drawer.compact .mc-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    }
+
+    /* ── Animation ── */
+    @keyframes mcFadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(6px);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+}

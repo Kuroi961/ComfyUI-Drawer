@@ -1,0 +1,131 @@
+﻿/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Context Menu
+   CSS Layer: drawer-contextmenu
+   ═══════════════════════════════════════════════════════ */
+@layer drawer-contextmenu {
+
+    .cd-ctxmenu {
+        -webkit-tap-highlight-color: transparent;
+        position: fixed;
+        z-index: 200000;
+        min-width: 180px;
+        max-width: 280px;
+        padding: 5px;
+        background: var(--cd-shell, #131323);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45),
+                    0 0 0 1px var(--cd-divider, rgba(255,255,255,0.09)) inset;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        font-size: 13px;
+
+        /* Appear animation */
+        opacity: 0;
+        transform: scale(0.95);
+        transform-origin: top left;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        pointer-events: none;
+    }
+
+    .cd-ctxmenu * {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .cd-ctxmenu.visible {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    /* When menu opens upward / to the left, shift transform origin */
+    .cd-ctxmenu.origin-bottom-left { transform-origin: bottom left; }
+    .cd-ctxmenu.origin-top-right { transform-origin: top right; }
+    .cd-ctxmenu.origin-bottom-right { transform-origin: bottom right; }
+
+    /* ── Menu item ── */
+    .cd-ctxmenu-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--cd-text, #e0e0e8);
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.12s ease, color 0.12s ease;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .cd-ctxmenu-item:hover {
+        background: var(--cd-s2, #1a1a30);
+        color: var(--cd-text, #f0f0f8);
+    }
+
+    .cd-ctxmenu-item:active {
+        background: var(--cd-s1, #131323);
+    }
+
+    /* ── Danger items (delete, etc.) ── */
+    .cd-ctxmenu-item.cd-ctxmenu-danger {
+        color: var(--cd-danger, #cc3355);
+    }
+
+    .cd-ctxmenu-item.cd-ctxmenu-danger:hover {
+        background: var(--cd-danger-subtle, rgba(204,51,85,0.13));
+        color: var(--cd-danger, #cc3355);
+    }
+
+    /* ── Icon ── */
+    .cd-ctxmenu-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        text-align: center;
+        font-size: 14px;
+        line-height: 1;
+    }
+
+    .cd-ctxmenu-icon svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+    }
+
+    /* ── Separator ── */
+    .cd-ctxmenu-sep {
+        height: 1px;
+        margin: 4px 8px;
+        background: var(--cd-divider, rgba(255,255,255,0.09));
+    }
+
+    /* ── Invisible backdrop for click-outside detection ── */
+    .cd-ctxmenu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 199999;
+    }
+
+    /* ── Mobile: slightly larger touch targets ── */
+    @media (max-width: 600px) {
+        .cd-ctxmenu {
+        -webkit-tap-highlight-color: transparent;
+            min-width: 200px;
+            max-width: 300px;
+        }
+        .cd-ctxmenu-item {
+            padding: 12px 14px;
+            font-size: 14px;
+        }
+    }
+}

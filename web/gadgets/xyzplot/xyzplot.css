@@ -1,0 +1,429 @@
+﻿/* ═══ XYZ Plot Gadget — Drawer-native styling ═══ */
+
+/* ── Layout ── */
+.xyzg-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    color: var(--gg-text, var(--cd-text, #e0e0e8));
+}
+
+/* ── Toolbar (bottom-pinned) ── */
+.xyzg-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px;
+    height: 52px;
+    border-top: 1px solid var(--gg-border, var(--cd-shell-3));
+    flex-shrink: 0;
+    order: 99;
+}
+
+.xyzg-start-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 38px;
+    padding: 0 23px 0 19px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 38px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    color: #fff;
+    background: var(--cd-accent);
+    flex-shrink: 0;
+    user-select: none;
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.xyzg-start-btn:hover {
+    filter: brightness(1.15);
+}
+
+.xyzg-start-btn:active {
+    transform: scale(0.96);
+}
+
+.xyzg-start-btn.running {
+    background: var(--cd-danger-dark);
+}
+
+.xyzg-start-btn.running:hover {
+    filter: brightness(1.2);
+}
+
+.xyzg-start-btn.disabled {
+    background: var(--cd-s2);
+    color: var(--cd-text-dim);
+    cursor: not-allowed;
+    pointer-events: none;
+    filter: none;
+    box-shadow: none;
+}
+
+.xyzg-status {
+    flex: 1;
+    font-size: 13px;
+    color: var(--cd-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* View toggle button */
+.xyzg-view-toggle {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    color: var(--cd-text-dim);
+    background: transparent;
+    flex-shrink: 0;
+    user-select: none;
+    line-height: 1;
+}
+.xyzg-view-toggle:hover {
+    background: var(--cd-accent-subtle);
+    color: var(--cd-text);
+}
+.xyzg-view-toggle.active {
+    border-color: var(--cd-accent-glow);
+    background: var(--cd-accent-subtle);
+    color: #fff;
+}
+
+/* Results section (inline within content scroll) */
+.xyzg-output-section {
+    margin-top: 12px;
+    padding: 0;
+}
+
+.xyzg-output-section:empty {
+    display: none;
+}
+
+/* ── Progress ── */
+.xyzg-progress {
+    padding: 8px 14px;
+    border-top: 1px solid var(--gg-border, var(--cd-shell-3));
+    display: none;
+    flex-shrink: 0;
+    order: 98;
+    margin-top: auto;
+}
+
+.xyzg-progress.active {
+    display: block;
+}
+
+.xyzg-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.xyzg-progress-text {
+    color: var(--cd-text);
+    font-size: 12px;
+}
+
+.xyzg-progress-pct {
+    color: var(--cd-accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.xyzg-progress-track {
+    width: 100%;
+    height: 4px;
+    background: var(--cd-shell-2);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.xyzg-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--cd-accent);
+    transition: width 0.3s;
+    border-radius: 2px;
+}
+
+.xyzg-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 14px 14px;
+}
+
+.xyzg-axis {
+    margin-bottom: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--gg-bg-elevated, var(--cd-shell));
+}
+
+.xyzg-start-btn svg {
+    flex: 0 0 auto;
+}
+
+.xyzg-axis-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    user-select: none;
+}
+
+.xyzg-axis-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* X=accent  Y=text  Z=danger  for clear visual distinction */
+.xyzg-axis-x .xyzg-axis-title { color: var(--cd-accent); }
+.xyzg-axis-y .xyzg-axis-title { color: var(--cd-text); }
+.xyzg-axis-z .xyzg-axis-title { color: var(--cd-danger); }
+
+.xyzg-axis-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.xyzg-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--cd-s1);
+    border: none;
+    color: var(--cd-text-dim);
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+}
+
+.xyzg-clear-btn:hover {
+    background: var(--cd-s2);
+    color: var(--cd-text);
+}
+
+.xyzg-collapse-arrow {
+    display: none;
+}
+
+.xyzg-axis-body {
+    padding: 0 12px 10px;
+}
+
+.xyzg-field {
+    margin-top: 8px;
+}
+
+.xyzg-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--cd-text-dim);
+    margin-bottom: 3px;
+}
+
+.xyzg-select,
+.xyzg-input {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: none;
+    background: var(--cd-shell-1);
+    color: var(--cd-text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.xyzg-select:focus,
+.xyzg-input:focus {
+    border-color: var(--cd-accent);
+}
+
+.xyzg-select optgroup {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--cd-accent-mid);
+    padding: 4px 0;
+}
+
+.xyzg-select optgroup option {
+    font-weight: 400;
+    color: var(--cd-text);
+    padding-left: 8px;
+}
+
+.xyzg-hint {
+    color: var(--cd-text-dim);
+    font-size: 11px;
+}
+
+/* ── Swap buttons ── */
+.xyzg-swap-row {
+    display: flex;
+    justify-content: center;
+    margin: 6px 0;
+    min-height: 34px;
+}
+
+.xyzg-clear-btn svg {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+}
+
+.xyzg-swap-btn {
+    min-width: 76px;
+    min-height: 30px;
+    padding: 5px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+    border: 1px solid var(--cd-divider);
+    color: var(--cd-text);
+    background: var(--cd-s1);
+    user-select: none;
+}
+
+.xyzg-swap-btn:hover {
+    border-color: var(--cd-accent);
+    color: var(--cd-text);
+    background: var(--cd-accent-subtle);
+}
+
+.xyzg-swap-btn:active {
+    transform: scale(0.95);
+}
+
+/* ── Chips ── */
+.xyzg-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
+    max-height: 130px;
+    overflow-y: auto;
+}
+
+.xyzg-chip {
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    border: none;
+    color: var(--cd-text-dim);
+    background: var(--cd-shell-1);
+    user-select: none;
+}
+
+.xyzg-chip:hover {
+    border-color: var(--cd-accent);
+    color: var(--cd-text);
+}
+
+.xyzg-chip.selected {
+    background: var(--cd-accent-dim);
+    border-color: var(--cd-accent);
+    color: var(--cd-text);
+}
+
+/* ── Grid results ── */
+.xyzg-grid {
+    margin-top: 12px;
+}
+
+
+/* ── Blacklist panel ── */
+.xyzg-blacklist-panel {
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--gg-border, var(--cd-shell-3));
+}
+
+.xyzg-blacklist-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    opacity: 0.6;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    user-select: none;
+}
+
+.xyzg-blacklist-toggle:hover {
+    opacity: 1;
+}
+
+.xyzg-blacklist-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+}
+
+/* Sweep overlay — blocks ComfyUI during sweep */
+.xyz-sweep-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9990; /* below Drawer (9995), above all ComfyUI */
+    background: rgba(0, 0, 0, 0.55); /* fixed dark — overlays ComfyUI canvas regardless of theme */
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    animation: xyzOverlayIn 0.3s ease-out;
+}
+
+@keyframes xyzOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.xyz-sweep-overlay-msg {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 28px;
+    background: var(--cd-shell);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--cd-divider);
+    border-radius: 14px;
+    color: var(--cd-text);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.xyz-sweep-overlay-msg svg {
+    color: var(--cd-accent);
+    animation: xyzSpin 2s linear infinite;
+}
+
+@keyframes xyzSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}

@@ -1,0 +1,395 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Home Gadget CSS
+   Dashboard layout: version header, gadget cards grid,
+   quick actions.
+   ═══════════════════════════════════════════════════════ */
+@layer gadget-home {
+
+.gadget-home * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.gadget-home {
+    --hm-bg-base:     var(--gg-bg-base);
+    --hm-bg-surface:  var(--gg-bg-surface);
+    --hm-bg-elevated: var(--cd-s2);           /* shell-derived raised surface */
+    --hm-bg-hover:    var(--cd-s2);           /* same raised level on hover   */
+    --hm-text-1:      var(--cd-text);         /* main text                    */
+    --hm-text-2:      var(--cd-text-dim);     /* secondary text               */
+    --hm-text-3: var(--cd-text-dim); /* tertiary / muted text        */
+    --hm-accent:      var(--cd-accent);       /* platform accent              */
+    --hm-accent-dim:  var(--cd-accent-dim);   /* accent at low opacity        */
+    --hm-border:      var(--cd-divider);      /* translucent separator        */
+    --hm-r-s: 6px;
+    --hm-r-m: 10px;
+    --hm-r-l: 16px;
+    --hm-ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --hm-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+    display: flex;
+    flex-direction: column;
+    font-family: var(--hm-font);
+    color: var(--hm-text-1);
+    -webkit-font-smoothing: antialiased;
+    height: 100%;
+}
+
+.gadget-home * {
+    box-sizing: border-box;
+}
+
+/* ── Scroll content ── */
+.gadget-home .hm-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px;
+    scroll-behavior: smooth;
+}
+
+/* ── Header / Brand ── */
+.gadget-home .hm-header {
+    text-align: center;
+    padding: 18px 16px 12px;
+}
+
+.gadget-home .hm-product-prefix {
+    color: var(--cd-accent);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.gadget-home .hm-logo {
+    display: block;
+    width: min(100%, 320px);
+    height: 78px;
+    max-height: 78px;
+    margin: 0 auto 6px;
+    background: var(--cd-accent);
+    -webkit-mask: url('./logo.png') center / contain no-repeat;
+    mask: url('./logo.png') center / contain no-repeat;
+    -webkit-user-drag: none;
+    user-select: none;
+}
+
+.gadget-home .hm-version {
+    font-size: 11px;
+    color: var(--hm-text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Section titles */
+.gadget-home .hm-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cd-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 18px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--cd-accent-dim);
+}
+
+/* ── Gadget D&D Zones ── */
+.gadget-home .hm-gadget-zone {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    min-height: 48px;
+    padding: 8px;
+    border-radius: var(--hm-r-m);
+    border: 2px dashed transparent;
+    transition: border-color 0.2s, background 0.2s, min-height 0.2s;
+}
+
+/* Highlight zones during drag */
+.gadget-home .hm-gadget-zone.hm-zone-active {
+    border-color: var(--hm-border);
+}
+
+.gadget-home .hm-gadget-zone.hm-zone-over {
+    border-color: var(--hm-accent);
+    background: var(--cd-accent-subtle);
+}
+
+/* Zone divider */
+.gadget-home .hm-zone-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 12px 0 4px;
+}
+
+.gadget-home .hm-zone-divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--hm-border);
+}
+
+.gadget-home .hm-zone-divider-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--cd-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    white-space: nowrap;
+}
+
+/* Empty-state hint */
+.gadget-home .hm-zone-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 12px;
+    font-size: 11px;
+    color: var(--hm-text-3);
+    font-style: italic;
+}
+
+/* ── Gadget cards ── */
+.gadget-home .hm-gadget-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 8px;
+    border-radius: var(--hm-r-m);
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.15s var(--hm-ease), opacity 0.2s;
+}
+
+.gadget-home .hm-gadget-card:hover {
+    background: var(--cd-s1);
+}
+
+.gadget-home .hm-gadget-card.dragging {
+    opacity: 0.35;
+    transform: scale(0.95);
+}
+
+.gadget-home .hm-gadget-icon {
+    width: 28px;
+    height: 28px;
+    color: var(--hm-text-1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gadget-home .hm-gadget-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.gadget-home .hm-gadget-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--hm-text-1);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* ── Quick action buttons ── */
+.gadget-home .hm-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gadget-home .hm-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--hm-r-m);
+    background: var(--hm-bg-surface);
+    border: 1px solid transparent;
+    color: var(--hm-text-1);
+    font-size: 12px;
+    font-family: var(--hm-font);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    text-align: left;
+    width: 100%;
+}
+
+.gadget-home .hm-action-btn:hover {
+    background: var(--hm-bg-elevated);
+    color: var(--hm-text-1);
+    }
+
+.gadget-home .hm-action-btn .hm-action-icon {
+    font-size: 15px;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--cd-accent-dim);
+    border-radius: 6px;
+}
+
+/* Danger action gets danger tint on icon */
+.gadget-home .hm-action-btn.danger .hm-action-icon {
+    background: var(--cd-danger-subtle);
+}
+
+.gadget-home .hm-action-btn .hm-action-label {
+    flex: 1;
+}
+
+.gadget-home .hm-action-btn .hm-action-desc {
+    font-size: 10px;
+    color: var(--cd-text);
+    margin-top: 2px;
+}
+
+.gadget-home .hm-action-btn.danger:hover {
+    background: var(--cd-danger-subtle);
+    border-color: var(--cd-danger-low);
+    color: var(--hm-text-1);
+}
+
+/* ── Info rows ── */
+.gadget-home .hm-info-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    font-size: 11px;
+}
+
+.gadget-home .hm-info-label {
+    color: var(--hm-text-3);
+    white-space: nowrap;
+}
+
+.gadget-home .hm-info-value {
+    color: var(--cd-text);
+    word-break: break-all;
+}
+
+.gadget-home .hm-info-value a {
+    color: var(--hm-accent);
+    text-decoration: none;
+}
+
+.gadget-home .hm-info-value a:hover {
+    text-decoration: underline;
+}
+
+/* ── Links ── */
+.gadget-home .hm-links {
+    display: flex;
+    flex-direction: column;
+}
+
+.gadget-home .hm-link-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    color: var(--cd-text);
+    font-size: 12px;
+    text-decoration: none;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+.gadget-home .hm-link-item:hover {
+    background: var(--hm-bg-surface);
+}
+
+.gadget-home .hm-link-label {
+    flex: 1;
+}
+
+.gadget-home .hm-link-arrow {
+    color: var(--cd-accent);
+    font-size: 13px;
+    transition: transform 0.15s;
+}
+
+.gadget-home .hm-link-item:hover .hm-link-arrow {
+    transform: translate(2px, -2px);
+    color: var(--hm-accent);
+}
+
+/* ── Changelog ── */
+.gadget-home .hm-changelog {
+    display: flex;
+    flex-direction: column;
+}
+
+.gadget-home .hm-empty {
+    padding: 10px 0;
+    color: var(--cd-text-dim);
+    font-size: 11px;
+}
+
+.gadget-home .hm-cl-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--cd-divider);
+}
+
+.gadget-home .hm-cl-entry:last-child {
+    border-bottom: none;
+}
+
+.gadget-home .hm-cl-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.gadget-home .hm-cl-version {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--hm-accent);
+    background: var(--cd-accent-dim);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.gadget-home .hm-cl-date {
+    font-size: 10px;
+    color: var(--cd-text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.gadget-home .hm-cl-list {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 11px;
+    color: var(--cd-text);
+    line-height: 1.6;
+}
+
+.gadget-home .hm-cl-list li::marker {
+    color: var(--cd-text-dim);
+}
+
+/* ── Animation ── */
+@keyframes hmFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.gadget-home .hm-gadget-card,
+.gadget-home .hm-link-item,
+.gadget-home .hm-cl-entry {
+    animation: hmFadeIn 0.3s var(--hm-ease) both;
+}
+
+} /* end @layer */

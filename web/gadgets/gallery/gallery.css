@@ -1,0 +1,1061 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Gallery Gadget CSS
+   Scoped under @layer gadget-gallery, all selectors prefixed with .gadget-gallery
+   ═══════════════════════════════════════════════════════ */
+@layer gadget-gallery {
+
+    .gadget-gallery {
+        --gg-bg-base: var(--gg-bg-base);
+        --gg-bg-surface: var(--gg-bg-surface);
+        --gg-bg-elevated: var(--cd-shell);
+        --gg-bg-hover: var(--cd-s2);
+        --gg-bg-glass: var(--cd-panel, #1a1823);
+        --gg-text-1: var(--cd-text);
+        --gg-text-2: var(--cd-text-dim);
+        --gg-text-3: var(--cd-text-dim);
+        --gg-accent: var(--cd-accent);
+        --gg-accent-dim: var(--cd-accent-dim);
+        --gg-accent-glow: var(--cd-accent-glow);
+        --gg-folder-clr: oklch(0.72 0.14 80);
+        --gg-border: var(--cd-divider);
+        --gg-r-s: 6px;
+        --gg-r-m: 10px;
+        --gg-r-l: 16px;
+        --gg-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+        --gg-shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.45);
+        --gg-ease: cubic-bezier(0.4, 0, 0.2, 1);
+        --gg-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+        display: flex;
+        flex-direction: column;
+        font-family: var(--gg-font);
+        color: var(--gg-text-1);
+        -webkit-font-smoothing: antialiased;
+        height: 100%;
+    }
+
+    .gadget-gallery * {
+        box-sizing: border-box;
+    }
+
+    .gadget-gallery .gg-audio-placeholder {
+        height: 140px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--gg-bg-elevated, var(--cd-shell));
+        color: var(--gg-accent);
+    }
+
+    .gadget-gallery .gg-audio-placeholder svg {
+        width: 38px;
+        height: 38px;
+        display: block;
+    }
+
+    .gadget-gallery .gg-video-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 22px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 4px;
+        color: #fff;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .gadget-gallery .gg-video-badge svg {
+        width: 12px;
+        height: 12px;
+        display: block;
+    }
+
+    /* ── Toolbar (bottom-pinned) ── */
+    .gadget-gallery .gg-toolbar {
+        display: contents;
+    }
+
+    .gadget-gallery .gg-toolbar-browse,
+    .gadget-gallery .gg-toolbar-select,
+    .gadget-gallery .gg-toolbar-move {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 6px 16px;
+        height: 52px;
+        border-top: 1px solid var(--gg-border, #1e1e3a);
+        flex-shrink: 0;
+        order: 99;
+        margin-top: auto;
+    }
+
+    .gadget-gallery .gg-toolbar-select[hidden],
+    .gadget-gallery .gg-toolbar-move[hidden],
+    .gadget-gallery .gg-toolbar-browse[hidden] {
+        display: none;
+    }
+
+    /* ── Search box (collapsed by default) ── */
+    .gadget-gallery .gg-search-box {
+        display: none;
+        align-items: center;
+        gap: 4px;
+        background: var(--gg-bg-elevated);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-l);
+        padding: 0 0 0 14px;
+        height: 38px;
+        flex: 1 1 0;
+        min-width: 0;
+        transition: border-color 0.2s var(--gg-ease), box-shadow 0.2s var(--gg-ease);
+    }
+
+    /* Back button + search box + scope wrap: hidden by default */
+    .gadget-gallery .gg-search-back,
+    .gadget-gallery .gg-scope-wrap {
+        display: none;
+    }
+
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-box,
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-back,
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-scope-wrap {
+        display: flex;
+    }
+
+    /* Hide sort/autoplay/trigger when search is open */
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-sort-select,
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-autoplay-toggle,
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-trigger {
+        display: none;
+    }
+
+    .gadget-gallery .gg-search-box:focus-within {
+        border-color: var(--gg-accent);
+        box-shadow: 0 0 0 3px var(--gg-accent-glow);
+    }
+
+    /* ── Search trigger button ── */
+    .gadget-gallery .gg-search-trigger {
+        background: var(--gg-bg-elevated);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        color: var(--gg-text-3);
+        width: 38px;
+        height: 38px;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .gadget-gallery .gg-search-trigger svg {
+        width: 16px;
+        height: 16px;
+        transform: translate(0.5px, 0.5px);
+        /* optical: shift gravity center */
+    }
+
+    .gadget-gallery .gg-search-trigger:hover {
+        color: var(--gg-text-1);
+        border-color: var(--gg-accent-dim);
+    }
+
+    /* ── Search back button (← arrow, standalone) ── */
+    .gadget-gallery .gg-search-back {
+        background: none;
+        border: none;
+        color: var(--gg-text-2);
+        cursor: pointer;
+        padding: 4px;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.15s;
+    }
+
+    .gadget-gallery .gg-search-back svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .gadget-gallery .gg-search-back:hover {
+        color: var(--gg-text-1);
+    }
+
+    .gadget-gallery .gg-search-input {
+        flex: 1;
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--gg-text-1);
+        font-size: 12px;
+        font-family: var(--gg-font);
+        min-width: 0;
+    }
+
+    .gadget-gallery .gg-search-input::placeholder {
+        color: var(--gg-text-3);
+    }
+
+
+
+    .gadget-gallery .gg-result-count {
+        display: none;
+    }
+
+    .gadget-gallery .gg-clear-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gg-text-3);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        transition: color 0.15s, background 0.15s;
+    }
+
+    .gadget-gallery .gg-clear-btn:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+    }
+
+    .gadget-gallery .gg-search-btn {
+        background: none;
+        border: none;
+        color: var(--gg-text-3);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        transition: color 0.15s, background 0.15s;
+        flex-shrink: 0;
+    }
+
+    .gadget-gallery .gg-search-btn:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+    }
+
+    /* ── Sort selector ── */
+    .gadget-gallery .gg-sort-select {
+        background: var(--gg-bg-elevated);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        color: var(--gg-text-2);
+        font-size: 12px;
+        padding: 5px 28px 5px 12px;
+        height: 38px;
+        cursor: pointer;
+        outline: none;
+        flex-shrink: 0;
+        transition: border-color 0.2s, color 0.2s;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23666' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+    }
+
+    .gadget-gallery .gg-sort-select:hover {
+        color: var(--gg-text-1);
+        border-color: var(--gg-accent-dim);
+    }
+
+    .gadget-gallery .gg-sort-select option {
+        background: var(--gg-bg-surface);
+        color: var(--gg-text-1);
+    }
+
+    /* ── Search submit button (inside search-box, right side) ── */
+    .gadget-gallery .gg-search-submit {
+        background: var(--gg-bg-hover);
+        border: none;
+        border-left: 1px solid var(--gg-border);
+        border-radius: 0 var(--gg-r-l) var(--gg-r-l) 0;
+        color: var(--gg-text-2);
+        width: 40px;
+        height: 100%;
+        cursor: pointer;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: color 0.15s, background 0.15s;
+    }
+
+    .gadget-gallery .gg-search-submit svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .gadget-gallery .gg-search-submit:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-accent-dim);
+    }
+
+    /* ── Scope funnel trigger + menu ── */
+    .gadget-gallery .gg-scope-wrap {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .gadget-gallery .gg-scope-trigger {
+        background: var(--gg-bg-elevated);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        color: var(--gg-text-3);
+        width: 38px;
+        height: 38px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .gadget-gallery .gg-scope-trigger svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .gadget-gallery .gg-scope-trigger:hover {
+        color: var(--gg-text-1);
+        border-color: var(--gg-accent-dim);
+    }
+
+    .gadget-gallery .gg-scope-trigger.active {
+        color: var(--gg-accent);
+        border-color: var(--gg-accent);
+        background: var(--gg-accent-glow);
+    }
+
+    .gadget-gallery .gg-scope-trigger.filtered {
+        color: var(--gg-accent);
+    }
+
+    .gadget-gallery .gg-scope-menu {
+        position: absolute;
+        bottom: calc(100% + 6px);
+        right: 0;
+        background: var(--cd-shell, #111016);
+        border: 1px solid color-mix(in srgb, var(--gg-border) 78%, var(--gg-text-2));
+        border-radius: var(--gg-r-m);
+        padding: 4px;
+        min-width: 140px;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.68);
+        z-index: 500;
+        animation: ggFadeIn 0.15s var(--gg-ease);
+    }
+
+    .gadget-gallery .gg-scope-menu[hidden] {
+        display: none;
+    }
+
+    .gadget-gallery .gg-scope-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-family: var(--gg-font);
+        color: var(--gg-text-2);
+        border-radius: var(--gg-r-s);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-scope-option::before {
+        content: '';
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid var(--gg-text-3);
+        flex-shrink: 0;
+        transition: border-color 0.12s, background 0.12s;
+    }
+
+    .gadget-gallery .gg-scope-option:hover {
+        background: var(--gg-bg-hover);
+        color: var(--gg-text-1);
+    }
+
+    .gadget-gallery .gg-scope-option.active {
+        color: var(--gg-text-1);
+    }
+
+    .gadget-gallery .gg-scope-option.active::before {
+        border-color: var(--gg-accent);
+        background: var(--gg-accent);
+        box-shadow: inset 0 0 0 2px var(--cd-shell, #111016);
+    }
+
+    /* ── Autoplay toggle button ── */
+    .gadget-gallery .gg-autoplay-toggle {
+        background: var(--gg-bg-elevated);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        color: var(--gg-text-3);
+        font-size: 13px;
+        width: 38px;
+        height: 38px;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .gadget-gallery .gg-autoplay-toggle:hover {
+        color: var(--gg-text-1);
+        border-color: var(--gg-accent-dim);
+    }
+
+    .gadget-gallery .gg-autoplay-toggle.active {
+        color: var(--gg-accent);
+        border-color: var(--gg-accent);
+        background: var(--gg-accent-glow);
+    }
+
+    /* ── Selection mode ── */
+    .gadget-gallery .gg-card.selectable {
+        cursor: pointer;
+    }
+
+    .gadget-gallery .gg-card-select-check {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: transparent;
+        transition: all 0.15s;
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    .gadget-gallery .gg-card.selected .gg-card-select-check {
+        background: var(--gg-accent);
+        border-color: var(--gg-accent);
+        color: #fff;
+    }
+
+    .gadget-gallery .gg-card.selected {
+        border-color: var(--gg-accent);
+        box-shadow: 0 0 0 2px var(--gg-accent-glow);
+    }
+
+
+    /* ── Breadcrumb ── */
+    .gadget-gallery .gg-breadcrumb {
+        height: 36px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        background: color-mix(in srgb, var(--cd-panel) 88%, #000);
+        border-top: 1px solid var(--gg-border);
+        flex-shrink: 0;
+        overflow-x: auto;
+        white-space: nowrap;
+        order: 98;
+    }
+
+    .gadget-gallery .gg-breadcrumb.hidden {
+        display: none;
+    }
+
+    .gadget-gallery .gg-breadcrumb-list {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .gadget-gallery .gg-search-summary {
+        display: none;
+        align-items: center;
+        min-width: 0;
+        width: 100%;
+        color: var(--gg-text-2);
+        font-size: 12px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-breadcrumb.search-open .gg-breadcrumb-list {
+        display: none;
+    }
+
+    .gadget-gallery .gg-breadcrumb.search-open .gg-search-summary {
+        display: flex;
+    }
+
+    .gadget-gallery .gg-breadcrumb-list li {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .gadget-gallery .gg-crumb-link {
+        font-size: 13px;
+        color: var(--gg-text-2);
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: var(--gg-r-s);
+        transition: color 0.15s, background 0.15s;
+        background: none;
+        border: none;
+        font-family: var(--gg-font);
+    }
+
+    .gadget-gallery .gg-crumb-link:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+    }
+
+    .gadget-gallery .gg-crumb-link.active {
+        color: var(--gg-text-1);
+        font-weight: 500;
+    }
+
+    .gadget-gallery .gg-crumb-sep {
+        color: var(--gg-text-3);
+        font-size: 12px;
+        user-select: none;
+        margin: 0 2px;
+    }
+
+
+    /* ── Content ── */
+    .gadget-gallery .gg-content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 12px;
+        scroll-behavior: smooth;
+    }
+
+    /* ── Grid ── */
+    .gadget-gallery .gg-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(160px, calc(50% - 10px)), 1fr));
+        justify-content: center;
+        gap: 10px;
+    }
+
+    /* ── Cards ── */
+    .gadget-gallery .gg-card {
+        border-radius: var(--gg-r-m);
+        overflow: hidden;
+        background: transparent;
+        cursor: pointer;
+        transition: background 0.15s var(--gg-ease);
+        position: relative;
+        animation: ggFadeIn 0.3s var(--gg-ease) both;
+    }
+
+    .gadget-gallery .gg-card:hover {
+        background: var(--cd-s1);
+    }
+
+    .gadget-gallery .gg-card-thumb {
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+        display: block;
+        background: var(--gg-bg-elevated);
+    }
+
+    .gadget-gallery .gg-card-thumb[data-loaded="false"] {
+        opacity: 0;
+    }
+
+    .gadget-gallery .gg-card-thumb[data-loaded="true"] {
+        opacity: 1;
+        transition: opacity 0.3s var(--gg-ease);
+    }
+
+    .gadget-gallery .gg-card-info {
+        padding: 6px 8px;
+    }
+
+    .gadget-gallery .gg-card-name {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--gg-text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .gadget-gallery .gg-card-meta {
+        font-size: 10px;
+        color: var(--gg-text-3);
+        margin-top: 2px;
+        display: flex;
+        gap: 6px;
+    }
+
+    .gadget-gallery .gg-card-folder {
+        display: inline-block;
+        font-size: 9px;
+        margin-top: 3px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        background: var(--gg-accent-dim);
+        color: var(--gg-accent);
+    }
+
+    .gadget-gallery .gg-card-snippet {
+        font-size: 9px;
+        color: var(--gg-text-3);
+        margin-top: 3px;
+        line-height: 1.4;
+        max-height: 2.8em;
+        overflow: hidden;
+        word-break: break-all;
+    }
+
+    .gadget-gallery .gg-card-snippet mark {
+        background: var(--gg-accent);
+        color: #fff;
+        padding: 0 2px;
+        border-radius: 2px;
+    }
+
+    /* ── Folder cards ── */
+    .gadget-gallery .gg-folder-card {
+        border-radius: var(--gg-r-m);
+        overflow: hidden;
+        background: transparent;
+        cursor: pointer;
+        padding: 16px 12px;
+        text-align: center;
+        transition: background 0.15s var(--gg-ease);
+        animation: ggFadeIn 0.3s var(--gg-ease) both;
+    }
+
+    .gadget-gallery .gg-folder-card:hover {
+        background: var(--cd-s1);
+    }
+
+    .gadget-gallery .gg-folder-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 6px;
+        color: var(--gg-folder-clr);
+    }
+
+    .gadget-gallery .gg-folder-icon svg {
+        width: 28px;
+        height: 28px;
+    }
+
+    /* Drop target highlight during D&D */
+    .gadget-gallery .gg-folder-card.gg-drop-target {
+        background: var(--cd-s1);
+    }
+
+    .gadget-gallery .gg-folder-name {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--gg-text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Folder card selection mode */
+    .gadget-gallery .gg-folder-card.selectable {
+        position: relative;
+        cursor: pointer;
+    }
+
+    .gadget-gallery .gg-folder-card .gg-card-select-check {
+        top: 4px;
+        left: 4px;
+    }
+
+    .gadget-gallery .gg-folder-card.selected .gg-card-select-check {
+        background: var(--gg-accent);
+        border-color: var(--gg-accent);
+        color: #fff;
+    }
+
+    .gadget-gallery .gg-folder-card.selected {
+        border-color: var(--gg-accent);
+        box-shadow: 0 0 0 2px var(--gg-accent-glow);
+    }
+
+    /* ── Status ── */
+    .gadget-gallery .gg-status {
+        text-align: center;
+        padding: 40px 16px;
+        color: var(--gg-text-3);
+        font-size: 13px;
+    }
+
+    .gadget-gallery .gg-clear-btn svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    .gadget-gallery .gg-status svg {
+        width: 15px;
+        height: 15px;
+        vertical-align: -3px;
+        margin-right: 6px;
+    }
+
+    .gadget-gallery .gg-status.hidden {
+        display: none;
+    }
+
+
+
+    /* ── Select toolbar ── */
+    .gadget-gallery .gg-toolbar-select {
+        background: var(--gg-bg-surface);
+    }
+
+    .gadget-gallery .gg-sel-spacer {
+        flex: 1;
+    }
+
+    .gadget-gallery .gg-sel-count {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--gg-accent);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gadget-gallery .gg-sel-all {
+        background: none;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        color: var(--gg-text-2);
+        font-size: 11px;
+        font-family: var(--gg-font);
+        padding: 4px 10px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: color 0.15s, background 0.15s, border-color 0.15s;
+    }
+
+    .gadget-gallery .gg-sel-all:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+        border-color: var(--gg-accent-dim);
+    }
+
+    .gadget-gallery .gg-sel-move,
+    .gadget-gallery .gg-sel-delete {
+        background: var(--gg-bg-elevated);
+        color: var(--gg-text-1);
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        padding: 0 12px;
+        height: 38px;
+        font-size: 12px;
+        font-family: var(--gg-font);
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, opacity 0.15s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .gadget-gallery .gg-sel-move:hover,
+    .gadget-gallery .gg-sel-delete:hover {
+        background: var(--gg-bg-hover);
+    }
+
+    .gadget-gallery .gg-sel-delete {
+        background: var(--cd-danger);
+        color: #fff;
+        border-color: transparent;
+    }
+
+    .gadget-gallery .gg-sel-delete:hover {
+        background: var(--cd-danger);
+        opacity: 0.85;
+    }
+
+    .gadget-gallery .gg-sel-move:disabled,
+    .gadget-gallery .gg-sel-delete:disabled {
+        opacity: 0.4;
+        cursor: default;
+        pointer-events: none;
+    }
+
+    .gadget-gallery .gg-sel-cancel {
+        background: none;
+        border: none;
+        color: var(--gg-text-2);
+        font-size: 16px;
+        cursor: pointer;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border-radius: var(--gg-r-s);
+        transition: color 0.15s, background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .gadget-gallery .gg-sel-cancel:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+    }
+
+    /* ── Move toolbar ── */
+    .gadget-gallery .gg-toolbar-move {
+        background: var(--cd-s2);
+    }
+
+    .gadget-gallery .gg-move-cancel {
+        background: none;
+        border: none;
+        color: var(--gg-text-2);
+        font-size: 16px;
+        cursor: pointer;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border-radius: var(--gg-r-s);
+        transition: color 0.15s, background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .gadget-gallery .gg-move-cancel:hover {
+        color: var(--gg-text-1);
+        background: var(--gg-bg-hover);
+    }
+
+    .gadget-gallery .gg-move-label {
+        font-size: 12px;
+        color: var(--gg-text-2);
+        white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-move-confirm {
+        background: var(--gg-accent);
+        color: #fff;
+        border: none;
+        border-radius: var(--gg-r-s);
+        padding: 0 14px;
+        height: 38px;
+        font-size: 12px;
+        font-family: var(--gg-font);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .gadget-gallery .gg-move-confirm:hover {
+        background: var(--cd-accent);
+    }
+
+    /* Move mode: grey out non-destination items */
+    .gadget-gallery .gg-card.gg-move-disabled,
+    .gadget-gallery .gg-folder-card.gg-move-disabled {
+        opacity: 0.35;
+        pointer-events: none;
+    }
+
+    /* Move mode: highlight selected (source) items with accent border */
+    .gadget-gallery .gg-card.gg-move-source,
+    .gadget-gallery .gg-folder-card.gg-move-source {
+        border-color: var(--gg-accent);
+        box-shadow: 0 0 0 2px var(--gg-accent-glow);
+    }
+
+    /* Show check mark on move-source items */
+    .gadget-gallery .gg-move-source .gg-card-select-check {
+        background: var(--gg-accent);
+        border-color: var(--gg-accent);
+        color: #fff;
+    }
+
+    .gadget-gallery .gg-folder-card.gg-move-disabled:hover {
+        transform: none;
+    }
+
+    /* ── Toast ── */
+    .gadget-gallery .gg-toast {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--cd-panel);
+        color: #fff;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 13px;
+        z-index: 10001;
+        backdrop-filter: blur(8px);
+        font-family: var(--gg-font);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        transition: opacity 0.3s;
+    }
+
+    /* ── Scrollbar ── */
+    .gadget-gallery .gg-content::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .gadget-gallery .gg-content::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .gadget-gallery .gg-content::-webkit-scrollbar-thumb {
+        background: var(--gg-bg-hover);
+        border-radius: 3px;
+    }
+
+    .gadget-gallery .gg-content::-webkit-scrollbar-thumb:hover {
+        background: var(--gg-text-3);
+    }
+
+    /* ── Animation ── */
+    @keyframes ggFadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    /* ── Compact: narrow desktop panel ── */
+    .comfy-drawer.compact .gadget-gallery .gg-grid {
+        grid-template-columns: repeat(auto-fill, minmax(min(140px, calc(50% - 10px)), 1fr));
+    }
+
+    /* ── Compact: larger breadcrumb touch targets ── */
+    .comfy-drawer.compact .gadget-gallery .gg-breadcrumb {
+        height: 40px;
+    }
+
+    .comfy-drawer.compact .gadget-gallery .gg-crumb-link {
+        font-size: 14px;
+        padding: 6px 10px;
+    }
+
+    .comfy-drawer.compact .gadget-gallery .gg-crumb-sep {
+        font-size: 13px;
+    }
+}
+
+/* ═══ Breadcrumb sibling dropdown (appended to document.body, outside @layer) ═══ */
+.gg-crumb-dropdown {
+    background: var(--cd-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+    max-height: 320px;
+    min-width: 180px;
+    max-width: 300px;
+    overflow-y: auto;
+    padding: 4px;
+    animation: ggDropIn 0.15s ease-out;
+}
+
+@keyframes ggDropIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.gg-crumb-dropdown-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--cd-text-dim);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.12s, color 0.12s;
+}
+
+.gg-crumb-dropdown-item:hover {
+    background: var(--cd-s2);
+    color: var(--cd-text);
+}
+
+.gg-crumb-dropdown-item.current {
+    color: var(--cd-accent);
+    font-weight: 500;
+}
+
+/* ═══ Mobile: larger touch targets for breadcrumb & dropdown ═══ */
+@media (max-width: 600px) {
+    .gg-crumb-dropdown {
+        min-width: 200px;
+        padding: 6px;
+    }
+
+    .gg-crumb-dropdown-item {
+        padding: 10px 14px;
+        font-size: 15px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}

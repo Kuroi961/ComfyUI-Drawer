@@ -1,0 +1,759 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Settings Panel CSS
+   Styles for the settings dialog content and the gear button.
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Section Header ── */
+.cd-settings-section *,
+.cd-settings-row *,
+.cd-settings-toggle * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+
+
+.cd-settings-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cd-accent);
+    padding: 12px 0 7px;
+    border-bottom: 1px solid var(--cd-accent-dim);
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-settings-section svg {
+    flex-shrink: 0;
+}
+.cd-settings-section:first-child {
+    padding-top: 0;
+}
+
+/* ── Settings Row ── */
+.cd-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 0;
+    min-height: 42px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-settings-row input,
+.cd-settings-row textarea,
+.cd-settings-row select,
+.cd-settings-row [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.cd-settings-row + .cd-settings-row {
+    border-top: 1px solid var(--cd-divider);
+}
+
+.cd-settings-row-vertical {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+}
+
+/* Thin horizontal divider between merged sections (e.g. Danbooru toggle / user dict list) */
+.cd-settings-divider {
+    height: 1px;
+    background: var(--cd-divider);
+    margin: 4px 0;
+}
+
+/* ── Label Group ── */
+.cd-settings-label-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-settings-label {
+    font-size: 15px;
+    color: var(--cd-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cd-settings-desc {
+    font-size: 13px;
+    color: var(--cd-text-dim);
+    line-height: 1.4;
+}
+
+.cd-settings-value {
+    font-size: 13px;
+    color: var(--cd-accent);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
+/* ── Toggle Switch ── */
+.cd-settings-toggle {
+    flex-shrink: 0;
+    width: 46px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.cd-settings-toggle-track {
+    display: block;
+    width: 46px;
+    height: 26px;
+    border-radius: 13px;
+    background: var(--cd-s2);
+    border: 1px solid var(--cd-divider);
+    position: relative;
+    transition: background 0.25s ease, border-color 0.25s ease;
+    pointer-events: none;
+}
+
+.cd-settings-toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.25s ease;
+}
+
+/* ON state */
+.cd-settings-toggle.on .cd-settings-toggle-track {
+    background: var(--cd-accent);
+    border-color: var(--cd-accent);
+}
+
+.cd-settings-toggle.on .cd-settings-toggle-thumb {
+    transform: translateX(20px);
+}
+
+/* Hover */
+.cd-settings-toggle:hover .cd-settings-toggle-track {
+    border-color: var(--cd-divider);
+}
+
+.cd-settings-toggle.on:hover .cd-settings-toggle-track {
+    background: var(--cd-accent-hover);
+    border-color: var(--cd-accent-hover);
+}
+
+/* ── Slider ── */
+.cd-settings-slider {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--cd-s2);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.cd-settings-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--cd-accent-hover);
+    border: 2px solid var(--cd-accent-low);
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    transition: background 0.15s;
+}
+
+.cd-settings-slider::-webkit-slider-thumb:hover {
+    background: var(--cd-accent-hover);
+}
+
+.cd-settings-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--cd-accent-hover);
+    border: 2px solid var(--cd-accent-low);
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Compact control width ── */
+.cd-settings-control {
+    max-width: 160px;
+    flex-shrink: 0;
+}
+
+/* Color Palette Row (ベース / メイン / ディナイ) */
+.cd-color-palette {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 4px 0 8px;
+}
+.cd-color-palette-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+.cd-color-palette-swatch {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 8px !important;
+}
+.cd-color-palette-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--cd-text-dim);
+    text-align: center;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+/* ── Gear Button (in tab bar) ── */
+.comfy-drawer-settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 2px;
+    padding: 0;
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s, transform 0.3s ease;
+}
+
+.comfy-drawer-settings-btn:hover {
+    background: var(--cd-shell);
+    color: var(--cd-text-dim);
+    transform: rotate(30deg);
+}
+
+.comfy-drawer-settings-btn:active {
+    transform: rotate(60deg);
+    background: var(--cd-s2);
+}
+
+.comfy-drawer-settings-btn svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
+/* ── User Dictionary Editor ── */
+.cd-ud-editor {
+    padding: 4px 0 8px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-ud-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 6px;
+    background: var(--cd-panel);
+}
+
+.cd-ud-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--cd-divider);
+    font-size: 14px;
+    gap: 10px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-ud-entry:last-child {
+    border-bottom: none;
+}
+
+.cd-ud-entry-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cd-text);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: -2px -6px;
+    transition: background 0.15s ease;
+}
+
+.cd-ud-entry-label:hover {
+    background: var(--cd-s1);
+}
+
+/* Inline editing mode — base */
+.cd-ud-entry.cd-ud-editing {
+    background: var(--cd-panel);
+    padding: 8px 10px;
+    border-radius: 5px;
+    gap: 5px;
+}
+
+/* Entry editing (not dict-row rename) → vertical layout */
+.cd-ud-entry.cd-ud-editing:not(.cd-ud-dict-row) {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+/* Dict-row rename stays horizontal */
+.cd-ud-entry.cd-ud-dict-row.cd-ud-editing {
+    flex-direction: row;
+    align-items: center;
+}
+
+.cd-ud-edit-tag {
+    width: 100%;
+    font-size: 13px !important;
+    padding: 4px 7px !important;
+}
+
+.cd-ud-edit-insert {
+    width: 100%;
+    font-size: 13px !important;
+    padding: 4px 7px !important;
+    resize: vertical;
+    min-height: 2.4em;
+    max-height: 200px;
+    line-height: 1.5;
+    font-family: inherit;
+}
+
+.cd-ud-entry.cd-ud-editing:not(.cd-ud-dict-row) .cd-ud-btn-del {
+    align-self: flex-end;
+}
+
+.cd-ud-btn-save {
+    background: var(--cd-accent-dim);
+    border: none;
+    color: var(--cd-accent);
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cd-ud-btn-save:hover {
+    background: var(--cd-accent-low);
+}
+
+.cd-ud-btn-cancel {
+    background: none;
+    border: none;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cd-ud-btn-cancel:hover {
+    background: var(--cd-s2);
+}
+
+.cd-ud-btn-save:disabled,
+.cd-ud-btn-cancel:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.cd-ud-btn-del {
+    background: none;
+    border: none;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cd-ud-btn-del:hover {
+    background: var(--cd-danger-subtle);
+    color: var(--cd-danger);
+}
+
+.cd-ud-empty,
+.cd-ud-loading {
+    padding: 14px;
+    text-align: center;
+    color: var(--cd-text-dim);
+    font-size: 14px;
+}
+
+.cd-ud-add-form {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+}
+
+.cd-ud-add-form .cd-ud-input-tag {
+    flex: 2;
+}
+
+.cd-ud-add-form .cd-ud-input-insert {
+    flex: 3;
+}
+
+.cd-ud-add-form input {
+    font-size: 14px;
+    padding: 6px 10px;
+}
+
+.cd-ud-btn-add {
+    background: var(--cd-accent-dim);
+    border: none;
+    color: var(--cd-accent);
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.cd-ud-btn-add:hover {
+    background: var(--cd-accent-low);
+}
+
+.cd-ud-btn-add:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Multi-dict: Dictionary list ── */
+.cd-ud-dict-count {
+    color: var(--cd-text-dim);
+    font-size: 13px;
+    flex-shrink: 0;
+    margin-right: 5px;
+}
+
+.cd-ud-btn-create {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    padding: 10px 14px;
+    margin-top: 8px;
+    background: var(--cd-s1);
+    border: none;
+    border-radius: 6px;
+    color: var(--cd-text-dim);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+}
+
+.cd-ud-btn-create:hover {
+    background: var(--cd-s1);
+        color: var(--cd-text);
+}
+
+.cd-ud-btn-create:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cd-ud-create-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: var(--cd-panel);
+    border: 1px solid var(--cd-divider);
+    border-radius: 6px;
+}
+
+/* ── Header row (back + title) ── */
+.cd-ud-header-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0 10px;
+}
+
+.cd-ud-btn-back {
+    background: none;
+    border: none;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cd-ud-btn-back:hover {
+    background: var(--cd-s1);
+}
+
+.cd-ud-detail-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--cd-text);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 3px 5px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Rename button (pencil icon) */
+.cd-ud-btn-rename {
+    background: none;
+    border: none;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    transition: background 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: auto;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-ud-btn-rename:hover {
+    background: var(--cd-s1);
+    color: var(--cd-text-dim);
+}
+
+/* ── Action Button (settings panel) ── */
+.cd-settings-action-btn {
+    flex-shrink: 0;
+    padding: 5px 14px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 6px;
+    background: var(--cd-s1);
+    color: var(--cd-text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    line-height: 1.5;
+    min-width: 60px;
+    text-align: center;
+}
+
+.cd-settings-action-btn:hover {
+    background: var(--cd-s2);
+    border-color: var(--cd-divider);
+    color: var(--cd-text);
+}
+
+.cd-settings-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.cd-settings-action-danger:hover {
+    background:   var(--cd-danger-subtle);
+    border-color: var(--cd-danger-low);
+    color:        var(--cd-danger);
+}
+
+/* ── Color Picker ── */
+.cd-settings-color-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.cd-settings-color-swatch {
+    display: block;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 2px solid var(--cd-s2);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.15s, transform 0.15s;
+    position: relative;
+    overflow: hidden;
+}
+
+.cd-settings-color-swatch:hover {
+    border-color: var(--cd-divider);
+    transform: scale(1.08);
+}
+
+/* Hide the native input but keep it interactive for click */
+.cd-settings-color-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    border: none;
+    padding: 0;
+}
+
+.cd-settings-color-reset {
+    background: none;
+    border: 1px solid var(--cd-s2);
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    font-size: 14px;
+    line-height: 1;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cd-settings-color-reset:hover {
+    background: var(--cd-s1);
+    border-color: var(--cd-divider);
+    color: var(--cd-text-dim);
+}
+
+/* ── Theme Preset Grid ── */
+.cd-theme-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 7px;
+    padding: 2px 0 4px;
+}
+
+.cd-theme-preset-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 8px 8px;
+    border-radius: 10px;
+    border: 2px solid var(--cd-s2);
+    background: var(--preset-shell, var(--cd-panel));
+    cursor: pointer;
+    transition: border-color 0.18s ease, opacity 0.18s ease, transform 0.15s ease,
+                box-shadow 0.18s ease;
+    font-family: inherit;
+    -webkit-user-select: none;
+    user-select: none;
+    opacity: 0.75;
+    width: 100%;
+}
+
+.cd-theme-preset-btn:hover {
+    border-color: var(--cd-s2);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    opacity: 1;
+}
+
+.cd-theme-preset-btn.active {
+    border-color: var(--cd-accent);
+    box-shadow: 0 0 0 1px var(--cd-accent-glow),
+                0 4px 14px rgba(0, 0, 0, 0.40);
+    opacity: 1;
+}
+
+.cd-theme-preset-btn:disabled {
+    cursor: default;
+    transform: none;
+    box-shadow: 0 0 0 1px var(--cd-accent-glow);
+}
+
+.cd-theme-preset-swatch {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.cd-theme-preset-dot {
+    display: block;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.cd-theme-preset-name {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--cd-text-dim);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.cd-theme-preset-btn.active .cd-theme-preset-name,
+.cd-theme-preset-btn:hover .cd-theme-preset-name {
+    color: var(--cd-text);
+}
