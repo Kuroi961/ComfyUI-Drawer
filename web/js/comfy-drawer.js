@@ -740,7 +740,7 @@ app.registerExtension({
             maskService: MaskService,
 
             /** Version for compatibility checks */
-            version: '1.0.0',
+            version: '1.0.2',
         };
 
         window.ComfyDrawer = drawerAPI;
