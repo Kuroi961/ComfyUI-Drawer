@@ -31,6 +31,12 @@
 
 ---
 
+## 機能デモ
+
+https://github.com/user-attachments/assets/a9ba848f-11eb-42f7-9fc8-31616ed82df5
+
+---
+
 ## ComfyUI-Drawer とは
 
 ComfyUI-Drawer は、複雑な ComfyUI ワークフローを、コンパクトでタッチしやすい操作パネルに変換する拡張です。

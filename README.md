@@ -31,6 +31,12 @@
 
 ---
 
+## Feature Demo
+
+https://github.com/user-attachments/assets/a9ba848f-11eb-42f7-9fc8-31616ed82df5
+
+---
+
 ## What is ComfyUI-Drawer?
 
 ComfyUI-Drawer turns complex ComfyUI workflows into compact, touch-friendly control panels.

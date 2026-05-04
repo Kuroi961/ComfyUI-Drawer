@@ -31,6 +31,12 @@
 
 ---
 
+## 功能演示
+
+https://github.com/user-attachments/assets/a9ba848f-11eb-42f7-9fc8-31616ed82df5
+
+---
+
 ## ComfyUI-Drawer 是什么
 
 ComfyUI-Drawer 可以把复杂的 ComfyUI 工作流转换成紧凑、适合触控的操作面板。
