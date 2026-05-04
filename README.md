@@ -35,7 +35,7 @@ ComfyUI-Drawer turns complex ComfyUI workflows into compact, touch-friendly cont
 
 Keep your node graph intact, expose only the parameters you actually want to touch, and manage outputs, model assets, masks, and parameter sweeps from one bottom drawer.
 
-It is built as a modular gadget platform, so the same drawer can host workflow controls, media management, model browsing, plotting tools, and custom extensions.
+The drawer is modular, so it can host workflow controls, media management, model browsing, plotting tools, and custom extensions in one place.
 
 ---
 
