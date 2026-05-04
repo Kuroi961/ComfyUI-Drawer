@@ -136,9 +136,17 @@ const MaskService = (() => {
         .ms-toolbar { padding: 8px; gap: 8px; }
         .ms-toolbar-row { width: 100%; gap: 8px; }
         .ms-toolbar-primary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
-        .ms-toolbar-actions { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
-        .ms-toolbar-actions .ms-spacer { display: block; }
-        .ms-tb-btn { min-height: 44px; padding: 8px 12px; justify-content: center; }
+        .ms-toolbar-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .ms-toolbar-actions .ms-spacer { display: none; }
+        .ms-tb-btn {
+          min-width: 0; max-width: 100%; min-height: 44px; padding: 8px;
+          justify-content: center; gap: 4px; overflow: hidden;
+          font-size: clamp(12px, 3.4vw, 15px);
+        }
+        .ms-tb-btn span {
+          min-width: 0; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap;
+        }
         .ms-tb-btn span { display: none; }
         .ms-tb-btn.ms-btn-clear span,
         .ms-tb-btn.ms-send span,
