@@ -143,12 +143,12 @@ const MaskService = (() => {
           justify-content: center; gap: 4px; overflow: hidden;
           font-size: clamp(12px, 3.4vw, 15px);
         }
+        .ms-tb-btn.ms-send { padding: 8px; }
         .ms-tb-btn span {
           min-width: 0; overflow: hidden; text-overflow: ellipsis;
           white-space: nowrap;
         }
         .ms-tb-btn span { display: none; }
-        .ms-tb-btn.ms-send span { display: inline; }
         .ms-divider { display: none; }
         .ms-size-group { min-width: 0; }
         .ms-size-group input[type=range] { min-width: 0; }
