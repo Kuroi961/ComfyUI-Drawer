@@ -38,7 +38,7 @@ ComfyDrawer is a gadget platform for ComfyUI. **Drawer is the OS; gadgets are ap
 | **DictService** | Multi-dictionary autocomplete (Danbooru, user, wildcard) |
 | **ImagePicker** | Media file picker popup (image/video/audio) |
 | **LocaleService** | i18n translation (`t()`), locale sync with ComfyUI |
-| **MaskService** | Fullscreen mask editor and LoadImageMask integration |
+| **MaskService** | Fullscreen mask editor and LoadImageMask-compatible target integration |
 | **GadgetBase** | Gadget lifecycle management (mount/activate/destroy) |
 
 ## Folder Structure

@@ -151,8 +151,8 @@ pip install -r ComfyUI-Drawer/requirements.txt
 用于浏览 ComfyUI 的 models 目录，以及通过 `extra_model_paths.yaml` 添加的模型路径。
 
 - 支持所有模型类型，例如 checkpoints、loras、vae、embeddings、controlnet、upscale_models 等
-- **CivitAI 同步** — 通过 SHA256 哈希匹配获取元数据和预览图
-- **节点匹配** — 可从信息卡把模型应用到当前工作流中的兼容 loader 节点；会扫描全部节点，包括子图和 Combo Clone widget
+- **CivitAI 同步** — 通过 SHA256 哈希匹配获取元数据和预览图，并支持 `.red` / `.com` fallback
+- **节点匹配** — 可从信息卡把模型应用到当前工作流中的兼容 loader 节点；会扫描全部节点，包括子图、Combo Clone widget 和已连接的 DrawerControls
 - **触发词** — 自动显示 CivitAI 的 `trainedWords`，LoRA 模型还可以添加自定义触发词
 - 支持 sidecar 缩略图，可从 output 图片选择或删除
 - 在网格和信息卡中支持视频预览（`.mp4` / `.webm`）

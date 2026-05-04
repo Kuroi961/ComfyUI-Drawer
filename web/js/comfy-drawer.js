@@ -59,6 +59,8 @@ import { MaskService }     from "./services/mask-service.js";
 import { SettingsService } from "./services/settings.js";
 import { openSettingsPanel } from "./services/settings-panel.js";
 import { t, setLocale, getLocale, addMessages, initLocale } from "./services/locale.js";
+import { DRAWER_VERSION } from "./version.js";
+import { enumerateLoadImageTargets } from "./utils/widget-targets.js";
 
 // ── Built-in Gadgets ──
 import { HomeGadget } from "../gadgets/home/home-gadget.js";
@@ -546,7 +548,7 @@ app.registerExtension({
          * originate from any gadget's MediaCard or Lightbox.
          */
         async function sendMediaToLoadImageNode(ctx) {
-            if (ctx?.type !== 'image' || ctx.targetNodeId == null) return false;
+            if (ctx?.type !== 'image' || !ctx.targetKey) return false;
             const { src, name } = resolveMediaInfo(ctx);
             if (!src) return false;
 
@@ -561,10 +563,12 @@ app.registerExtension({
                     ? `${uploadResult.subfolder}/${uploadResult.name}`
                     : uploadResult.name;
 
-                bridge.addWidgetOption(ctx.targetNodeId, 'image', uploadedName);
-                const applied = bridge.setWidgetValue(ctx.targetNodeId, 'image', uploadedName);
+                const target = enumerateLoadImageTargets(bridge)
+                    .find(t => `${t.kind}:${t.nodeId}:${t.widgetName}` === ctx.targetKey);
+                target?.addOption?.(uploadedName);
+                const applied = target?.setValue(uploadedName) || false;
                 if (!applied) {
-                    console.warn('[ComfyDrawer] Failed to apply image to node:', ctx.targetNodeId);
+                    console.warn('[ComfyDrawer] Failed to apply image to target:', ctx.targetKey);
                 }
                 return applied;
             } catch (e) {
@@ -621,28 +625,26 @@ app.registerExtension({
         const SEND_PREFIX = 'media:send-to-';
         const refreshLoadImageMenu = () => {
             contextMenu.unregisterByPrefix(SEND_PREFIX);
-            const loadImageNodes = [
-                ...bridge.getNodesByType('LoadImage'),
-                ...bridge.getNodesByType('LoadImageMask'),
-            ];
-            if (loadImageNodes.length === 0) return;
+            const loadImageTargets = enumerateLoadImageTargets(bridge);
+            if (loadImageTargets.length === 0) return;
 
-            // Single node → simple label; multiple → show node title/id
-            const multi = loadImageNodes.length > 1;
-            for (const node of loadImageNodes) {
-                const cleanTitle = String(node.title || node.type || '')
+            // Single target → simple label; multiple → show node title/id
+            const multi = loadImageTargets.length > 1;
+            for (const target of loadImageTargets) {
+                const targetKey = `${target.kind}:${target.nodeId}:${target.widgetName}`;
+                const cleanTitle = String(target.nodeTitle || target.nodeType || '')
                     .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{1FA00}-\u{1FAFF}]/gu, '')
                     .trim();
                 const label = multi
-                    ? t('menu.sendToNodeType', { type: node.type, title: cleanTitle || node.type })
+                    ? t('menu.sendToNodeType', { type: target.nodeType, title: cleanTitle || target.nodeType })
                     : t('menu.sendToLoadImage');
                 contextMenu.register('media-file', {
-                    id: `${SEND_PREFIX}${node.id}`,
+                    id: `${SEND_PREFIX}${targetKey}`,
                     label,
                     icon: 'send',
                     order: 20,
                     visible: (ctx) => ctx.type === 'image',
-                    action: (ctx) => sendMediaToLoadImageNode({ ...ctx, targetNodeId: node.id }),
+                    action: (ctx) => sendMediaToLoadImageNode({ ...ctx, targetKey }),
                 });
             }
         };
@@ -740,7 +742,7 @@ app.registerExtension({
             maskService: MaskService,
 
             /** Version for compatibility checks */
-            version: '1.0.2',
+            version: DRAWER_VERSION,
         };
 
         window.ComfyDrawer = drawerAPI;

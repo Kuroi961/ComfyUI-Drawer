@@ -20,6 +20,7 @@ import { attachSwipeNav } from '../../js/services/swipe-nav.js';
 import { escapeHTML, normalizePath } from '../../js/utils.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { isLightboxOpen } from '../../js/services/lightbox.js';
+import { enumerateModelValueTargets } from '../../js/utils/widget-targets.js';
 
 /** @private Locale helper */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
@@ -1358,7 +1359,7 @@ export class ModelViewerGadget extends GadgetBase {
 
                         const widgetLabel = document.createElement('span');
                         widgetLabel.className = 'mv-info-target-name';
-                        widgetLabel.textContent = t.widgetName;
+                        widgetLabel.textContent = t.displayName || t.widgetName;
                         textWrap.appendChild(widgetLabel);
 
                         // Show current widget value
@@ -1533,7 +1534,8 @@ export class ModelViewerGadget extends GadgetBase {
                 }
                 if (civitaiData.modelId) {
                     const a = document.createElement('a');
-                    a.href = `https://civitai.red/models/${civitaiData.modelId}${civitaiData.id ? '?modelVersionId=' + civitaiData.id : ''}`;
+                    const host = civitaiData._drawer_civitai_host || 'civitai.red';
+                    a.href = `https://${host}/models/${civitaiData.modelId}${civitaiData.id ? '?modelVersionId=' + civitaiData.id : ''}`;
                     a.target = '_blank';
                     a.rel = 'noopener';
                     a.textContent = _t('modelviewer.openInCivitai');
@@ -1776,43 +1778,13 @@ export class ModelViewerGadget extends GadgetBase {
     /* ══════ Node Matching & Apply ══════ */
 
     async #findEligibleNodes(modelPath) {
-        const normalizedModelPath = normalizePath(modelPath);
-        const results = [];
-
-        // Scan ALL nodes on the graph directly.
-        // This finds subgraph/component nodes, combo-clone widgets,
-        // and any node whose widget dropdown contains this model.
-        for (const node of this.bridge.allNodes) {
-            if (!node.widgets) continue;
-            for (const w of node.widgets) {
-                // Check if this widget has a dropdown values list containing the model
-                const values = w.options?.values;
-                if (!Array.isArray(values)) continue;
-                const origValue = values.find(v =>
-                    typeof v === 'string' && normalizePath(v) === normalizedModelPath
-                );
-                if (origValue !== undefined) {
-                    results.push({
-                        nodeId: node.id,
-                        nodeTitle: node.title || node.type || `Node ${node.id}`,
-                        nodeType: node.type,
-                        widgetName: w.name,
-                        origValue,
-                        node,
-                        widget: w,
-                    });
-                }
-            }
-        }
-        return results;
+        return enumerateModelValueTargets(this.bridge, modelPath);
     }
 
     #applyToNodes(targets) {
         for (const t of targets) {
-            if (Array.isArray(t.widget.options?.values) && !t.widget.options.values.includes(t.origValue)) {
-                t.widget.options.values.push(t.origValue);
-            }
-            this.bridge.invokeWidgetCallback(t.node, t.widget, t.origValue);
+            t.addOption?.(t.origValue);
+            t.setValue(t.origValue);
         }
         this.#showToast(_t('modelviewer.applyToNodesCount', { count: targets.length }));
     }

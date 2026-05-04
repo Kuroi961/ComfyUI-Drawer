@@ -480,7 +480,7 @@ const result = await maskService.open({
 maskService.close();
 ```
 
-`open()` closes the lightbox if needed, opens the mask editor, uploads the generated mask to `input/drawer_masks`, and applies it to the selected `LoadImageMask` node or all `LoadImageMask` nodes in auto mode.
+`open()` closes the lightbox if needed, opens the mask editor, uploads the generated mask to `input/drawer_masks`, and applies it to the selected `LoadImageMask` target or all compatible targets in auto mode. Compatible targets include direct `LoadImageMask` image widgets and connected DrawerControls.
 
 ---
 

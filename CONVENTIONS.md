@@ -102,7 +102,7 @@ container.innerHTML = `<p>${_t('common.loading')}</p>`;
 | Gallery | `gg-` | `.gg-grid`, `.gg-breadcrumb` |
 | ModelViewer | `mv-` | `.mv-card`, `.mv-info` |
 | XYZ Plot | `xyzg-` (`xyz-` for a few shared/legacy sweep elements) | `.xyzg-axis`, `.xyzg-chip` |
-| Home | `hm-` | `.hm-gadget-card`, `.hm-action-btn` |
+| Home | `hm-` | `.hm-gadget-card`, `.hm-info-grid` |
 | MediaCard/Grid | `mc-` | `.mc-card`, `.mc-grid` |
 | MaskService | `ms-` | `.ms-overlay`, `.ms-toolbar` |
 | Platform | `comfy-drawer-` or `cd-` | `.comfy-drawer-panel`, `.cd-lightbox` |

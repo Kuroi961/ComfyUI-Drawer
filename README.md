@@ -31,7 +31,8 @@
 
 ## What is ComfyUI-Drawer?
 
-A UI platform for ComfyUI, **100% coded by AI**.<br>
+A UI platform for ComfyUI, **100% coded by AI**.
+
 It is designed around independent UI modules called **gadgets**, making it easy to add new functionality.
 
 Each gadget lives in the bottom tab bar. Without leaving your workflow, you can control parameters, browse images, manage models, and run parameter sweeps from a single panel.
@@ -151,8 +152,8 @@ A gadget for browsing media and folders under the output, input, and temp direct
 A gadget for browsing models and folders under ComfyUI's models directory and model paths added through `extra_model_paths.yaml`.
 
 - Supports all model types, such as checkpoints, loras, vae, embeddings, controlnet, upscale_models, and more
-- **CivitAI sync** — Fetch metadata and preview images by SHA256 hash matching
-- **Node matching** — From the info card, apply a model to compatible loader nodes in the current workflow. This scans all nodes, including subgraphs and Combo Clone widgets
+- **CivitAI sync** — Fetch metadata and preview images by SHA256 hash matching, with `.red` / `.com` fallback
+- **Node matching** — From the info card, apply a model to compatible loader nodes in the current workflow. This scans all nodes, including subgraphs, Combo Clone widgets, and connected DrawerControls
 - **Trigger words** — CivitAI `trainedWords` are shown automatically. Custom words can also be added for LoRA models
 - Sidecar thumbnail support, with output-image picker and delete actions
 - Video previews (`.mp4` / `.webm`) in the grid and info card

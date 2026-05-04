@@ -7,6 +7,8 @@
  *
  * Exposed as window.ComfyDrawer.maskService via comfy-drawer.js.
  */
+import { enumerateLoadImageTargets } from '../utils/widget-targets.js';
+
 const MaskService = (() => {
 
   // ── Private state ──────────────────────────────────────────────────────────
@@ -527,18 +529,11 @@ const MaskService = (() => {
     if (!sel) return;
     // Remove all except the first "auto" option
     while (sel.options.length > 1) sel.remove(1);
-    const nodes = _bridge?.allNodes || [];
-    for (const n of nodes) {
-      const nodeType = n.comfyClass ?? n.type;
-      if (nodeType !== 'LoadImageMask') continue;
-      const hasImg = (n.widgets || []).some(w =>
-        (w.name === 'image' || w.name === 'Image') &&
-        (w.type === 'combo' || typeof w.value === 'string')
-      );
-      if (!hasImg) continue;
+    const targets = enumerateLoadImageTargets(_bridge, { maskOnly: true });
+    for (const target of targets) {
       const opt = document.createElement('option');
-      opt.value = String(n.id);
-      opt.textContent = `[${n.id}] ${n.title || n.type}`;
+      opt.value = `${target.kind}:${target.nodeId}:${target.widgetName}`;
+      opt.textContent = `[${target.nodeId}] ${target.nodeTitle} / ${target.displayName || target.widgetName}`;
       sel.appendChild(opt);
     }
   }
@@ -573,15 +568,16 @@ const MaskService = (() => {
       const selectedId = sel?.value;
 
       let applied = false;
+      const targets = enumerateLoadImageTargets(_bridge, { maskOnly: true });
       if (selectedId && selectedId !== '__auto') {
-        const nid = parseInt(selectedId, 10);
-        _bridge.addWidgetOption(nid, 'image', widgetValue);
-        applied = _bridge.setWidgetValue(nid, 'image', widgetValue);
+        const target = targets.find(t => `${t.kind}:${t.nodeId}:${t.widgetName}` === selectedId);
+        target?.addOption?.(widgetValue);
+        applied = target?.setValue(widgetValue) || false;
       } else {
-        // Auto: apply to all LoadImageMask nodes
-        for (const node of (_bridge.getNodesByType('LoadImageMask') || [])) {
-          _bridge.addWidgetOption(node.id, 'image', widgetValue);
-          if (_bridge.setWidgetValue(node.id, 'image', widgetValue)) applied = true;
+        // Auto: apply to all LoadImageMask-compatible targets
+        for (const target of targets) {
+          target.addOption?.(widgetValue);
+          if (target.setValue(widgetValue)) applied = true;
         }
       }
       _showToast(applied

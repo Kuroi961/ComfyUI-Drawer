@@ -80,7 +80,7 @@ export class HomeGadget extends GadgetBase {
                 </div>
                 <div class="hm-gadget-zone hm-zone-hidden" data-zone="hidden"></div>
 
-                <div class="hm-section-title">System</div>
+                <div class="hm-section-title">${_t('home.system', 'System')}</div>
                 <div class="hm-info-grid"></div>
 
                 <div class="hm-section-title">${_t('home.links', 'Links')}</div>
@@ -144,10 +144,16 @@ export class HomeGadget extends GadgetBase {
         card.draggable = true;
         card.dataset.gadgetId = g.id;
         card.title = g.label;
-        card.innerHTML = `
-            <div class="hm-gadget-icon">${g.icon || '📦'}</div>
-            <div class="hm-gadget-name">${g.label}</div>
-        `;
+
+        const icon = document.createElement('div');
+        icon.className = 'hm-gadget-icon';
+        this.#setIconContent(icon, g.icon || '📦');
+
+        const name = document.createElement('div');
+        name.className = 'hm-gadget-name';
+        name.textContent = g.label || g.id;
+
+        card.append(icon, name);
 
         // Click to open
         card.addEventListener('click', () => shell.open(g.id));
@@ -232,10 +238,18 @@ export class HomeGadget extends GadgetBase {
             }
         }
 
-        grid.innerHTML = rows.map(([label, value]) => `
-            <span class="hm-info-label">${label}</span>
-            <span class="hm-info-value">${value}</span>
-        `).join('');
+        grid.replaceChildren();
+        for (const [label, value] of rows) {
+            const labelEl = document.createElement('span');
+            labelEl.className = 'hm-info-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('span');
+            valueEl.className = 'hm-info-value';
+            valueEl.textContent = value;
+
+            grid.append(labelEl, valueEl);
+        }
     }
 
     /* ══════ Links ══════ */
@@ -320,5 +334,34 @@ export class HomeGadget extends GadgetBase {
             '"': '&quot;',
             "'": '&#39;',
         }[ch]));
+    }
+
+    #setIconContent(container, value) {
+        const raw = String(value || '📦').trim();
+        if (!raw.startsWith('<svg')) {
+            container.textContent = raw;
+            return;
+        }
+
+        const tpl = document.createElement('template');
+        tpl.innerHTML = raw;
+        const svg = tpl.content.firstElementChild;
+        if (!svg || svg.tagName.toLowerCase() !== 'svg') {
+            container.textContent = '📦';
+            return;
+        }
+
+        for (const el of svg.querySelectorAll('script, foreignObject')) el.remove();
+        for (const el of [svg, ...svg.querySelectorAll('*')]) {
+            for (const attr of [...el.attributes]) {
+                const name = attr.name.toLowerCase();
+                const val = attr.value.trim().toLowerCase();
+                if (name.startsWith('on') || val.startsWith('javascript:')) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        }
+
+        container.replaceChildren(svg);
     }
 }

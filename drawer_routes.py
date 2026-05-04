@@ -3218,27 +3218,41 @@ async def civitai_sync(request):
             pass
 
     # --- Step 2: Query CivitAI API ---
-    async def _query_civitai(hash_value):
-        url = f"https://civitai.red/api/v1/model-versions/by-hash/{hash_value}"
+    async def _query_civitai(hash_value, host):
+        url = f"https://{host}/api/v1/model-versions/by-hash/{hash_value}"
         async with _aiohttp.ClientSession() as session:
             async with session.get(url, timeout=_aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 return None
 
+    async def _query_civitai_hosts(hash_value):
+        last_error = None
+        for host in ("civitai.red", "civitai.com"):
+            try:
+                data = await _query_civitai(hash_value, host)
+                if data:
+                    data.setdefault("_drawer_civitai_host", host)
+                    return data
+            except Exception as e:
+                last_error = e
+        if last_error:
+            raise last_error
+        return None
+
     # Try AutoV2 first (first 10 chars — faster API lookup)
     civitai_data = None
     autov2 = sha256_hash[:10]
 
     try:
-        civitai_data = await _query_civitai(autov2)
+        civitai_data = await _query_civitai_hosts(autov2)
     except Exception:
         pass
 
     # Fallback to full SHA256
     if not civitai_data:
         try:
-            civitai_data = await _query_civitai(sha256_hash)
+            civitai_data = await _query_civitai_hosts(sha256_hash)
         except asyncio.TimeoutError:
             return web.json_response({
                 "ok": False,
@@ -3362,12 +3376,23 @@ async def civitai_batch_sync(request):
     synced = 0
     failed = 0
 
-    async def _query_civitai(session, hash_value):
-        url = f"https://civitai.red/api/v1/model-versions/by-hash/{hash_value}"
+    async def _query_civitai(session, hash_value, host):
+        url = f"https://{host}/api/v1/model-versions/by-hash/{hash_value}"
         async with session.get(url, timeout=_aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status == 200:
                 return await resp.json()
             return None
+
+    async def _query_civitai_hosts(session, hash_value):
+        for host in ("civitai.red", "civitai.com"):
+            try:
+                data = await _query_civitai(session, hash_value, host)
+                if data:
+                    data.setdefault("_drawer_civitai_host", host)
+                    return data
+            except Exception:
+                continue
+        return None
 
     async with _aiohttp.ClientSession() as session:
         for idx, (filename, model_path) in enumerate(to_process):
@@ -3448,13 +3473,13 @@ async def civitai_batch_sync(request):
                 civitai_data = None
                 autov2 = sha256_hash[:10]
                 try:
-                    civitai_data = await _query_civitai(session, autov2)
+                    civitai_data = await _query_civitai_hosts(session, autov2)
                 except Exception:
                     pass
 
                 if not civitai_data:
                     try:
-                        civitai_data = await _query_civitai(session, sha256_hash)
+                        civitai_data = await _query_civitai_hosts(session, sha256_hash)
                     except Exception:
                         pass
 

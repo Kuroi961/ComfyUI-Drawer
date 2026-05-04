@@ -197,68 +197,6 @@
     max-width: 100%;
 }
 
-/* ── Quick action buttons ── */
-.gadget-home .hm-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.gadget-home .hm-action-btn {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-radius: var(--hm-r-m);
-    background: var(--hm-bg-surface);
-    border: 1px solid transparent;
-    color: var(--hm-text-1);
-    font-size: 12px;
-    font-family: var(--hm-font);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-    text-align: left;
-    width: 100%;
-}
-
-.gadget-home .hm-action-btn:hover {
-    background: var(--hm-bg-elevated);
-    color: var(--hm-text-1);
-    }
-
-.gadget-home .hm-action-btn .hm-action-icon {
-    font-size: 15px;
-    flex-shrink: 0;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--cd-accent-dim);
-    border-radius: 6px;
-}
-
-/* Danger action gets danger tint on icon */
-.gadget-home .hm-action-btn.danger .hm-action-icon {
-    background: var(--cd-danger-subtle);
-}
-
-.gadget-home .hm-action-btn .hm-action-label {
-    flex: 1;
-}
-
-.gadget-home .hm-action-btn .hm-action-desc {
-    font-size: 10px;
-    color: var(--cd-text);
-    margin-top: 2px;
-}
-
-.gadget-home .hm-action-btn.danger:hover {
-    background: var(--cd-danger-subtle);
-    border-color: var(--cd-danger-low);
-    color: var(--hm-text-1);
-}
-
 /* ── Info rows ── */
 .gadget-home .hm-info-grid {
     display: grid;

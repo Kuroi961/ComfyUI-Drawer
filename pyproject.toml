@@ -1,6 +1,6 @@
 [project]
 name = "comfy-drawer"
-version = "1.0.2"
+version = "1.0.3"
 description = "A drawer-style gadget platform for ComfyUI with Deck, Gallery, Model Viewer, XYZ Plot, and utility nodes."
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -20,4 +20,4 @@ Documentation = "https://github.com/Kuroi961/ComfyUI-Drawer#readme"
 [tool.comfy]
 PublisherId = "kuroi961"
 DisplayName = "ComfyUI-Drawer"
-Icon = "https://raw.githubusercontent.com/Kuroi961/ComfyUI-Drawer/master/web/gadgets/home/logo.png"
+Icon = "https://raw.githubusercontent.com/Kuroi961/ComfyUI-Drawer/master/docs/icon.jpg"
