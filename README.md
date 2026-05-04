@@ -190,8 +190,9 @@ A built-in dictionary service for prompt autocomplete.
 - **Wildcards** — Use `__name__` syntax to randomly select one line from a list
 - **CSV / TXT import** — Import existing tag files
 - **Comment syntax** — Use `//`, `#`, and `/* */` to comment out parts of prompts
+- **No nodes required** — Wildcards and comment stripping are applied automatically when the prompt is queued
 
-Dictionaries can be created, edited, and toggled from the Settings panel. These features do not require dedicated nodes. Instead, they are applied automatically to text inputs across the whole workflow when ComfyUI queues the prompt. In other words, normal prompt nodes, text passed through DrawerControls, and other string widgets can use comment stripping and wildcard expansion without adding preprocessing nodes.
+Dictionaries can be created, edited, and toggled from the Settings panel. You do not need to add wildcard, dictionary, or preprocessing nodes to the workflow. Normal prompt nodes, text passed through DrawerControls, and other string widgets can use comment stripping and wildcard expansion automatically when ComfyUI queues the prompt.
 
 **Prompt processing behavior:**
 
