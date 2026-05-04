@@ -10,7 +10,8 @@
   <a href="#installation">Installation</a> •
   <a href="#sample-workflows">Samples</a> •
   <a href="#built-in-gadgets">Gadgets</a> •
-  <a href="#other-features">Other</a> •
+  <a href="#workflow-utilities">Utilities</a> •
+  <a href="#shared-ui-system">UI System</a> •
   <a href="#drawer-nodes">Nodes</a> •
   <a href="#developer--agent-notes">Development</a> •
   <a href="CHANGELOG.md">Changelog</a> •
@@ -174,7 +175,7 @@ A gadget for browsing models and folders under ComfyUI's models directory and mo
 
 ---
 
-## Other Features
+## Workflow Utilities
 
 <p align="left">
   <img src="docs/others.webp" width="50%">
@@ -227,6 +228,14 @@ soft backlight, floating particles
 - Recursive wildcard expansion is not performed. If a candidate contains `__other__`, that text remains as-is
 - Wildcards inside comments are not expanded
 
+### Mask Editor
+
+A fullscreen mask editor available from image context menus. It saves generated masks under `input/drawer_masks` and can apply them directly to `LoadImageMask` nodes.
+
+---
+
+## Shared UI System
+
 ### Context Menu
 
 A right-click / long-press menu. It supports opening media in a new tab, sending images to LoadImage / LoadImageMask, opening media as a workflow, downloading, and gadget-specific custom menu actions.
@@ -247,10 +256,6 @@ Provides `showAlert`, `showConfirm`, `showPrompt`, and `showDialog`.
 ### File Picker
 
 A modal picker for media selection. It supports image, video, and audio selection with thumbnail folder navigation.
-
-### Mask Editor
-
-A fullscreen mask editor available from image context menus. It saves generated masks under `input/drawer_masks` and can apply them directly to `LoadImageMask` nodes.
 
 ### Multi-language Support
 

@@ -10,7 +10,8 @@
   <a href="#安装">安装</a> •
   <a href="#示例工作流">示例</a> •
   <a href="#内置小工具">小工具</a> •
-  <a href="#其他功能">其他</a> •
+  <a href="#工作流辅助功能">辅助功能</a> •
+  <a href="#通用-ui-系统">通用 UI</a> •
   <a href="#drawer-节点">节点</a> •
   <a href="#开发者与-agent-说明">开发</a> •
   <a href="CHANGELOG.md">更新日志</a> •
@@ -174,7 +175,7 @@ pip install -r ComfyUI-Drawer/requirements.txt
 
 ---
 
-## 其他功能
+## 工作流辅助功能
 
 <p align="left">
   <img src="docs/others.webp" width="50%">
@@ -227,6 +228,14 @@ soft backlight, floating particles
 - 不进行递归通配符展开。如果候选项中包含 `__其他名称__`，该字符串会原样保留
 - 注释中的通配符不会被展开
 
+### 蒙版编辑器
+
+可从图片上下文菜单打开的全屏简易蒙版编辑 UI。生成的蒙版会保存到 `input/drawer_masks`，并可直接应用到 `LoadImageMask` 节点。
+
+---
+
+## 通用 UI 系统
+
 ### 上下文菜单
 
 右键/长按即可打开菜单。支持在新标签页打开、发送到 LoadImage / LoadImageMask、作为工作流打开、下载等操作。每个小工具也可以注册自己的菜单项。
@@ -247,10 +256,6 @@ soft backlight, floating particles
 ### 文件选择器
 
 用于选择媒体文件的模态选择器。支持图片、视频、音频选择，并内置带缩略图的文件夹导航。
-
-### 蒙版编辑器
-
-可从图片上下文菜单打开的全屏简易蒙版编辑 UI。生成的蒙版会保存到 `input/drawer_masks`，并可直接应用到 `LoadImageMask` 节点。
 
 ### 多语言支持
 
