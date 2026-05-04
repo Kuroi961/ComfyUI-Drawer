@@ -31,11 +31,11 @@
 
 ## What is ComfyUI-Drawer?
 
-A mobile-friendly UI platform for ComfyUI, **100% coded by AI**.
+ComfyUI-Drawer turns complex ComfyUI workflows into compact, touch-friendly control panels.
 
-It is designed around independent UI modules called **gadgets**, making it easy to add new functionality.
+Keep your node graph intact, expose only the parameters you actually want to touch, and manage outputs, model assets, masks, and parameter sweeps from one bottom drawer.
 
-Each gadget lives in the bottom tab bar. Without leaving your workflow, you can control parameters, browse images, manage models, and run parameter sweeps from a single panel on desktop or mobile.
+It is built as a modular gadget platform, so the same drawer can host workflow controls, media management, model browsing, plotting tools, and custom extensions.
 
 ---
 
@@ -304,6 +304,12 @@ See [GADGET_API.md](GADGET_API.md) for the complete API reference.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Platform architecture, module responsibilities, and design decisions |
 | [CONVENTIONS.md](CONVENTIONS.md) | Code style, CSS scoping, and naming conventions |
 | [GADGET_API.md](GADGET_API.md) | Gadget development API reference |
+
+---
+
+## About This Project
+
+ComfyUI-Drawer is 100% coded by AI under human direction, review, and testing.
 
 ---
 

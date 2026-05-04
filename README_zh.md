@@ -31,10 +31,11 @@
 
 ## ComfyUI-Drawer 是什么
 
-这是一个运行在 ComfyUI 上、适合移动端使用的 UI 平台，**100% 由 AI 编写代码**。
-它以 **小工具（gadget）** 为单位组织功能，每个小工具都是相互独立的 UI 模块，便于扩展。
+ComfyUI-Drawer 可以把复杂的 ComfyUI 工作流转换成紧凑、适合触控的操作面板。
 
-各个小工具会收纳在屏幕底部的标签栏中。无论在桌面端还是移动端，都无需离开当前工作流，就可以在同一个面板中完成参数操作、图片管理、模型管理和参数扫描等任务。
+保留原本的节点图，只取出真正需要操作的参数，并把输出图片、模型素材、遮罩和参数扫描集中到屏幕底部的 Drawer 中。
+
+它采用模块化 gadget 平台设计，因此同一个 Drawer 可以承载工作流控制、媒体管理、模型浏览、绘图工具以及自定义扩展。
 
 ---
 
@@ -303,6 +304,12 @@ app.registerExtension({
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 平台架构、模块职责、设计决策 |
 | [CONVENTIONS.md](CONVENTIONS.md) | 代码风格、CSS 作用域、命名约定 |
 | [GADGET_API.md](GADGET_API.md) | 小工具开发 API 参考 |
+
+---
+
+## 关于本项目
+
+ComfyUI-Drawer 在人类指导、审查和测试下，100% 由 AI 编写代码。
 
 ---
 
