@@ -71,6 +71,8 @@ pip install -r ComfyUI-Drawer/requirements.txt
 
 ## 内置小工具
 
+在 ComfyUI-Drawer 中，Drawer 内运行的每个工具都称为一个**小工具（gadget）**。
+
 ### Deck
 
 <p align="left">

@@ -69,6 +69,8 @@ ComfyUI のテンプレート画面から、ComfyUI-Drawer のサンプルワー
 
 ## ビルトインガジェット
 
+ComfyUI-Drawer では、Drawer 内で動作する各ツールを**ガジェット**と呼びます。
+
 ### Deck
 <p align="left">
   <img src="docs/deck.webp" width="50%">

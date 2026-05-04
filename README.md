@@ -71,6 +71,8 @@ You can open ComfyUI-Drawer sample workflows from ComfyUI's template browser.
 
 ## Built-in Gadgets
 
+In ComfyUI-Drawer, each tool that lives inside the drawer is called a **gadget**.
+
 ### Deck
 
 <p align="left">
