@@ -2,7 +2,7 @@
   <img src="docs/top.webp" alt="ComfyUI-Drawer" width="100%">
 </p>
 
-<h3 align="center">A modular UI platform for ComfyUI</h3>
+<h3 align="center">A mobile-friendly modular UI platform for ComfyUI</h3>
 
 <p align="center">
   <a href="#what-is-comfyui-drawer">Overview</a> •
@@ -31,11 +31,11 @@
 
 ## What is ComfyUI-Drawer?
 
-A UI platform for ComfyUI, **100% coded by AI**.
+A mobile-friendly UI platform for ComfyUI, **100% coded by AI**.
 
 It is designed around independent UI modules called **gadgets**, making it easy to add new functionality.
 
-Each gadget lives in the bottom tab bar. Without leaving your workflow, you can control parameters, browse images, manage models, and run parameter sweeps from a single panel.
+Each gadget lives in the bottom tab bar. Without leaving your workflow, you can control parameters, browse images, manage models, and run parameter sweeps from a single panel on desktop or mobile.
 
 ---
 
