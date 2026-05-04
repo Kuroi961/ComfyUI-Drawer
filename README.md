@@ -185,6 +185,10 @@ A gadget for browsing models and folders under ComfyUI's models directory and mo
 
 A built-in dictionary service for prompt autocomplete.
 
+<p align="left">
+  <video src="docs/drawer-dict-wildcard.mp4" controls muted playsinline width="50%"></video>
+</p>
+
 - **Danbooru tag dictionary** — Tag database with usage counts (CSV)
 - **User dictionaries** — Create custom tag → insert text mappings
 - **Wildcards** — Use `__name__` syntax to randomly select one line from a list
