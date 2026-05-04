@@ -185,9 +185,7 @@ pip install -r ComfyUI-Drawer/requirements.txt
 
 内置用于 prompt 自动补全的词典服务。
 
-<p align="left">
-  <video src="docs/drawer-dict-wildcard.mp4" controls muted playsinline width="50%"></video>
-</p>
+https://github.com/user-attachments/assets/34237d5e-cd92-4a8e-a638-cb6d98256536
 
 - **Danbooru 标签词典** — 带使用频率的标签数据库（CSV）
 - **用户词典** — 可创建自定义的 tag → 插入文本映射
