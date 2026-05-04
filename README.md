@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="#what-is-comfyui-drawer">Overview</a> •
+  <a href="#why-drawer">Why Drawer?</a> •
   <a href="#installation">Installation</a> •
   <a href="#sample-workflows">Samples</a> •
   <a href="#built-in-gadgets">Gadgets</a> •
@@ -36,6 +37,16 @@ ComfyUI-Drawer turns complex ComfyUI workflows into compact, touch-friendly cont
 Keep your node graph intact, expose only the parameters you actually want to touch, and manage outputs, model assets, masks, and parameter sweeps from one bottom drawer.
 
 The drawer is modular, so it can host workflow controls, media management, model browsing, plotting tools, and custom extensions in one place.
+
+---
+
+## Why Drawer?
+
+On desktop, ComfyUI-Drawer adds a remote-control layer to the ComfyUI canvas: keep the graph open, but operate the controls, assets, and inspection tools you actually touch from one bottom drawer.
+
+On mobile and small displays, that same drawer becomes the main working surface. It makes active creation practical by keeping parameter control, output review, model browsing, mask editing, prompt dictionaries, and XYZ sweeps within reach.
+
+Unlike APP mode, Drawer is designed for editing, testing, and iterating on workflows without turning them into separate apps.
 
 ---
 
