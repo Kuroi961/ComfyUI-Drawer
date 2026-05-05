@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Extend XYZ Plot bypass axes to Deck group toggles, group switches, and node switches
+- Share Deck marker parsing with XYZ Plot for consistent group and switch handling
+
 ## v1.0.3 - 2026-05-04
 
 - Updated release screenshots and Registry icon asset

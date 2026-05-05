@@ -35,6 +35,8 @@
 
 https://github.com/user-attachments/assets/a9ba848f-11eb-42f7-9fc8-31616ed82df5
 
+注意：此演示包含不随 ComfyUI-Drawer 提供的第三方自定义节点。
+
 ---
 
 ## ComfyUI-Drawer 是什么
@@ -82,7 +84,7 @@ pip install -r ComfyUI-Drawer/requirements.txt
 可以从 ComfyUI 的模板界面打开 ComfyUI-Drawer 的示例工作流。
 
 - `drawer-sample-anima` — 展示 Drawer 基本用法的示例工作流
-- `drawer-sample-anima-advanced` — 包含 SAM3、SeedVR2 的更实用工作流，需要额外模型和自定义节点
+- `drawer-sample-anima-advanced` — 包含外部自定义节点的更实用工作流，需要额外模型和节点（`rgthree-comfy`, `comfyui-impact-pack`, `comfyui-ppm`, `comfyui-kjnodes`, `comfyui-easy-use`, `seedvr2_videoupscaler`）
 - `drawer-tutorial-deck-ja` / `drawer-tutorial-deck-en` / `drawer-tutorial-deck-zh` — 说明如何把节点显示到 Deck 中的教程
 
 ---
@@ -133,7 +135,7 @@ https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
 
 - 可将任意节点的任意 widget 指定为 X/Y/Z 轴并连续生成
 - 文本 widget 会自动使用 Prompt S/R（Search & Replace）模式
-- Bypass 轴 — 可将节点自身的 ON/OFF 状态作为扫描维度
+- Bypass 轴 — 可将单个节点 ON/OFF、Deck 分组开关、分组互斥、节点互斥作为扫描维度
 - 自动生成带轴标签的合成网格图，并保存到 output
 
 **技术细节：**

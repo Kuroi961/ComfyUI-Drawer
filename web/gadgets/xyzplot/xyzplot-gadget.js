@@ -8,7 +8,15 @@ import { GadgetBase } from '../../js/core/gadget-base.js';
 import { openLightbox } from '../../js/services/lightbox.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
 import { createMediaCard } from '../../js/components/media-card.js';
-import { escapeHTML, getLinkedInputNames, CollapseStore, truncate } from '../../js/utils.js';
+import {
+  escapeHTML,
+  getLinkedInputNames,
+  CollapseStore,
+  truncate,
+  cleanDrawerTitle,
+  parseDrawerGroupMarkers,
+  parseDrawerNodeMarkers,
+} from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 import { showAlert, showConfirm, showDialog } from '../../js/services/dialog.js';
 
@@ -36,6 +44,9 @@ const XYZ_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 const HIDDEN_NODES_ICON = `<svg class="xyzg-blacklist-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 2 20 20"/><path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58"/><path d="M9.88 4.24A10.8 10.8 0 0 1 12 4c5 0 8.5 4 10 8a13.2 13.2 0 0 1-2.08 3.34"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12c1.5 4 5 8 10 8a10.8 10.8 0 0 0 5.39-1.39"/></svg>`;
 const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 const X_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+const GROUP_BYPASS_PREFIX = "__group_bypass__:";
+const GROUP_EXCLUSIVE_PREFIX = "__group_exclusive__:";
+const NODE_EXCLUSIVE_PREFIX = "__node_exclusive__:";
 
 export class XYZPlotGadget extends GadgetBase {
   /* ── Private fields ── */
@@ -387,19 +398,13 @@ export class XYZPlotGadget extends GadgetBase {
     const eligibleSet = new Set(eligible.map(n => n.id));
     const assigned = new Set();
     const result = [];
-    const cleanTitle = (t) => String(t || '')
-      .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{1FA00}-\u{1FAFF}]/gu, '')
-      .replace(/^\[[^\]]*\]\s*/, '')  // remove [switch] markers
-      .replace(/\u26A1\uFE0F?/g, '')  // remove ⚡ toggle markers
-      .trim();
-
     for (const group of sortedGroups) {
       const nodesInGroup = this.bridge.getNodesInGroup(group)
         .filter(n => eligibleSet.has(n.id) && !assigned.has(n.id));
       if (nodesInGroup.length === 0) continue;
       nodesInGroup.sort(posCmpY);
       for (const n of nodesInGroup) assigned.add(n.id);
-      result.push({ title: cleanTitle(group.title || 'Group'), nodes: nodesInGroup });
+      result.push({ title: cleanDrawerTitle(group.title || 'Group'), nodes: nodesInGroup });
     }
 
     // Ungrouped nodes at the end
@@ -410,6 +415,93 @@ export class XYZPlotGadget extends GadgetBase {
     }
 
     return result;
+  }
+
+  #getDeckGroups() {
+    const groups = this.bridge.getGroups();
+    if (!groups.length) return [];
+    const sortedGroups = [...groups].sort((a, b) => {
+      const ap = a._pos ?? a.pos ?? [0, 0];
+      const bp = b._pos ?? b.pos ?? [0, 0];
+      return (ap[0] - bp[0]) || (ap[1] - bp[1]);
+    });
+
+    return sortedGroups.map((group) => {
+      const parsed = parseDrawerGroupMarkers(group.title || 'Group');
+      const nodes = this.bridge.getNodesInGroup(group).sort((a, b) => {
+        const ay = a.pos?.[1] ?? 0, by = b.pos?.[1] ?? 0;
+        return (ay - by) || ((a.pos?.[0] ?? 0) - (b.pos?.[0] ?? 0));
+      });
+      return {
+        rawTitle: String(group.title || 'Group'),
+        title: parsed.displayTitle || cleanDrawerTitle(group.title || 'Group') || 'Group',
+        key: `group-${group.title}`,
+        isToggle: parsed.isToggle,
+        switchName: parsed.switchName,
+        nodeIds: nodes.map(n => Number(n.id)),
+      };
+    }).filter(group => group.nodeIds.length > 0);
+  }
+
+  #getGroupByKey(groupKey) {
+    return this.#getDeckGroups().find(group => group.key === groupKey) || null;
+  }
+
+  #getExclusiveGroupSets() {
+    const sets = new Map();
+    for (const group of this.#getDeckGroups()) {
+      if (!group.switchName) continue;
+      if (!sets.has(group.switchName)) sets.set(group.switchName, []);
+      sets.get(group.switchName).push(group);
+    }
+    return [...sets.entries()]
+      .filter(([, groups]) => groups.length > 1)
+      .map(([label, groups]) => ({ label, groups }));
+  }
+
+  #getNodeExclusiveSets() {
+    const groups = this.#getDeckGroups();
+    const parentByNodeId = new Map();
+    for (const group of groups) {
+      for (const nodeId of group.nodeIds) parentByNodeId.set(Number(nodeId), group.key);
+    }
+
+    const sets = new Map();
+    for (const node of this.bridge.allNodes) {
+      const parsed = parseDrawerNodeMarkers(node.title || node.type);
+      if (!parsed.switchName) continue;
+      const groupKey = parentByNodeId.get(Number(node.id)) || '__ungrouped__';
+      const key = `${groupKey}::${parsed.switchName}`;
+      if (!sets.has(key)) {
+        const groupTitle = groups.find(g => g.key === groupKey)?.title || 'Ungrouped';
+        sets.set(key, { key, label: parsed.switchName, groupTitle, nodes: [] });
+      }
+      sets.get(key).nodes.push({
+        id: Number(node.id),
+        title: parsed.displayTitle || node.title || node.type || `Node ${node.id}`,
+      });
+    }
+
+    return [...sets.values()].filter(set => set.nodes.length > 1);
+  }
+
+  #isVirtualTargetId(id) {
+    return String(id || '').startsWith(GROUP_BYPASS_PREFIX)
+      || String(id || '').startsWith(GROUP_EXCLUSIVE_PREFIX)
+      || String(id || '').startsWith(NODE_EXCLUSIVE_PREFIX);
+  }
+
+  #isVirtualAxisWidget(widget) {
+    return !!(widget?.__bypass__
+      || widget?.__groupBypass__
+      || widget?.__groupExclusive__
+      || widget?.__nodeExclusive__);
+  }
+
+  #axisActiveState(value) {
+    const v = String(value).trim().toLowerCase();
+    if (v === "bypass" || v === "bypassed" || v === "disabled") return "bypass";
+    return "active";
   }
 
   getEditableWidgets(node) {
@@ -430,6 +522,23 @@ export class XYZPlotGadget extends GadgetBase {
     const nodeId = this.#q(`xyz-${axis}-node`)?.value;
     const wName = this.#q(`xyz-${axis}-widget`)?.value;
     if (!nodeId || !wName) return null;
+    if (this.#isVirtualTargetId(nodeId)) {
+      if (nodeId.startsWith(GROUP_BYPASS_PREFIX)) {
+        const group = this.#getGroupByKey(nodeId.slice(GROUP_BYPASS_PREFIX.length));
+        return group ? { __groupBypass__: true, name: "__group_bypass__", label: "Group Bypass", group } : null;
+      }
+      if (nodeId.startsWith(GROUP_EXCLUSIVE_PREFIX)) {
+        const label = nodeId.slice(GROUP_EXCLUSIVE_PREFIX.length);
+        const set = this.#getExclusiveGroupSets().find(item => item.label === label);
+        return set ? { __groupExclusive__: true, name: "__group_exclusive__", label: `Group Switch: ${label}`, set } : null;
+      }
+      if (nodeId.startsWith(NODE_EXCLUSIVE_PREFIX)) {
+        const key = nodeId.slice(NODE_EXCLUSIVE_PREFIX.length);
+        const set = this.#getNodeExclusiveSets().find(item => item.key === key);
+        return set ? { __nodeExclusive__: true, name: "__node_exclusive__", label: `Node Switch: ${set.label}`, set } : null;
+      }
+      return null;
+    }
     const node = this.bridge.getNodeById(parseInt(nodeId));
     if (isDrawerControlsNode(node)) {
       const control = enumerateDrawerControls(this.bridge, node, { connectedOnly: false })
@@ -579,10 +688,9 @@ export class XYZPlotGadget extends GadgetBase {
   #snapshotAllWidgets() {
     const snapshot = new Map();
     for (const node of this.bridge.allNodes) {
-      if (!node.widgets) continue;
       const nodeSnap = new Map();
       nodeSnap.set("__mode__", node.mode);
-      for (const w of node.widgets) {
+      for (const w of (node.widgets || [])) {
         let val = this.#cloneWidgetValue(w.value);
         if ((w.name === "seed" || w.name === "noise_seed") && typeof val === "number") {
           if (XYZPlotGadget.SPECIAL_SEEDS.has(val)) {
@@ -599,10 +707,9 @@ export class XYZPlotGadget extends GadgetBase {
   #snapshotRawWidgets() {
     const snapshot = new Map();
     for (const node of this.bridge.allNodes) {
-      if (!node.widgets) continue;
       const nodeSnap = new Map();
       nodeSnap.set("__mode__", node.mode);
-      for (const w of node.widgets) {
+      for (const w of (node.widgets || [])) {
         nodeSnap.set(w.name, this.#cloneWidgetValue(w.value));
       }
       snapshot.set(node.id, nodeSnap);
@@ -628,12 +735,12 @@ export class XYZPlotGadget extends GadgetBase {
     // Pass 2: Restore all widget values
     for (const [nodeId, nodeSnap] of snapshot) {
       const node = this.bridge.getNodeById(nodeId);
-      if (!node || !node.widgets) continue;
+      if (!node) continue;
       if (nodeSnap.has("__mode__")) {
         node.mode = nodeSnap.get("__mode__");
       }
 
-      for (const w of node.widgets) {
+      for (const w of (node.widgets || [])) {
         if (!nodeSnap.has(w.name)) continue;
         const orig = nodeSnap.get(w.name);
 
@@ -658,11 +765,31 @@ export class XYZPlotGadget extends GadgetBase {
 
   #applyAxisValue(widget, node, value, searchStr, snapshot) {
     if (widget?.__bypass__) {
-      // "disabled" = bypass the node (mode 4), "enabled" = run the node (mode 0)
-      const newMode = (value === "disabled") ? 4 : 0;
+      const newMode = this.#axisActiveState(value) === "bypass" ? 4 : 0;
       node.mode = newMode;
       // Notify graph that structure changed so graphToPrompt picks it up
       this.bridge.notifyGraphChanged(true, true);
+      return;
+    }
+    if (widget?.__groupBypass__) {
+      const active = this.#axisActiveState(value) === "active";
+      this.bridge.setNodesModes(widget.group.nodeIds, active ? 0 : 4);
+      return;
+    }
+    if (widget?.__groupExclusive__) {
+      const selected = String(value);
+      for (const group of widget.set.groups) {
+        const active = group.title === selected || group.rawTitle === selected || group.key === selected;
+        this.bridge.setNodesModes(group.nodeIds, active ? 0 : 4);
+      }
+      return;
+    }
+    if (widget?.__nodeExclusive__) {
+      const selected = String(value);
+      for (const item of widget.set.nodes) {
+        const active = item.title === selected || String(item.id) === selected;
+        this.bridge.setNodeMode(item.id, active ? 0 : 4);
+      }
       return;
     }
     if (this.#isTextWidget(widget) && searchStr) {
@@ -869,9 +996,40 @@ export class XYZPlotGadget extends GadgetBase {
 
   #populateNodeDropdowns(root) {
     const grouped = this.#getGroupedNodes();
+    const toggleGroups = this.#getDeckGroups().filter(group => group.isToggle);
+    const exclusiveGroups = this.#getExclusiveGroupSets();
+    const exclusiveNodes = this.#getNodeExclusiveSets();
     for (const axis of ["x", "y", "z"]) {
       const sel = root.querySelector(`#xyz-${axis}-node`);
       sel.innerHTML = '<option value="">(None)</option>';
+
+      if (toggleGroups.length || exclusiveGroups.length || exclusiveNodes.length) {
+        const deckOg = document.createElement('optgroup');
+        deckOg.label = 'Deck bypass / switches';
+
+        for (const group of toggleGroups) {
+          const o = document.createElement('option');
+          o.value = `${GROUP_BYPASS_PREFIX}${group.key}`;
+          o.textContent = `⚡ Group: ${group.title}`;
+          deckOg.appendChild(o);
+        }
+
+        for (const set of exclusiveGroups) {
+          const o = document.createElement('option');
+          o.value = `${GROUP_EXCLUSIVE_PREFIX}${set.label}`;
+          o.textContent = `[${set.label}] Groups`;
+          deckOg.appendChild(o);
+        }
+
+        for (const set of exclusiveNodes) {
+          const o = document.createElement('option');
+          o.value = `${NODE_EXCLUSIVE_PREFIX}${set.key}`;
+          o.textContent = `[${set.label}] Nodes (${set.groupTitle})`;
+          deckOg.appendChild(o);
+        }
+
+        sel.appendChild(deckOg);
+      }
 
       for (const group of grouped) {
         if (group.title) {
@@ -909,6 +1067,36 @@ export class XYZPlotGadget extends GadgetBase {
     if (!this.#swapping) this.#q(`xyz-${axis}-values`).value = "";
 
     if (!nodeId) return;
+    if (this.#isVirtualTargetId(nodeId)) {
+      if (nodeId.startsWith(GROUP_BYPASS_PREFIX)) {
+        const group = this.#getGroupByKey(nodeId.slice(GROUP_BYPASS_PREFIX.length));
+        if (!group) return;
+        const o = document.createElement("option");
+        o.value = "__group_bypass__";
+        o.textContent = `Group Bypass (= ${group.title})`;
+        widgetSel.appendChild(o);
+      } else if (nodeId.startsWith(GROUP_EXCLUSIVE_PREFIX)) {
+        const label = nodeId.slice(GROUP_EXCLUSIVE_PREFIX.length);
+        const set = this.#getExclusiveGroupSets().find(item => item.label === label);
+        if (!set) return;
+        const o = document.createElement("option");
+        o.value = "__group_exclusive__";
+        o.textContent = `Group Switch (= ${label})`;
+        widgetSel.appendChild(o);
+      } else if (nodeId.startsWith(NODE_EXCLUSIVE_PREFIX)) {
+        const key = nodeId.slice(NODE_EXCLUSIVE_PREFIX.length);
+        const set = this.#getNodeExclusiveSets().find(item => item.key === key);
+        if (!set) return;
+        const o = document.createElement("option");
+        o.value = "__node_exclusive__";
+        o.textContent = `Node Switch (= ${set.label})`;
+        widgetSel.appendChild(o);
+      }
+      widgetSel.value = widgetSel.options[0]?.value || "";
+      this.#onWidgetChange(axis);
+      return;
+    }
+
     const node = this.bridge.getNodeById(parseInt(nodeId));
     if (!node) return;
 
@@ -928,7 +1116,7 @@ export class XYZPlotGadget extends GadgetBase {
     // Add virtual "Bypass" option at the bottom (works for any node)
     const bypassOpt = document.createElement("option");
     bypassOpt.value = "__bypass__";
-    bypassOpt.textContent = `Bypass(=${node.mode === 4 ? "bypassed" : "enabled"})`;
+    bypassOpt.textContent = `Bypass(=${node.mode === 4 ? "bypass" : "active"})`;
     widgetSel.appendChild(bypassOpt);
 
     // Auto-select first and trigger change
@@ -952,8 +1140,30 @@ export class XYZPlotGadget extends GadgetBase {
 
     // ── Virtual bypass widget → auto-fill ──
     if (widgetName === "__bypass__") {
-      hintEl.textContent = "(disabled = skip node, enabled = active)";
-      if (!this.#swapping) valuesInput.value = "disabled,enabled";
+      hintEl.textContent = "(active = run node, bypass = skip node)";
+      if (!this.#swapping) valuesInput.value = "active,bypass";
+      return;
+    }
+
+    if (widgetName === "__group_bypass__") {
+      hintEl.textContent = "(active = run group, bypass = skip group)";
+      if (!this.#swapping) valuesInput.value = "active,bypass";
+      return;
+    }
+
+    if (widgetName === "__group_exclusive__") {
+      const widget = this.#getWidgetByAxis(axis);
+      const values = widget?.set?.groups?.map(group => this.#quoteIfNeeded(group.title)).join(",") || "";
+      hintEl.textContent = "(select one group to keep active)";
+      if (!this.#swapping) valuesInput.value = values;
+      return;
+    }
+
+    if (widgetName === "__node_exclusive__") {
+      const widget = this.#getWidgetByAxis(axis);
+      const values = widget?.set?.nodes?.map(node => this.#quoteIfNeeded(node.title)).join(",") || "";
+      hintEl.textContent = "(select one node to keep active)";
+      if (!this.#swapping) valuesInput.value = values;
       return;
     }
 
@@ -1169,6 +1379,35 @@ export class XYZPlotGadget extends GadgetBase {
         if (required) return null; // error
         return { node: null, widget: null, values: [null], search: "" };
       }
+      if (this.#isVirtualTargetId(a.nodeId)) {
+        const widget = this.#getWidgetByAxis(axis);
+        if (!widget) { await showAlert(`${label} Deck target not found!`, { variant: 'warning' }); return null; }
+        const values = this.#parseQuotedCSV(a.valuesStr).map(v => String(v).trim()).filter(Boolean);
+        if (values.length === 0) { await showAlert(`No valid ${label} values.`, { variant: 'warning' }); return null; }
+        if (widget.__groupBypass__) {
+          const allowed = new Set(["active", "bypass", "bypassed", "enabled", "disabled"]);
+          const invalid = values.filter(v => !allowed.has(v.toLowerCase()));
+          if (invalid.length) {
+            await showAlert(`${label}: group bypass values must be active/bypass.`, { variant: 'warning' });
+            return null;
+          }
+        } else if (widget.__groupExclusive__) {
+          const allowed = new Set(widget.set.groups.flatMap(group => [group.title, group.rawTitle, group.key]));
+          const invalid = values.filter(v => !allowed.has(v));
+          if (invalid.length) {
+            await showAlert(`${label}: unknown group value "${invalid[0]}".`, { variant: 'warning' });
+            return null;
+          }
+        } else if (widget.__nodeExclusive__) {
+          const allowed = new Set(widget.set.nodes.flatMap(item => [item.title, String(item.id)]));
+          const invalid = values.filter(v => !allowed.has(v));
+          if (invalid.length) {
+            await showAlert(`${label}: unknown node value "${invalid[0]}".`, { variant: 'warning' });
+            return null;
+          }
+        }
+        return { node: null, widget, values, search: "" };
+      }
       const node = this.bridge.getNodeById(parseInt(a.nodeId));
       if (!node) { await showAlert(`${label} node not found!`, { variant: 'warning' }); return null; }
 
@@ -1176,6 +1415,12 @@ export class XYZPlotGadget extends GadgetBase {
         // Virtual bypass widget
         const values = a.valuesStr.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
         if (values.length === 0) { await showAlert(`No valid ${label} values.`, { variant: 'warning' }); return null; }
+        const allowed = new Set(["active", "bypass", "bypassed", "enabled", "disabled"]);
+        const invalid = values.filter(v => !allowed.has(v));
+        if (invalid.length) {
+          await showAlert(`${label}: bypass values must be active/bypass.`, { variant: 'warning' });
+          return null;
+        }
         return { node, widget: { __bypass__: true, name: "__bypass__" }, values, search: "" };
       }
 
@@ -1221,7 +1466,15 @@ export class XYZPlotGadget extends GadgetBase {
 
     const fmtName = (n) => n === "__bypass__" ? "Bypass" : n;
     const fmtLabel = (axis, widget) => {
-      if (widget?.__bypass__) return 'Bypass';
+      if (widget?.__bypass__) {
+        const nodeId = axes[axis].nodeId;
+        const node = this.bridge.getNodeById(parseInt(nodeId));
+        const parsed = parseDrawerNodeMarkers(node?.title || node?.type || '');
+        return `Bypass: ${parsed.displayTitle || node?.title || node?.type || `#${nodeId}`}`;
+      }
+      if (widget?.__groupBypass__) return `Group Bypass: ${widget.group.title}`;
+      if (widget?.__groupExclusive__) return `Group Switch: ${widget.set.label}`;
+      if (widget?.__nodeExclusive__) return `Node Switch: ${widget.set.label}`;
       // Prefer widget.label (display name) over widget.name (internal name)
       return widget?.label || widget?.name || fmtName(axes[axis].widgetName);
     };
@@ -1234,9 +1487,9 @@ export class XYZPlotGadget extends GadgetBase {
 
     // ── Pre-sweep validation (skip bypass virtual widgets) ──
     const warnings = [
-      ...(xWidget && !xWidget.__bypass__ ? this.#validateAxisValues("X", xWidget, xValues, xSearch) : []),
-      ...(yWidget && !yWidget.__bypass__ ? this.#validateAxisValues("Y", yWidget, yValues, ySearch) : []),
-      ...(zWidget && !zWidget.__bypass__ ? this.#validateAxisValues("Z", zWidget, zValues, zSearch) : []),
+      ...(xWidget && !this.#isVirtualAxisWidget(xWidget) ? this.#validateAxisValues("X", xWidget, xValues, xSearch) : []),
+      ...(yWidget && !this.#isVirtualAxisWidget(yWidget) ? this.#validateAxisValues("Y", yWidget, yValues, ySearch) : []),
+      ...(zWidget && !this.#isVirtualAxisWidget(zWidget) ? this.#validateAxisValues("Z", zWidget, zValues, zSearch) : []),
     ];
 
     const total = xValues.length * yValues.length * zValues.length;
@@ -1460,6 +1713,9 @@ export class XYZPlotGadget extends GadgetBase {
           </p>
           <p style="margin:0 0 8px">
             &bull; \u30b9\u30a4\u30fc\u30d7\u4e2d\u306b<b>\u30ef\u30fc\u30af\u30d5\u30ed\u30fc\u304c\u958b\u304b\u308c\u305f\u5834\u5408</b>\u3001\u5b89\u5168\u306e\u305f\u3081\u30b9\u30a4\u30fc\u30d7\u3092\u505c\u6b62\u3057\u307e\u3059\u3002
+          </p>
+          <p style="margin:0 0 8px">
+            &bull; \u5019\u88dc\u306b\u8868\u793a\u3055\u308c\u308b\u8ef8\u3067\u3082\u3001\u3059\u3079\u3066\u306e\u30ce\u30fc\u30c9\u69cb\u6210\u3067\u30b9\u30a4\u30fc\u30d7\u306e\u5b8c\u9042\u3092\u4fdd\u8a3c\u3059\u308b\u3082\u306e\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002
           </p>
           <p style="margin:0 0 16px; font-size:12px">
             &bull; ComfyUI\u306e\u30ad\u30e3\u30f3\u30d0\u30b9\u306f\u30b9\u30a4\u30fc\u30d7\u4e2d\u30ed\u30c3\u30af\u3055\u308c\u307e\u3059\u3002

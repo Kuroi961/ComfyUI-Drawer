@@ -45,6 +45,71 @@ export const truncate = (s, max = 20) => {
 };
 
 /**
+ * Clean a Deck/XYZ display title.
+ * Removes unescaped Drawer markers while preserving escaped literals.
+ * @param {string} title
+ * @returns {string}
+ */
+export function cleanDrawerTitle(title) {
+  return String(title || '')
+    .replace(/^\[([^\]]+)\]\s*/, '')
+    .replace(/(?<!\\)\u{1F4DD}/gu, '')
+    .replace(/(?<!\\)\u26A1\uFE0F?/g, '')
+    .replace(/\\(.)/gsu, '$1')
+    .trim();
+}
+
+/**
+ * Parse group markers used by Deck and XYZ.
+ *   ⚡ Detailer       -> standalone group toggle
+ *   [upscale] ESRGAN  -> exclusive group switch
+ * @param {string} rawTitle
+ * @returns {{displayTitle:string,isToggle:boolean,switchName:string|null}}
+ */
+export function parseDrawerGroupMarkers(rawTitle) {
+  let t = String(rawTitle || '');
+  let isToggle = false;
+  let switchName = null;
+
+  if (/(?<!\\)\u26A1/u.test(t)) {
+    isToggle = true;
+    t = t.replace(/(?<!\\)\u26A1\uFE0F?/g, '');
+  }
+
+  const switchMatch = t.match(/^\[([^\]]+)\]\s*/);
+  if (switchMatch) {
+    switchName = switchMatch[1].trim();
+    t = t.slice(switchMatch[0].length);
+  }
+
+  return {
+    displayTitle: cleanDrawerTitle(t),
+    isToggle,
+    switchName,
+  };
+}
+
+/**
+ * Parse node markers used by Deck and XYZ.
+ * @param {string} rawTitle
+ * @returns {{displayTitle:string,isToggle:boolean,switchName:string|null}}
+ */
+export function parseDrawerNodeMarkers(rawTitle) {
+  let t = String(rawTitle || '');
+  let switchName = null;
+  const switchMatch = t.match(/^\[([^\]]+)\]\s*/);
+  if (switchMatch) {
+    switchName = switchMatch[1].trim();
+    t = t.slice(switchMatch[0].length);
+  }
+  return {
+    displayTitle: cleanDrawerTitle(t),
+    isToggle: /(?<!\\)\u26A1/u.test(t),
+    switchName,
+  };
+}
+
+/**
  * Normalize a file path to use forward slashes.
  * ComfyUI APIs return OS-native separators (backslash on Windows),
  * but internal comparison and display should use forward slashes.

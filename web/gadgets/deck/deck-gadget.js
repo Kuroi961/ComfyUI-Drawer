@@ -10,7 +10,7 @@ import { attachDictAutocomplete } from '../../js/services/dict-service.js';
 import { openLightbox } from '../../js/services/lightbox.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
-import { escapeHTML, getLinkedInputNames } from '../../js/utils.js';
+import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 
 const EMOJI_EDIT = "\u{1F4DD}"; // 📝
@@ -682,16 +682,7 @@ export class DeckGadget extends GadgetBase {
    *   - All other emoji are preserved as-is
    */
   #cleanTitle(title) {
-    return String(title || '')
-      // 0. Remove leading [exclusive-label] marker
-      .replace(/^\[([^\]]+)\]\s*/, '')
-      // 1. Remove bare (non-escaped) 📝 edit marker
-      .replace(/(?<!\\)\u{1F4DD}/gu, '')
-      // 2. Remove bare (non-escaped) ⚡ toggle marker (with optional variation selector)
-      .replace(/(?<!\\)\u26A1\uFE0F?/g, '')
-      // 3. Unescape \<any char> → keep the char (handles \📝, \⚡, \🔥, …)
-      .replace(/\\(.)/gsu, '$1')
-      .trim();
+    return cleanDrawerTitle(title);
   }
 
   /**
@@ -701,44 +692,11 @@ export class DeckGadget extends GadgetBase {
    *   Prompts           → { displayTitle: 'Prompts',  isToggle: false, switchName: null }
    */
   #parseGroupMarkers(rawTitle) {
-    let t = String(rawTitle);
-    let isToggle = false;
-    let switchName = null;
-
-    // Check for bare ⚡ toggle marker (escaped \⚡ is NOT a marker)
-    if (/(?<!\\)\u26A1/.test(t)) {
-      isToggle = true;
-      // Remove only bare ⚡ (not escaped ones)
-      t = t.replace(/(?<!\\)\u26A1\uFE0F?/g, '');
-    }
-
-    // Check for [name] switch marker
-    const switchMatch = t.match(/^\[([^\]]+)\]\s*/);
-    if (switchMatch) {
-      switchName = switchMatch[1].trim();
-      t = t.slice(switchMatch[0].length);
-    }
-
-    return {
-      displayTitle: this.#cleanTitle(t),
-      isToggle,
-      switchName,
-    };
+    return parseDrawerGroupMarkers(rawTitle);
   }
 
   #parseNodeMarkers(rawTitle) {
-    let t = String(rawTitle || '');
-    let switchName = null;
-    const switchMatch = t.match(/^\[([^\]]+)\]\s*/);
-    if (switchMatch) {
-      switchName = switchMatch[1].trim();
-      t = t.slice(switchMatch[0].length);
-    }
-    return {
-      displayTitle: this.#cleanTitle(t),
-      isToggle: /(?<!\\)\u26A1/u.test(t),
-      switchName,
-    };
+    return parseDrawerNodeMarkers(rawTitle);
   }
 
   #createBypassToggle({ labelText, checked, onChange, exclusive = false }) {

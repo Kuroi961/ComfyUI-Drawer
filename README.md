@@ -35,6 +35,8 @@
 
 https://github.com/user-attachments/assets/a9ba848f-11eb-42f7-9fc8-31616ed82df5
 
+Note: This demo includes third-party custom nodes that are not included with ComfyUI-Drawer.
+
 ---
 
 ## What is ComfyUI-Drawer?
@@ -82,7 +84,7 @@ pip install -r ComfyUI-Drawer/requirements.txt
 You can open ComfyUI-Drawer sample workflows from ComfyUI's template browser.
 
 - `drawer-sample-anima` — A sample workflow that demonstrates the basic Drawer workflow
-- `drawer-sample-anima-advanced` — A more practical workflow using SAM3 and SeedVR2. Additional models and custom nodes are required
+- `drawer-sample-anima-advanced` — A more practical workflow using external custom nodes. Additional models and nodes are required (`rgthree-comfy`, `comfyui-impact-pack`, `comfyui-ppm`, `comfyui-kjnodes`, `comfyui-easy-use`, `seedvr2_videoupscaler`)
 - `drawer-tutorial-deck-ja` / `drawer-tutorial-deck-en` / `drawer-tutorial-deck-zh` — Tutorials for displaying workflow nodes in Deck
 
 ---
@@ -133,7 +135,7 @@ A parameter sweep gadget familiar from Stable Diffusion web UI (A1111). Behavior
 
 - Assign any widget from any node to the X/Y/Z axes for sequential generation
 - Text widgets automatically use Prompt S/R (Search & Replace) mode
-- Bypass axis — use the node ON/OFF state itself as a sweep dimension
+- Bypass axes — use node ON/OFF, Deck group toggles, group switches, and node switches as sweep dimensions
 - Automatically generates a labeled grid composite image and saves it to output
 
 **Technical details:**
