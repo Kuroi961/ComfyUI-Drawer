@@ -1,1 +1,1 @@
-export const DRAWER_VERSION = '1.0.3';
+export const DRAWER_VERSION = '1.0.4';

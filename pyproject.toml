@@ -1,6 +1,6 @@
 [project]
 name = "comfy-drawer"
-version = "1.0.3"
+version = "1.0.4"
 description = "A mobile-friendly drawer-style gadget platform for ComfyUI with Deck, Gallery, Model Viewer, XYZ Plot, and utility nodes."
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
