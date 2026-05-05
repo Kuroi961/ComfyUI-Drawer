@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.6 - 2026-05-06
+
+- Improve metadata workflow values with label/value formatting and node definition fallbacks
+- Add a metadata view toggle for hiding value labels
+
 ## v1.0.5 - 2026-05-05
 
 - Keep Deck lightbox navigation unified after partial output updates

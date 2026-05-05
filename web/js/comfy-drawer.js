@@ -558,9 +558,11 @@ app.registerExtension({
 
             const json = JSON.stringify(meta, null, 2);
             const workflow = meta.workflow && typeof meta.workflow === 'object' ? meta.workflow : null;
+            const prompt = meta.prompt && typeof meta.prompt === 'object' ? meta.prompt : null;
             const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
             const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
             const visibleTypesKey = 'comfy-drawer-meta-visible-types';
+            const showLabelsKey = 'comfy-drawer-meta-show-labels';
             const getAllowedTypes = () => {
                 try { return new Set(JSON.parse(localStorage.getItem(visibleTypesKey) || '[]')); }
                 catch { return new Set(); }
@@ -578,7 +580,7 @@ app.registerExtension({
                 const allowed = getAllowedTypes();
                 return [...allNodeTypes.entries()]
                     .filter(([type]) => allowed.has(type))
-                    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+                    .sort((a, b) => a[0].localeCompare(b[0]));
             };
 
             const addRow = (parent, label, value) => {
@@ -603,22 +605,80 @@ app.registerExtension({
                 parent.appendChild(textarea);
             };
 
-            const formatNodeValue = (node) => {
+            const formatControlValues = (values) => {
+                const pairs = [];
+                for (let i = 0; i < values.length; i += 2) {
+                    const value = values[i];
+                    const def = String(values[i + 1] ?? '');
+                    const parts = def.split('|').map(part => part.trim());
+                    const label = parts[1] || parts[0] || `value_${(i / 2) + 1}`;
+                    if (value == null || value === '') continue;
+                    pairs.push(`${label}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`);
+                }
+                return pairs;
+            };
+
+            const formatWidgetValues = (node, values) => {
+                const widgetInputs = Array.isArray(node?.inputs)
+                    ? node.inputs.filter(input => input?.widget)
+                    : [];
+                if (!widgetInputs.length) {
+                    try {
+                        const nodeDef = LiteGraph?.registered_node_types?.[node?.type]?.nodeData;
+                        const objectInfoInputs = [
+                            ...Object.entries(nodeDef?.input?.required || {}),
+                            ...Object.entries(nodeDef?.input?.optional || {}),
+                        ];
+                        for (const [name, spec] of objectInfoInputs) {
+                            const options = Array.isArray(spec) ? spec[1] : null;
+                            const type = Array.isArray(spec) ? spec[0] : null;
+                            const isWidgetLike = Array.isArray(type)
+                                || options?.default !== undefined
+                                || ['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'].includes(String(type));
+                            if (isWidgetLike) widgetInputs.push({ name });
+                        }
+                    } catch { /* keep value_N fallback */ }
+                }
+                return values.map((value, index) => {
+                    if (value == null || value === '') return '';
+                    const input = widgetInputs[index];
+                    const label = input?.label || input?.localized_name || input?.widget?.name || input?.name || `value_${index + 1}`;
+                    return `${label}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`;
+                }).filter(Boolean);
+            };
+
+            const formatPromptInputValues = (node) => {
+                const inputs = prompt?.[String(node?.id)]?.inputs;
+                if (!inputs || typeof inputs !== 'object') return [];
+                const pairs = [];
+                for (const [name, rawValue] of Object.entries(inputs)) {
+                    if (name === 'model' || name === 'clip' || name === 'vae') continue;
+                    if (Array.isArray(rawValue)) continue;
+                    if (rawValue == null || rawValue === '') continue;
+                    pairs.push(`${name}: ${typeof rawValue === 'object' ? JSON.stringify(rawValue) : String(rawValue)}`);
+                }
+                return pairs;
+            };
+
+            const stripValueLabel = (line) => {
+                const sep = line.indexOf(': ');
+                return sep >= 0 ? line.slice(sep + 2) : line;
+            };
+
+            const formatNodeValue = (node, showLabels = true) => {
                 const title = node?.title && node.title !== node.type ? node.title : '';
                 const mode = node?.mode === 4 ? 'bypass' : (node?.mode === 2 ? 'mute' : 'active');
                 const values = Array.isArray(node?.widgets_values) ? node.widgets_values : [];
-                const valuePreview = values
-                    .slice(0, 6)
-                    .map(v => {
-                        if (v == null) return String(v);
-                        if (typeof v === 'object') return JSON.stringify(v);
-                        return String(v);
-                    })
-                    .join(' | ');
+                const isDrawerControls = /^DrawerControls\d*$/.test(String(node?.type || ''));
+                const promptValues = formatPromptInputValues(node);
+                const displayValues = promptValues.length
+                    ? (isDrawerControls ? formatControlValues(values) : promptValues)
+                    : (isDrawerControls ? formatControlValues(values) : formatWidgetValues(node, values));
+                const valueLines = showLabels ? displayValues : displayValues.map(stripValueLabel);
                 return [
                     `#${node?.id ?? '?'}${title ? `  ${title}` : ''}`,
                     `mode: ${mode}`,
-                    valuePreview ? `values: ${valuePreview}` : '',
+                    ...valueLines,
                 ].filter(Boolean).join('\n');
             };
 
@@ -671,6 +731,14 @@ app.registerExtension({
                         nodeList.readOnly = true;
                         nodeList.spellcheck = false;
                         nodeList.wrap = 'soft';
+                        const showLabelsRow = document.createElement('label');
+                        showLabelsRow.className = 'cd-meta-option';
+                        const showLabelsInput = document.createElement('input');
+                        showLabelsInput.type = 'checkbox';
+                        showLabelsInput.checked = localStorage.getItem(showLabelsKey) !== 'false';
+                        const showLabelsText = document.createElement('span');
+                        showLabelsText.textContent = 'Show labels';
+                        showLabelsRow.append(showLabelsInput, showLabelsText);
 
                         let selectedType = '';
                         const selectType = (type, button = null) => {
@@ -680,7 +748,9 @@ app.registerExtension({
                                 .find(el => el.dataset.nodeType === type);
                             target?.classList.add('active');
                             const selectedNodes = allNodeTypes.get(type) || [];
-                            nodeList.value = selectedNodes.map(formatNodeValue).join('\n\n');
+                            nodeList.value = selectedNodes
+                                .map(node => formatNodeValue(node, showLabelsInput.checked))
+                                .join('\n\n');
                         };
 
                         const refreshTypeControls = () => {
@@ -752,7 +822,12 @@ app.registerExtension({
                             addSelect.value = '';
                             renderTypeButtons();
                         });
+                        showLabelsInput.addEventListener('change', () => {
+                            localStorage.setItem(showLabelsKey, showLabelsInput.checked ? 'true' : 'false');
+                            if (selectedType) selectType(selectedType);
+                        });
 
+                        section.appendChild(showLabelsRow);
                         section.appendChild(chips);
                         section.appendChild(nodeList);
                         wrap.appendChild(section);

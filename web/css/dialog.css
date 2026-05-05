@@ -259,6 +259,22 @@ textarea.cd-dialog-json-viewer {
     gap: 8px;
 }
 
+.cd-meta-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    color: var(--cd-text-dim);
+    font-size: 12px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cd-meta-option input {
+    width: 16px;
+    height: 16px;
+}
+
 .cd-meta-chip {
     border: 1px solid var(--cd-divider);
     border-radius: 8px;
