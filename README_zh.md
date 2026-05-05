@@ -125,6 +125,8 @@ pip install -r ComfyUI-Drawer/requirements.txt
   <img src="docs/xyzplot.webp" width="50%">
 </p>
 
+https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
+
 类似 Stable Diffusion web UI（A1111）的参数扫描小工具，整体行为大致遵循 A1111。
 
 **基本功能：**

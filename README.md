@@ -125,6 +125,8 @@ Nodes are sorted by Y position from top to bottom. Groups are sorted by X positi
   <img src="docs/xyzplot.webp" width="50%">
 </p>
 
+https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
+
 A parameter sweep gadget familiar from Stable Diffusion web UI (A1111). Behavior is largely consistent with A1111.
 
 **Basic features:**
