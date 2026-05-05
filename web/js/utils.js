@@ -110,6 +110,84 @@ export function parseDrawerNodeMarkers(rawTitle) {
 }
 
 /**
+ * Remove stale Drawer UI state from a serialized workflow.
+ * This is intentionally applied to serialized JSON, not the live graph, so
+ * temporary UI preferences do not leak into image metadata after nodes/groups
+ * have been deleted or renamed.
+ * @param {object|null} workflow
+ * @returns {object|null}
+ */
+export function sanitizeComfyDrawerWorkflowExtra(workflow) {
+  if (!workflow || typeof workflow !== 'object') return workflow;
+  const drawer = workflow.extra?.comfyDrawer;
+  if (!drawer || typeof drawer !== 'object') return workflow;
+
+  const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+  const groups = Array.isArray(workflow.groups) ? workflow.groups : [];
+  const nodeIds = new Set(nodes.map(n => String(n?.id)));
+  const groupInfos = groups.map(group => {
+    const title = String(group?.title || 'Group');
+    return {
+      key: `group-${title}`,
+      title,
+      parsed: parseDrawerGroupMarkers(title),
+      bounds: group?._bounding || group?.bounding || group?.bounds || null,
+    };
+  });
+  const groupKeys = new Set(groupInfos.map(g => g.key));
+  const groupSwitchLabels = new Set(groupInfos
+    .map(g => g.parsed.switchName)
+    .filter(Boolean));
+
+  const nodeGroupKey = (node) => {
+    const pos = node?.pos || node?._pos;
+    if (!Array.isArray(pos)) return '__ungrouped__';
+    const x = Number(pos[0]);
+    const y = Number(pos[1]);
+    for (const group of groupInfos) {
+      const b = group.bounds;
+      if (!Array.isArray(b) || b.length < 4) continue;
+      const [gx, gy, gw, gh] = b.map(Number);
+      if (x >= gx && x <= gx + gw && y >= gy && y <= gy + gh) return group.key;
+    }
+    return '__ungrouped__';
+  };
+
+  const validNodeExclusiveKeys = new Set();
+  for (const node of nodes) {
+    const parsed = parseDrawerNodeMarkers(node?.title || node?.type);
+    if (parsed.switchName) {
+      validNodeExclusiveKeys.add(`${nodeGroupKey(node)}::${parsed.switchName}`);
+    }
+  }
+
+  const pruneObjectMap = (key, keepEntry) => {
+    const map = drawer[key];
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+    for (const [entryKey, value] of Object.entries(map)) {
+      if (!keepEntry(entryKey, value)) delete map[entryKey];
+    }
+    if (Object.keys(map).length === 0) delete drawer[key];
+  };
+
+  pruneObjectMap('deckGroupOff', (key) => groupKeys.has(key));
+  pruneObjectMap('deckGroupExclusive', (label, key) =>
+    key === null || (groupSwitchLabels.has(label) && groupKeys.has(String(key))));
+  pruneObjectMap('deckNodeOff', (id) => nodeIds.has(String(id)));
+  pruneObjectMap('deckNodeExclusive', (key, id) =>
+    id === null || (validNodeExclusiveKeys.has(key) && nodeIds.has(String(id))));
+  pruneObjectMap('deckExpand', (key) =>
+    groupKeys.has(key)
+    || key === '__ungrouped__'
+    || key === '__flat__'
+    || (key.startsWith('node-') && nodeIds.has(key.slice(5))));
+
+  if (Object.keys(drawer).length === 0) delete workflow.extra.comfyDrawer;
+  if (workflow.extra && Object.keys(workflow.extra).length === 0) delete workflow.extra;
+  return workflow;
+}
+
+/**
  * Normalize a file path to use forward slashes.
  * ComfyUI APIs return OS-native separators (backslash on Windows),
  * but internal comparison and display should use forward slashes.

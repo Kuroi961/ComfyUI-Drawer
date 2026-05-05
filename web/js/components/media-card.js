@@ -357,12 +357,13 @@ export function createMediaCard(opts = {}) {
         card.addEventListener('click', onClick);
     } else if (lightbox) {
         card.addEventListener('click', () => {
-            const lbItems = lightboxItems || [{
+            const ref = card._lbRef;
+            const lbItems = ref?.items || lightboxItems || [{
                 src: thumbEl.src || src,
                 type: mediaType,
                 filename,
             }];
-            const idx = lightboxItems ? lightboxIndex : 0;
+            const idx = ref ? ref.index : (lightboxItems ? lightboxIndex : 0);
             if (window.ComfyDrawer?.openLightbox) {
                 window.ComfyDrawer.openLightbox(lbItems, idx, lightboxOptions || {});
             }

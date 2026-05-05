@@ -29,7 +29,10 @@
     "sendToLoadImage": "Load Imageに送る",
     "sendToNodeType": "{type}に送る — {title}",
     "openAsWorkflow": "WFとして開く",
+    "viewMetadata": "メタデータを表示",
+    "viewMetadataTitle": "メタデータ — {name}",
     "download": "ダウンロード",
+    "noMetadataData": "{name} にメタデータがありません",
     "noWorkflowData": "{name} にワークフローデータがありません"
   },
   "settings": {

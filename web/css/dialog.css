@@ -200,6 +200,173 @@ textarea.cd-dialog-input {
     line-height: 1.5;
 }
 
+textarea.cd-dialog-json-viewer {
+    min-height: 48vh;
+    max-height: 60vh;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre;
+}
+
+.cd-meta-view {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.cd-meta-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cd-meta-section h3,
+.cd-meta-section summary {
+    margin: 0;
+    color: var(--cd-text);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.cd-meta-section summary {
+    cursor: pointer;
+}
+
+.cd-meta-row {
+    display: grid;
+    grid-template-columns: minmax(90px, 0.34fr) 1fr;
+    gap: 10px;
+    align-items: baseline;
+}
+
+.cd-meta-key {
+    color: var(--cd-text-dim);
+    font-size: 12px;
+}
+
+.cd-meta-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--cd-text);
+    font-size: 12px;
+}
+
+.cd-meta-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.cd-meta-chip {
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-height: 40px;
+    background: var(--cd-s1);
+    color: var(--cd-text);
+    font-size: 13px;
+    line-height: 1.25;
+    -webkit-user-select: text;
+    user-select: text;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+button.cd-meta-chip {
+    cursor: pointer;
+    font-family: inherit;
+}
+
+button.cd-meta-chip:hover,
+button.cd-meta-chip.active {
+    border-color: var(--cd-accent);
+    background: color-mix(in srgb, var(--cd-accent) 20%, var(--cd-s1));
+}
+
+.cd-meta-type-controls {
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    background: var(--cd-s1);
+    overflow: hidden;
+}
+
+.cd-meta-type-summary {
+    min-height: 40px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    color: var(--cd-text);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.cd-meta-type-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 10px 10px;
+}
+
+.cd-meta-type-select {
+    min-height: 40px;
+}
+
+.cd-meta-allowed-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cd-meta-allowed-chip {
+    border: 1px solid var(--cd-divider);
+    border-radius: 999px;
+    padding: 6px 10px;
+    min-height: 34px;
+    background: color-mix(in srgb, var(--cd-accent) 14%, var(--cd-s2));
+    color: var(--cd-text);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.cd-meta-allowed-chip:hover {
+    border-color: var(--cd-accent);
+    color: var(--cd-text);
+}
+
+textarea.cd-meta-node-list {
+    min-height: 170px;
+    max-height: 280px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.cd-meta-raw textarea.cd-dialog-json-viewer {
+    min-height: 220px;
+}
+
+@media (max-width: 520px) {
+    .cd-meta-chip {
+        min-height: 46px;
+        padding: 10px 12px;
+        font-size: 14px;
+    }
+
+    .cd-meta-type-summary,
+    .cd-meta-type-select {
+        min-height: 46px;
+    }
+
+    .cd-meta-allowed-chip {
+        min-height: 40px;
+        padding: 8px 11px;
+    }
+}
+
 /* ── Footer (buttons) ── */
 .cd-dialog-footer {
     display: flex;

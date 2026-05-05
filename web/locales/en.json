@@ -29,7 +29,10 @@
     "sendToLoadImage": "Send to Load Image",
     "sendToNodeType": "Send to {type} — {title}",
     "openAsWorkflow": "Open as Workflow",
+    "viewMetadata": "View Metadata",
+    "viewMetadataTitle": "Metadata — {name}",
     "download": "Download",
+    "noMetadataData": "{name} has no metadata",
     "noWorkflowData": "{name} has no workflow data"
   },
   "settings": {

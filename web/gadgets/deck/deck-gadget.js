@@ -357,6 +357,7 @@ export class DeckGadget extends GadgetBase {
   #showAllNodes = false;
   #contextMenu = null;
   #outputFingerprint = '';
+  #lightboxItems = [];
   #groupMembershipFingerprint = '';
   #nodeGroupKeys = new Map();
   /** @type {Map<string, number>} Manually set textarea heights (nodeId:widgetName → px) */
@@ -1113,7 +1114,8 @@ export class DeckGadget extends GadgetBase {
 
     let rendered = 0;
     const hasGroups = this.editGroups.some(g => g.title !== null);
-    const sharedLbItems = [];  // Shared lightbox items for cross-node browsing
+    this.#lightboxItems = [];  // Shared lightbox items for cross-node browsing
+    const sharedLbItems = this.#lightboxItems;
 
     for (const group of this.editGroups) {
       if (group.nodes.length === 0) continue;
@@ -1221,8 +1223,32 @@ export class DeckGadget extends GadgetBase {
 
     // Restore scroll position and auto-size textareas
     if (scrollParent) scrollParent.scrollTop = savedScroll;
+    this.#rebuildLightboxRefsFromDom();
     this.#autoSizeAllTextareas();
     this.#syncDeckToggleControls();
+  }
+
+  #rebuildLightboxRefsFromDom() {
+    const root = this.container?.querySelector('#dk-sections');
+    if (!root) return;
+
+    const items = [];
+    const cards = root.querySelectorAll('.mc-card');
+    for (const card of cards) {
+      const ref = card._lbRef;
+      if (!ref?.items || !Number.isInteger(ref.index)) continue;
+      const sourceItem = ref.items[ref.index];
+      if (!sourceItem?.src) continue;
+
+      const index = items.length;
+      items.push({ ...sourceItem });
+      card._lbRef = { items, index };
+
+      const loadImageSlot = card.closest('.dk-loadimage-preview-slot');
+      if (loadImageSlot) loadImageSlot._lbRef = card._lbRef;
+    }
+
+    this.#lightboxItems = items;
   }
 
   /** Auto-size all textareas to fit content (unless manually resized).
@@ -1887,6 +1913,7 @@ export class DeckGadget extends GadgetBase {
             lastImgVal = val;
             this.#renderLoadImagePreview(node, slot, null, force);
             this.#removeLegacyLoadImagePreviewItems(sBody, slot);
+            this.#rebuildLightboxRefsFromDom();
             return;
           }
 
@@ -2807,6 +2834,7 @@ export class DeckGadget extends GadgetBase {
       this.#renderLoadImagePreview(node, slot, null, force);
       this.#removeLegacyLoadImagePreviewItems(body, slot);
     }
+    this.#rebuildLightboxRefsFromDom();
   }
 
 
@@ -2844,7 +2872,7 @@ export class DeckGadget extends GadgetBase {
     const container = this.container.querySelector('#dk-sections');
     if (!container) return;
 
-    const sharedLbItems = [];
+    const sharedLbItems = this.#lightboxItems;
 
     for (const node of this.editNodes) {
       if (node.type === 'LoadImage' || node.type === 'LoadImageMask') {
@@ -2899,6 +2927,7 @@ export class DeckGadget extends GadgetBase {
         }
       }
     }
+    this.#rebuildLightboxRefsFromDom();
   }
 
   /* ═══ API Event Listeners ═══ */

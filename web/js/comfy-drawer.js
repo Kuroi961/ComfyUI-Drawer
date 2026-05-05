@@ -52,7 +52,7 @@ import { GadgetBase } from "./core/gadget-base.js";
 import { openLightbox, closeLightbox, isLightboxOpen, removeLightboxItem } from "./services/lightbox.js";
 import { createMediaCard, createMediaGrid } from "./components/media-card.js";
 import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, attachDictAutocomplete } from "./services/dict-service.js";
-import { escapeHTML, truncate, getLinkedInputNames, CollapseStore } from "./utils.js";
+import { escapeHTML, truncate, getLinkedInputNames, CollapseStore, sanitizeComfyDrawerWorkflowExtra } from "./utils.js";
 import { showDialog, showAlert, showConfirm, showPrompt } from "./services/dialog.js";
 import { openImagePicker } from "./services/image-picker.js";
 import { MaskService }     from "./services/mask-service.js";
@@ -197,7 +197,7 @@ app.registerExtension({
             return origQueuePrompt(...args);
         };
 
-        // ── Hook LGraph.configure for graph-change detection ──
+        // ── Hook LGraph for graph-change detection and clean metadata export ──
         // ComfyUI V2 reuses the same LGraph object and calls configure()
         // to swap content when switching workflow tabs. LiteGraph fires no
         // external event for this, so we monkey-patch configure() to emit
@@ -212,8 +212,15 @@ app.registerExtension({
                     return result;
                 };
             }
+            if (LGraph?.prototype?.serialize && !LGraph.prototype.__comfyDrawerSerializeWrapped) {
+                const origSerialize = LGraph.prototype.serialize;
+                LGraph.prototype.serialize = function(...args) {
+                    return sanitizeComfyDrawerWorkflowExtra(origSerialize.apply(this, args));
+                };
+                LGraph.prototype.__comfyDrawerSerializeWrapped = true;
+            }
         } catch (e) {
-            console.warn('[ComfyDrawer] Failed to hook LGraph.configure:', e);
+            console.warn('[ComfyDrawer] Failed to hook LGraph:', e);
         }
 
         // ── Inject CSS ──
@@ -541,6 +548,231 @@ app.registerExtension({
             return false;
         }
 
+        async function showMediaMetadata(ctx) {
+            const { name, subfolder, source } = resolveMediaInfo(ctx);
+            const meta = await fetchMediaMeta(ctx);
+            if (!meta) {
+                await showAlert(t('menu.noMetadataData', { name: name || ctx.name || 'media' }), { variant: 'info' });
+                return;
+            }
+
+            const json = JSON.stringify(meta, null, 2);
+            const workflow = meta.workflow && typeof meta.workflow === 'object' ? meta.workflow : null;
+            const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+            const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
+            const visibleTypesKey = 'comfy-drawer-meta-visible-types';
+            const getAllowedTypes = () => {
+                try { return new Set(JSON.parse(localStorage.getItem(visibleTypesKey) || '[]')); }
+                catch { return new Set(); }
+            };
+            const saveAllowedTypes = (set) => {
+                localStorage.setItem(visibleTypesKey, JSON.stringify([...set]));
+            };
+            const allNodeTypes = new Map();
+            for (const node of nodes) {
+                const type = node?.type || node?.class_type || 'Unknown';
+                if (!allNodeTypes.has(type)) allNodeTypes.set(type, []);
+                allNodeTypes.get(type).push(node);
+            }
+            const getVisibleNodeTypes = () => {
+                const allowed = getAllowedTypes();
+                return [...allNodeTypes.entries()]
+                    .filter(([type]) => allowed.has(type))
+                    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+            };
+
+            const addRow = (parent, label, value) => {
+                const row = document.createElement('div');
+                row.className = 'cd-meta-row';
+                const key = document.createElement('div');
+                key.className = 'cd-meta-key';
+                key.textContent = label;
+                const val = document.createElement('div');
+                val.className = 'cd-meta-value';
+                val.textContent = value || '—';
+                row.append(key, val);
+                parent.appendChild(row);
+            };
+
+            const addTextarea = (parent, value, className = '') => {
+                const textarea = document.createElement('textarea');
+                textarea.className = `cd-dialog-input cd-dialog-json-viewer ${className}`.trim();
+                textarea.readOnly = true;
+                textarea.spellcheck = false;
+                textarea.value = value;
+                parent.appendChild(textarea);
+            };
+
+            const formatNodeValue = (node) => {
+                const title = node?.title && node.title !== node.type ? node.title : '';
+                const mode = node?.mode === 4 ? 'bypass' : (node?.mode === 2 ? 'mute' : 'active');
+                const values = Array.isArray(node?.widgets_values) ? node.widgets_values : [];
+                const valuePreview = values
+                    .slice(0, 6)
+                    .map(v => {
+                        if (v == null) return String(v);
+                        if (typeof v === 'object') return JSON.stringify(v);
+                        return String(v);
+                    })
+                    .join(' | ');
+                return [
+                    `#${node?.id ?? '?'}${title ? `  ${title}` : ''}`,
+                    `mode: ${mode}`,
+                    valuePreview ? `values: ${valuePreview}` : '',
+                ].filter(Boolean).join('\n');
+            };
+
+            await showDialog({
+                title: t('menu.viewMetadataTitle', { name: name || ctx.name || 'media' }),
+                variant: 'info',
+                confirmLabel: t('common.close'),
+                showCancel: false,
+                autoFocus: false,
+                content: (body) => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'cd-meta-view';
+
+                    const summary = document.createElement('section');
+                    summary.className = 'cd-meta-section';
+                    const summaryTitle = document.createElement('h3');
+                    summaryTitle.textContent = 'Summary';
+                    summary.appendChild(summaryTitle);
+                    addRow(summary, 'File', name || ctx.name || 'media');
+                    addRow(summary, 'Location', [source, subfolder].filter(Boolean).join('/') || source);
+                    addRow(summary, 'Workflow', workflow ? `${nodes.length} nodes, ${groups.length} groups` : 'Not found');
+                    wrap.appendChild(summary);
+
+                    if (workflow) {
+                        const section = document.createElement('section');
+                        section.className = 'cd-meta-section';
+                        const title = document.createElement('h3');
+                        title.textContent = 'Workflow Overview';
+                        section.appendChild(title);
+
+                        const visibleControls = document.createElement('details');
+                        visibleControls.className = 'cd-meta-type-controls';
+                        const visibleSummary = document.createElement('summary');
+                        visibleSummary.className = 'cd-meta-type-summary';
+                        visibleControls.appendChild(visibleSummary);
+                        const visibleBody = document.createElement('div');
+                        visibleBody.className = 'cd-meta-type-body';
+                        const addSelect = document.createElement('select');
+                        addSelect.className = 'cd-dialog-select cd-meta-type-select';
+                        const allowedList = document.createElement('div');
+                        allowedList.className = 'cd-meta-allowed-list';
+                        visibleBody.append(addSelect, allowedList);
+                        visibleControls.appendChild(visibleBody);
+                        section.appendChild(visibleControls);
+
+                        const chips = document.createElement('div');
+                        chips.className = 'cd-meta-chips';
+                        const nodeList = document.createElement('textarea');
+                        nodeList.className = 'cd-dialog-input cd-dialog-json-viewer cd-meta-node-list';
+                        nodeList.readOnly = true;
+                        nodeList.spellcheck = false;
+                        nodeList.wrap = 'soft';
+
+                        let selectedType = '';
+                        const selectType = (type, button = null) => {
+                            selectedType = type;
+                            chips.querySelectorAll('.cd-meta-chip').forEach(el => el.classList.remove('active'));
+                            const target = button || [...chips.querySelectorAll('.cd-meta-chip')]
+                                .find(el => el.dataset.nodeType === type);
+                            target?.classList.add('active');
+                            const selectedNodes = allNodeTypes.get(type) || [];
+                            nodeList.value = selectedNodes.map(formatNodeValue).join('\n\n');
+                        };
+
+                        const refreshTypeControls = () => {
+                            const allowed = getAllowedTypes();
+                            const allowedPresent = [...allowed].filter(type => allNodeTypes.has(type)).sort();
+                            visibleSummary.textContent = allowedPresent.length === 0
+                                ? 'Shown node types'
+                                : `${allowedPresent.length} shown node type${allowedPresent.length === 1 ? '' : 's'}`;
+                            addSelect.replaceChildren();
+                            const placeholder = document.createElement('option');
+                            placeholder.value = '';
+                            placeholder.textContent = 'Add node type…';
+                            addSelect.appendChild(placeholder);
+                            for (const [type, typeNodes] of [...allNodeTypes.entries()]
+                                .filter(([type]) => !allowed.has(type))
+                                .sort((a, b) => a[0].localeCompare(b[0]))) {
+                                const option = document.createElement('option');
+                                option.value = type;
+                                option.textContent = `${type} × ${typeNodes.length}`;
+                                addSelect.appendChild(option);
+                            }
+
+                            allowedList.replaceChildren();
+                            for (const type of allowedPresent) {
+                                const remove = document.createElement('button');
+                                remove.type = 'button';
+                                remove.className = 'cd-meta-allowed-chip';
+                                remove.textContent = `${type} × ${allNodeTypes.get(type).length}`;
+                                remove.title = 'Click to hide from metadata view';
+                                remove.addEventListener('click', () => {
+                                    const next = getAllowedTypes();
+                                    next.delete(type);
+                                    saveAllowedTypes(next);
+                                    renderTypeButtons();
+                                });
+                                allowedList.appendChild(remove);
+                            }
+                        };
+
+                        const renderTypeButtons = () => {
+                            const visibleTypes = getVisibleNodeTypes();
+                            chips.replaceChildren();
+                            for (const [type, typeNodes] of visibleTypes) {
+                                const chip = document.createElement('button');
+                                chip.type = 'button';
+                                chip.className = 'cd-meta-chip';
+                                chip.dataset.nodeType = type;
+                                chip.textContent = `${type} × ${typeNodes.length}`;
+                                chip.addEventListener('click', () => selectType(type, chip));
+                                chips.appendChild(chip);
+                            }
+                            refreshTypeControls();
+                            if (selectedType && visibleTypes.some(([type]) => type === selectedType)) {
+                                selectType(selectedType);
+                            } else if (visibleTypes[0]) {
+                                selectType(visibleTypes[0][0]);
+                            } else {
+                                selectedType = '';
+                                nodeList.value = 'Add node types above to show their metadata values.';
+                            }
+                        };
+
+                        addSelect.addEventListener('change', () => {
+                            if (!addSelect.value) return;
+                            const allowed = getAllowedTypes();
+                            allowed.add(addSelect.value);
+                            saveAllowedTypes(allowed);
+                            selectedType = addSelect.value;
+                            addSelect.value = '';
+                            renderTypeButtons();
+                        });
+
+                        section.appendChild(chips);
+                        section.appendChild(nodeList);
+                        wrap.appendChild(section);
+                        renderTypeButtons();
+                    }
+
+                    const raw = document.createElement('details');
+                    raw.className = 'cd-meta-section cd-meta-raw';
+                    const rawSummary = document.createElement('summary');
+                    rawSummary.textContent = 'Raw JSON';
+                    raw.appendChild(rawSummary);
+                    addTextarea(raw, json);
+                    wrap.appendChild(raw);
+
+                    body.appendChild(wrap);
+                    return () => true;
+                },
+            });
+        }
+
         /**
          * Platform-level media action: upload a media URL into ComfyUI input
          * and apply it to a LoadImage/LoadImageMask node.
@@ -602,6 +834,14 @@ app.registerExtension({
                     const ok = await openWorkflowFromMedia(ctx);
                     if (!ok) showAlert(t('menu.noWorkflowData', { name: ctx.name || 'media' }));
                 },
+            },
+            {
+                id: 'media:metadata',
+                label: t('menu.viewMetadata'),
+                icon: 'info',
+                order: 35,
+                visible: (ctx) => ctx.hasWorkflow !== false,
+                action: showMediaMetadata,
             },
             {
                 id: 'media:download',

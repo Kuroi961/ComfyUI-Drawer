@@ -29,7 +29,10 @@
     "sendToLoadImage": "发送到 Load Image",
     "sendToNodeType": "发送到 {type} — {title}",
     "openAsWorkflow": "作为工作流打开",
+    "viewMetadata": "查看元数据",
+    "viewMetadataTitle": "元数据 — {name}",
     "download": "下载",
+    "noMetadataData": "{name} 没有元数据",
     "noWorkflowData": "{name} 没有工作流数据"
   },
   "settings": {

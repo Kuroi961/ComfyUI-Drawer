@@ -1,3 +1,5 @@
+import { sanitizeComfyDrawerWorkflowExtra } from '../utils.js';
+
 /**
  * ComfyDrawer — ComfyBridge
  * Unified abstraction over ComfyUI's internal APIs.
@@ -177,7 +179,7 @@ export class ComfyBridge {
     /** Export current workflow as JSON */
     exportWorkflow() {
         if (!this.#app?.graph) return null;
-        return this.#app.graph.serialize();
+        return sanitizeComfyDrawerWorkflowExtra(this.#app.graph.serialize());
     }
 
     /* ── Queue Operations ── */
