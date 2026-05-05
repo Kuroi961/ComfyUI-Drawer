@@ -131,6 +131,8 @@ https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
 
 A parameter sweep gadget familiar from Stable Diffusion web UI (A1111). Behavior is largely consistent with A1111.
 
+No dedicated XYZ nodes or extra wiring are required; sweep the widgets and bypass states already present in the current workflow.
+
 **Basic features:**
 
 - Assign any widget from any node to the X/Y/Z axes for sequential generation

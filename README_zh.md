@@ -131,6 +131,8 @@ https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
 
 类似 Stable Diffusion web UI（A1111）的参数扫描小工具，整体行为大致遵循 A1111。
 
+无需专用 XYZ 节点或额外连线，可直接扫描当前工作流中已有的 widget 和 bypass 状态。
+
 **基本功能：**
 
 - 可将任意节点的任意 widget 指定为 X/Y/Z 轴并连续生成
