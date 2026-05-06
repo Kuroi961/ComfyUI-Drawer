@@ -93,6 +93,30 @@ this.addDisposable(() => bridge.offApiEvent('progress', handler));
 
 ---
 
+## Home Widgets
+
+```js
+const unregister = window.ComfyDrawer.registerHomeWidget({
+    id: 'my-gadget-summary',
+    gadgetId: 'my-gadget',
+    title: 'Summary',
+    order: 20,
+    render: async (container, ctx) => {
+        container.textContent = 'Ready';
+        return () => {
+            // optional cleanup before the widget is re-rendered or Home is destroyed
+        };
+    },
+});
+
+window.ComfyDrawer.unregisterHomeWidget('my-gadget-summary');
+const widgets = window.ComfyDrawer.getHomeWidgets();
+```
+
+Home widgets are small dashboard panels rendered by the Home gadget. `render(container, ctx)` may return a cleanup function. `registerHomeWidget()` also returns an unregister function.
+
+---
+
 ## MessageBus
 
 ```js
@@ -109,6 +133,8 @@ const has = bus.hasResponder('dict:suggest');
 ```
 
 `respond()` allows only one responder per event and returns `false` if another responder already owns that event.
+
+Filesystem mutation events are emitted after successful Gallery operations. `fs:moved` stays the compatibility event for sidecar sync; rename operations also emit `fs:moved` as a same-folder move with `newName`/`to_name`.
 
 ---
 
@@ -263,6 +289,10 @@ contextMenu.unregisterByPrefix('my:');
 | `media-file` type, `gallery:*` actions | Gallery | Gallery-owned file mutations: rename, select, delete |
 | `gallery-folder`, `gallery-bg` | Gallery | Gallery-only folder/background actions |
 | `drawer:*` bus events | Shell/platform services | Lifecycle, focus, graph, panel, back-button events |
+| `fs:moved` | File-mutating gadget/service | Files or folders moved; payload includes `root`, optional `srcRoot`, and `files` |
+| `fs:renamed` | File-mutating gadget/service | File or folder renamed; payload includes `root`, `subfolder`, `oldName`, `newName`, `isFolder` |
+| `fs:deleted` | File-mutating gadget/service | Files or folders deleted; payload includes `root`, `files`, `deleted`, `deletedFolders` |
+| `fs:created` | File-mutating gadget/service | File or folder created; payload includes `root`, `subfolder`, `name`, `path`, `isFolder` |
 | `settings:*` bus events | Platform setting owner | Emit only when a setting changes behavior outside the settings UI |
 
 When a gadget adds actions to a shared type such as `media-file`, the action ID prefix must name the gadget or owning scope. Platform actions must not call gadget-private methods; gadgets may show shared menus with context data.

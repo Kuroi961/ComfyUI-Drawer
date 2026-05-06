@@ -174,6 +174,8 @@ When adding, removing, or renaming anything exposed through `window.ComfyDrawer`
 
 Prefer adding public APIs as small wrappers over stable services instead of exposing raw internals. Escape hatches such as `bridge.app` and `bridge.api` are for compatibility code only.
 
+Home dashboard widgets should be registered through `registerHomeWidget()` and should return a cleanup function from `render()` when they attach external listeners, timers, or observers.
+
 ### DOM Selectors
 
 Centralize ComfyUI DOM selectors as constants:
@@ -233,7 +235,7 @@ try {
 | Path validation | Backend `_safe_path()` + `_ALLOWED_ROOTS` for traversal prevention |
 | File moves | Validate both source and destination within allowed roots |
 | User input | `encodeURIComponent()` for URL params, `escapeHTML()` for innerHTML |
-| Metadata | Sidecar file sync is NOT Drawer's responsibility. Emit `fs:moved` via Bus |
+| Metadata | Sidecar file sync is NOT Drawer's responsibility. Emit `fs:*` mutation events via Bus (`fs:moved`, `fs:renamed`, `fs:deleted`, `fs:created`) |
 
 ---
 

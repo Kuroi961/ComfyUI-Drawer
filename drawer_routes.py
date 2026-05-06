@@ -10,6 +10,7 @@ import logging
 import sqlite3
 import struct
 import threading
+import time
 import zlib
 
 try:
@@ -895,10 +896,69 @@ _DELETABLE_ROOTS = {"output", "input", "temp"}
 
 # Root display names for breadcrumbs.
 _ROOT_LABELS = {
-    "output": "Outputs",
+    "output": "Output",
     "input":  "Input",
     "temp":   "Temp",
 }
+
+_STORAGE_SKIP_DIRS = {".git", ".thumbs", "__pycache__"}
+_STORAGE_SUMMARY_CACHE = {"ts": 0.0, "data": None}
+_STORAGE_SUMMARY_TTL = 30.0
+
+
+def _format_storage_rel(path):
+    return path.replace("\\", "/").strip("/")
+
+
+def _summarize_tree(base_dir, allowed_exts=None):
+    total_bytes = 0
+    file_count = 0
+    folder_count = 0
+    by_ext = {}
+    top_dirs = {}
+    if not base_dir or not os.path.isdir(base_dir):
+        return {
+            "bytes": 0,
+            "files": 0,
+            "folders": 0,
+            "byExt": [],
+            "topDirs": [],
+        }
+
+    for dirpath, dirnames, filenames in os.walk(base_dir):
+        dirnames[:] = [d for d in dirnames if d not in _STORAGE_SKIP_DIRS and not d.startswith(".")]
+        rel_dir = os.path.relpath(dirpath, base_dir)
+        if rel_dir != ".":
+            folder_count += 1
+        top = "" if rel_dir == "." else _format_storage_rel(rel_dir).split("/", 1)[0]
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            ext = os.path.splitext(filename)[1].lower() or "(none)"
+            if allowed_exts and ext not in allowed_exts:
+                continue
+            full = os.path.join(dirpath, filename)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            total_bytes += size
+            file_count += 1
+            by_ext.setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
+            by_ext[ext]["bytes"] += size
+            by_ext[ext]["files"] += 1
+            if top:
+                top_dirs.setdefault(top, {"name": top, "bytes": 0, "files": 0})
+                top_dirs[top]["bytes"] += size
+                top_dirs[top]["files"] += 1
+
+    return {
+        "bytes": total_bytes,
+        "files": file_count,
+        "folders": folder_count,
+        "byExt": sorted(by_ext.values(), key=lambda x: x["bytes"], reverse=True)[:12],
+        "topDirs": sorted(top_dirs.values(), key=lambda x: x["bytes"], reverse=True)[:8],
+    }
 
 
 def _resolve_root(request):
@@ -1821,6 +1881,85 @@ async def fs_browse(request):
     })
 
 
+@_routes.get("/drawer/storage/summary")
+async def storage_summary(request):
+    """GET /drawer/storage/summary
+    Returns lightweight size and file composition summaries for Gallery roots
+    and ComfyUI model directories.
+    """
+    now = time.time()
+    force = request.query.get("refresh", "").lower() in ("1", "true", "yes")
+    cached = _STORAGE_SUMMARY_CACHE.get("data")
+    if not force and cached is not None and now - _STORAGE_SUMMARY_CACHE.get("ts", 0.0) < _STORAGE_SUMMARY_TTL:
+        return web.json_response(cached)
+
+    roots = []
+    for root_name in ("output", "input"):
+        getter = _ALLOWED_ROOTS.get(root_name)
+        base = getter() if getter else None
+        summary = _summarize_tree(base, set(_MEDIA_EXTS))
+        roots.append({
+            "id": root_name,
+            "label": _ROOT_LABELS.get(root_name, root_name.title()),
+            "path": base,
+            **summary,
+        })
+
+    model_categories = []
+    model_total = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}}
+    for category in sorted(folder_paths.folder_names_and_paths.keys()):
+        try:
+            paths, exts = folder_paths.folder_names_and_paths[category]
+        except Exception:
+            continue
+        category_summary = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}, "topDirs": []}
+        for base in paths:
+            summary = _summarize_tree(base, set(exts or []))
+            category_summary["bytes"] += summary["bytes"]
+            category_summary["files"] += summary["files"]
+            category_summary["folders"] += summary["folders"]
+            for entry in summary["byExt"]:
+                ext = entry["ext"]
+                category_summary["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
+                category_summary["byExt"][ext]["bytes"] += entry["bytes"]
+                category_summary["byExt"][ext]["files"] += entry["files"]
+        if category_summary["files"] <= 0:
+            continue
+        by_ext = sorted(category_summary["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:8]
+        item = {
+            "id": category,
+            "label": category,
+            "bytes": category_summary["bytes"],
+            "files": category_summary["files"],
+            "folders": category_summary["folders"],
+            "byExt": by_ext,
+        }
+        model_categories.append(item)
+        model_total["bytes"] += item["bytes"]
+        model_total["files"] += item["files"]
+        model_total["folders"] += item["folders"]
+        for entry in item["byExt"]:
+            ext = entry["ext"]
+            model_total["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
+            model_total["byExt"][ext]["bytes"] += entry["bytes"]
+            model_total["byExt"][ext]["files"] += entry["files"]
+
+    model_categories.sort(key=lambda x: x["bytes"], reverse=True)
+    data = {
+        "roots": roots,
+        "models": {
+            "bytes": model_total["bytes"],
+            "files": model_total["files"],
+            "folders": model_total["folders"],
+            "byExt": sorted(model_total["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:12],
+            "categories": model_categories[:12],
+        },
+    }
+    _STORAGE_SUMMARY_CACHE["ts"] = now
+    _STORAGE_SUMMARY_CACHE["data"] = data
+    return web.json_response(data)
+
+
 # -- Siblings (for breadcrumb dropdown) --
 
 @_routes.get("/drawer/fs/siblings")
@@ -2184,6 +2323,8 @@ async def fs_delete(request):
         return web.json_response({"error": "No files"}, status=400)
     deleted = 0
     deleted_folders = 0
+    deleted_files = []
+    deleted_folder_items = []
     for item in files:
         subfolder = item.get("subfolder", "")
         name = item.get("name", "")
@@ -2195,11 +2336,18 @@ async def fs_delete(request):
         if os.path.isfile(media_path):
             if _trash_file(media_path):
                 deleted += 1
+                deleted_files.append({"subfolder": subfolder, "name": name})
         elif os.path.isdir(media_path):
             # Folder deletion — send entire folder (with contents) to trash
             if _trash_file(media_path):
                 deleted_folders += 1
-    return web.json_response({"deleted": deleted, "deleted_folders": deleted_folders})
+                deleted_folder_items.append({"subfolder": subfolder, "name": name})
+    return web.json_response({
+        "deleted": deleted,
+        "deleted_folders": deleted_folders,
+        "deleted_files": deleted_files,
+        "deleted_folder_items": deleted_folder_items,
+    })
 
 
 # -- Move --

@@ -358,6 +358,7 @@ export class DeckGadget extends GadgetBase {
   #contextMenu = null;
   #outputFingerprint = '';
   #lightboxItems = [];
+  #lightboxTailSeq = 0;
   #groupMembershipFingerprint = '';
   #nodeGroupKeys = new Map();
   /** @type {Map<string, number>} Manually set textarea heights (nodeId:widgetName → px) */
@@ -1115,6 +1116,7 @@ export class DeckGadget extends GadgetBase {
     let rendered = 0;
     const hasGroups = this.editGroups.some(g => g.title !== null);
     this.#lightboxItems = [];  // Shared lightbox items for cross-node browsing
+    this.#lightboxTailSeq = 0;
     const sharedLbItems = this.#lightboxItems;
 
     for (const group of this.editGroups) {
@@ -1233,7 +1235,14 @@ export class DeckGadget extends GadgetBase {
     if (!root) return;
 
     const items = [];
-    const cards = root.querySelectorAll('.mc-card');
+    const cards = [...root.querySelectorAll('.mc-card')].sort((a, b) => {
+      const aTail = Number(a.dataset.dkLightboxTailSeq || 0);
+      const bTail = Number(b.dataset.dkLightboxTailSeq || 0);
+      if (aTail && bTail) return aTail - bTail;
+      if (aTail) return 1;
+      if (bTail) return -1;
+      return 0;
+    });
     for (const card of cards) {
       const ref = card._lbRef;
       if (!ref?.items || !Number.isInteger(ref.index)) continue;
@@ -1249,6 +1258,16 @@ export class DeckGadget extends GadgetBase {
     }
 
     this.#lightboxItems = items;
+  }
+
+  #moveLightboxCardsToTail(root) {
+    if (!root) return;
+    const cards = root.matches?.('.mc-card')
+      ? [root]
+      : [...root.querySelectorAll?.('.mc-card') || []];
+    for (const card of cards) {
+      card.dataset.dkLightboxTailSeq = String(++this.#lightboxTailSeq);
+    }
   }
 
   /** Auto-size all textareas to fit content (unless manually resized).
@@ -1913,6 +1932,7 @@ export class DeckGadget extends GadgetBase {
             lastImgVal = val;
             this.#renderLoadImagePreview(node, slot, null, force);
             this.#removeLegacyLoadImagePreviewItems(sBody, slot);
+            this.#moveLightboxCardsToTail(slot);
             this.#rebuildLightboxRefsFromDom();
             return;
           }
@@ -1947,6 +1967,8 @@ export class DeckGadget extends GadgetBase {
             card.element.classList.add('dk-output-item');
             const sBody = sec.querySelector('.dk-section-body');
             if (sBody) sBody.appendChild(card.element);
+            this.#moveLightboxCardsToTail(card.element);
+            this.#rebuildLightboxRefsFromDom();
             return;
           }
 
@@ -2012,7 +2034,9 @@ export class DeckGadget extends GadgetBase {
             // Insert into the section body
             const body = sec.querySelector('.dk-section-body');
             if (body) body.appendChild(card.element);
+            this.#moveLightboxCardsToTail(card.element);
           }
+          this.#rebuildLightboxRefsFromDom();
         };
 
         sel.addEventListener('change', syncOutputThumbs);
@@ -2868,13 +2892,17 @@ export class DeckGadget extends GadgetBase {
    * node section that is currently in the DOM. Widgets are untouched.
    * This avoids the full DOM rebuild that causes scroll/flicker issues.
    */
-  #updateOutputsInPlace() {
+  #updateOutputsInPlace(updatedNodeId = null) {
     const container = this.container.querySelector('#dk-sections');
     if (!container) return;
 
     const sharedLbItems = this.#lightboxItems;
+    const targetNodeId = updatedNodeId == null ? null : String(updatedNodeId);
 
     for (const node of this.editNodes) {
+      if (targetNodeId !== null && String(node.id) !== targetNodeId) {
+        continue;
+      }
       if (node.type === 'LoadImage' || node.type === 'LoadImageMask') {
         continue;
       }
@@ -2899,6 +2927,9 @@ export class DeckGadget extends GadgetBase {
       const outputContent = this.#buildNodeOutput(node, nodeOutput, sharedLbItems);
       if (!outputContent) continue;
 
+      if (targetNodeId !== null) {
+        this.#moveLightboxCardsToTail(outputContent);
+      }
       body.appendChild(outputContent);
 
       // Apply old heights as minHeight to new items to prevent layout shrink.
@@ -2930,6 +2961,16 @@ export class DeckGadget extends GadgetBase {
     this.#rebuildLightboxRefsFromDom();
   }
 
+  #getExecutedNodeId(event) {
+    const detail = event?.detail;
+    return detail?.node
+      ?? detail?.display_node
+      ?? detail?.node_id
+      ?? detail?.nodeId
+      ?? detail?.executed?.node
+      ?? null;
+  }
+
   /* ═══ API Event Listeners ═══ */
 
   #attachAPIListeners() {
@@ -2938,8 +2979,8 @@ export class DeckGadget extends GadgetBase {
     // On 'executed' (fires per-node): update inline outputs only.
     // Widget sync is NOT done here because control_after_generate hooks
     // run AFTER this event fires.
-    this.#executedHandler = () => {
-      this.#updateOutputsInPlace();
+    this.#executedHandler = (event) => {
+      this.#updateOutputsInPlace(this.#getExecutedNodeId(event));
     };
     this.bridge.onApiEvent('executed', this.#executedHandler);
 

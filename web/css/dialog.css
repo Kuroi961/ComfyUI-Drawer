@@ -200,6 +200,35 @@ textarea.cd-dialog-input {
     line-height: 1.5;
 }
 
+.cd-rename-file-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    column-gap: 10px;
+}
+
+.cd-rename-file-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.cd-rename-file-field span {
+    color: var(--cd-text-dim);
+    font-size: 12px;
+}
+
+.cd-rename-file-ext {
+    display: inline-flex;
+    align-items: center;
+    height: 37px;
+    color: var(--cd-text-dim);
+    font-size: 13px;
+    line-height: 1;
+    user-select: none;
+}
+
 textarea.cd-dialog-json-viewer {
     min-height: 48vh;
     max-height: 60vh;

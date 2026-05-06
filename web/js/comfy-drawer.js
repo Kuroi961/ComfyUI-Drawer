@@ -8,6 +8,8 @@
  * Gadget lifecycle:
  *   GadgetBase            — Base class; extend to create a gadget
  *   registerGadget(g)     — Register a gadget instance with the drawer
+ *   registerHomeWidget(w) — Register a Home dashboard widget
+ *   unregisterHomeWidget(id) / getHomeWidgets()
  *
  * Platform services:
  *   bus                   — MessageBus for inter-gadget communication
@@ -238,6 +240,7 @@ app.registerExtension({
         const bus = new MessageBus();
         const bridge = new ComfyBridge(app, api);
         const shell = new DrawerShell(bus, bridge);
+        const homeWidgets = new Map();
         const contextMenu = new ContextMenuService();
         const settings = new SettingsService();
 
@@ -977,6 +980,35 @@ app.registerExtension({
             GadgetBase,
             /** Register a gadget with the drawer */
             registerGadget: (gadget) => shell.registerGadget(gadget),
+            /** Register a widget to be shown on the Home dashboard */
+            registerHomeWidget: (widget) => {
+                if (!widget?.id) return () => {};
+                const item = { ...widget };
+                homeWidgets.get(item.id)?.onDestroy?.();
+                homeWidgets.set(item.id, item);
+                bus.emit('home-widget:changed', { id: item.id, action: 'registered' });
+                return () => {
+                    const current = homeWidgets.get(item.id);
+                    if (current === item) {
+                        current.onDestroy?.();
+                        homeWidgets.delete(item.id);
+                        bus.emit('home-widget:changed', { id: item.id, action: 'unregistered' });
+                    }
+                };
+            },
+            /** Remove a Home dashboard widget by ID */
+            unregisterHomeWidget: (id) => {
+                const current = homeWidgets.get(id);
+                if (!current) return false;
+                current.onDestroy?.();
+                homeWidgets.delete(id);
+                bus.emit('home-widget:changed', { id, action: 'unregistered' });
+                return true;
+            },
+            /** Snapshot registered Home dashboard widgets */
+            getHomeWidgets: () => [...homeWidgets.values()].sort((a, b) =>
+                (a.order ?? 0) - (b.order ?? 0) || String(a.id).localeCompare(String(b.id))
+            ),
 
             // ── Platform services ──
             /** MessageBus for inter-gadget communication */
@@ -1078,6 +1110,112 @@ app.registerExtension({
         shell.registerGadget(new DeckGadget());
         shell.registerGadget(new ModelViewerGadget());
         shell.registerGadget(new GalleryGadget());
+
+        const formatBytes = (bytes) => {
+            const n = Number(bytes) || 0;
+            if (n < 1024) return `${n} B`;
+            const units = ['KB', 'MB', 'GB', 'TB'];
+            let value = n / 1024;
+            let unit = units[0];
+            for (let i = 1; i < units.length && value >= 1024; i++) {
+                value /= 1024;
+                unit = units[i];
+            }
+            return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${unit}`;
+        };
+        const paletteFor = (index) => ['#3b82f6', '#f97316', '#22c55e', '#e879f9', '#facc15', '#14b8a6'][index % 6];
+        const renderPie = (parts) => {
+            const total = parts.reduce((sum, part) => sum + (Number(part.bytes) || 0), 0);
+            if (total <= 0) return 'var(--cd-s1)';
+            const visible = parts.slice(0, 6).filter(part => (Number(part.bytes) || 0) > 0);
+            if (visible.length === 1) return paletteFor(0);
+            let cursor = 0;
+            return visible.map((part, index) => {
+                const start = cursor;
+                cursor += ((Number(part.bytes) || 0) / total) * 100;
+                return `${paletteFor(index)} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+            }).join(', ');
+        };
+        const renderStorageOverview = (container, rows) => {
+            container.innerHTML = `<div class="hm-storage-overview"></div>`;
+            const grid = container.querySelector('.hm-storage-overview');
+            for (const row of rows) {
+                const parts = row.byExt || [];
+                const total = parts.reduce((sum, part) => sum + (Number(part.bytes) || 0), 0) || 1;
+                const card = document.createElement('div');
+                card.className = 'hm-storage-pie-card';
+                const legend = parts.slice(0, 4).map((part, index) => `
+                    <span class="hm-storage-legend-item">
+                        <span class="hm-storage-dot" style="background:${paletteFor(index)}"></span>
+                        ${escapeHTML(part.ext)} ${formatBytes(part.bytes)} (${(((Number(part.bytes) || 0) / total) * 100).toFixed(1)}%)
+                    </span>
+                `).join('');
+                card.innerHTML = `
+                    <div class="hm-storage-pie" style="background:conic-gradient(${renderPie(parts)})"></div>
+                    <div class="hm-storage-pie-main">
+                        <div class="hm-storage-pie-title">${escapeHTML(row.label || row.id)}</div>
+                        <div class="hm-storage-pie-meta">${formatBytes(row.bytes)} · ${t('home.storageFiles', { count: Number(row.files || 0).toLocaleString() })}</div>
+                        ${legend ? `<div class="hm-storage-legend">${legend}</div>` : ''}
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+        };
+        const renderStorageBars = (container, rows) => {
+            const maxBytes = Math.max(1, ...rows.map(row => Number(row.bytes) || 0));
+            const list = document.createElement('div');
+            list.className = 'hm-storage-list';
+            for (const row of rows) {
+                const chips = (row.byExt || []).slice(0, 4).map(ext =>
+                    `<span class="hm-storage-chip">${escapeHTML(ext.ext)} ${formatBytes(ext.bytes)}</span>`
+                ).join('');
+                const el = document.createElement('div');
+                el.className = 'hm-storage-row';
+                el.innerHTML = `
+                    <div class="hm-storage-name" title="${escapeHTML(row.label || row.id)}">${escapeHTML(row.label || row.id)}</div>
+                    <div class="hm-storage-main">
+                        <div class="hm-storage-meta">
+                            <span>${formatBytes(row.bytes)}</span>
+                            <span>${t('home.storageFiles', { count: Number(row.files || 0).toLocaleString() })}</span>
+                        </div>
+                        <div class="hm-storage-bar"><div class="hm-storage-fill" style="width:${Math.max(2, Math.round(((Number(row.bytes) || 0) / maxBytes) * 100))}%"></div></div>
+                        ${chips ? `<div class="hm-storage-breakdown">${chips}</div>` : ''}
+                    </div>
+                `;
+                list.appendChild(el);
+            }
+            container.appendChild(list);
+        };
+
+        drawerAPI.registerHomeWidget({
+            id: 'drawer-storage',
+            title: t('home.storage'),
+            order: 10,
+            render: async (container, ctx = {}) => {
+                container.innerHTML = `<div class="hm-empty">${t('common.loading')}</div>`;
+                const url = ctx.force ? '/drawer/storage/summary?refresh=1' : '/drawer/storage/summary';
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const overviewRows = [
+                    ...(data.roots || []),
+                    {
+                        id: 'models',
+                        label: t('modelviewer.label'),
+                        bytes: data.models?.bytes || 0,
+                        files: data.models?.files || 0,
+                        byExt: data.models?.byExt || [],
+                    },
+                ];
+                container.replaceChildren();
+                renderStorageOverview(container, overviewRows);
+                const details = document.createElement('details');
+                details.className = 'hm-storage-details';
+                details.innerHTML = `<summary>${t('home.storageModelDetails')}</summary>`;
+                renderStorageBars(details, (data.models?.categories || []).slice(0, 8).map(cat => ({ ...cat, label: cat.label })));
+                container.appendChild(details);
+            },
+        });
 
         // ── Register utility actions in burger menu ──
         shell.addBurgerAction({

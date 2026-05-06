@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.7 - 2026-05-06
+
+- Add Home dashboard widgets and a Storage overview for Output, Input, and Models
+- Add a Home widget public API for gadget-provided dashboard panels
+- Extend Gallery filesystem events for move, rename, delete, and create operations
+- Make Gallery file rename preserve the original media extension
+- Move updated Deck lightbox items to the end of the navigation order
+- Prevent native context menus on Settings color swatches
+
 ## v1.0.6 - 2026-05-06
 
 - Improve metadata workflow values with label/value formatting and node definition fallbacks

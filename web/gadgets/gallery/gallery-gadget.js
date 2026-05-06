@@ -1053,9 +1053,18 @@ export class GalleryGadget extends GadgetBase {
                             mc.element.remove();
                             this.#state.files = this.#state.files.filter(f => f.name !== file.name);
                             // Notify extensions (e.g. SavePlus sidecar move)
-                            window.ComfyDrawer?.bus?.emit('fs:moved', {
+                            this.#emitFsMoved({
                                 root,
-                                files: [{ name: file.name, srcSubfolder, destSubfolder: destPath }],
+                                files: [{
+                                    name: file.name,
+                                    subfolder: srcSubfolder,
+                                    srcSubfolder,
+                                    destSubfolder: destPath,
+                                    from_subfolder: srcSubfolder,
+                                    to_subfolder: destPath,
+                                    newName: data.renamed?.[0]?.renamed || file.name,
+                                    to_name: data.renamed?.[0]?.renamed || file.name,
+                                }],
                             });
                             if (data.renamed?.length) {
                                 this.#showToast(_t('gallery.renamedAndMoved', { name: data.renamed[0].renamed }));
@@ -1321,28 +1330,117 @@ export class GalleryGadget extends GadgetBase {
         ]);
     }
 
+    #emitFsMoved({ root, srcRoot = root, files = [] }) {
+        if (!files.length) return;
+        window.ComfyDrawer?.bus?.emit('fs:moved', { root, srcRoot, files });
+    }
+
+    #emitFsRenamed({ root, subfolder = '', oldName, newName, isFolder = false }) {
+        if (!oldName || !newName) return;
+        const file = {
+            name: oldName,
+            newName,
+            oldName,
+            subfolder,
+            srcSubfolder: subfolder,
+            destSubfolder: subfolder,
+            from_subfolder: subfolder,
+            to_subfolder: subfolder,
+            from_name: oldName,
+            to_name: newName,
+            isFolder,
+        };
+        window.ComfyDrawer?.bus?.emit('fs:renamed', {
+            root,
+            subfolder,
+            oldName,
+            newName,
+            isFolder,
+            files: [file],
+        });
+        this.#emitFsMoved({ root, files: [file] });
+    }
+
+    #emitFsDeleted({ root, files = [], deleted = 0, deletedFolders = 0 }) {
+        if (!deleted && !deletedFolders) return;
+        window.ComfyDrawer?.bus?.emit('fs:deleted', {
+            root,
+            files,
+            deleted,
+            deletedFolders,
+        });
+    }
+
+    #emitFsCreated({ root, subfolder = '', name, path, isFolder = false }) {
+        if (!name && !path) return;
+        window.ComfyDrawer?.bus?.emit('fs:created', {
+            root,
+            subfolder,
+            name,
+            path,
+            isFolder,
+        });
+    }
+
+    async #promptRenameFile(file) {
+        const showDialog = window.ComfyDrawer?.showDialog;
+        if (!showDialog) return null;
+        const dotIdx = file.name.lastIndexOf('.');
+        const baseName = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
+        const extName = dotIdx > 0 ? file.name.slice(dotIdx) : '';
+
+        return showDialog({
+            title: _t('common.rename'),
+            variant: 'prompt',
+            confirmLabel: _t('common.rename'),
+            cancelLabel: _t('common.cancel'),
+            content: (body) => {
+                const form = document.createElement('div');
+                form.className = 'cd-rename-file-form';
+                form.innerHTML = `
+                    <label class="cd-rename-file-field cd-rename-file-name">
+                        <span>${escapeHTML(_t('gallery.filenameStem'))}</span>
+                        <input class="cd-dialog-input" type="text" value="${escapeHTML(baseName)}" />
+                    </label>
+                    <span class="cd-rename-file-ext">${escapeHTML(extName)}</span>
+                `;
+                body.appendChild(form);
+                const nameInput = form.querySelector('.cd-rename-file-name input');
+                setTimeout(() => {
+                    nameInput?.focus();
+                    nameInput?.select();
+                }, 0);
+                return () => {
+                    const name = (nameInput?.value || '').trim();
+                    return { name, finalName: `${name}${extName}` };
+                };
+            },
+            onValidate: ({ name }) => {
+                if (!name) return _t('gallery.filenameRequired');
+                if (/[\\/]/.test(name)) return _t('gallery.invalidFilename');
+                return null;
+            },
+        });
+    }
+
     /** Context-menu action: rename a file */
     async #ctxRenameFile(file) {
-        const showPrompt = window.ComfyDrawer?.showPrompt;
-        if (!showPrompt) return;
-        const dotIdx = file.name.lastIndexOf('.');
-        const newName = await showPrompt(_t('gallery.newFilenamePrompt'), {
-            defaultValue: dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name,
-            title: _t('common.rename'),
-        });
-        if (!newName || newName === file.name) return;
+        const result = await this.#promptRenameFile(file);
+        const finalName = result?.finalName;
+        if (!finalName || finalName === file.name) return;
         const root = this.#getRoot();
         const subfolder = file.subfolder || this.#state.path;
         try {
             const r = await fetch('/drawer/fs/rename', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ root, subfolder, oldName: file.name, newName }),
+                body: JSON.stringify({ root, subfolder, oldName: file.name, newName: finalName }),
             });
             const data = await r.json();
             if (data.error) {
                 this.#showToast(_t('common.error') + ': ' + data.error);
             } else if (data.renamed) {
+                this.#emitFsRenamed({ root, subfolder, oldName: file.name, newName: finalName, isFolder: false });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
@@ -1372,6 +1470,7 @@ export class GalleryGadget extends GadgetBase {
             if (data.error) {
                 this.#showToast(_t('common.error') + ': ' + data.error);
             } else if (data.renamed) {
+                this.#emitFsRenamed({ root, subfolder, oldName: name, newName, isFolder: true });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
@@ -1408,6 +1507,13 @@ export class GalleryGadget extends GadgetBase {
                     this.#showToast(_t('common.error') + ': ' + data.error);
                     return;
                 }
+                this.#emitFsCreated({
+                    root,
+                    subfolder: parentPath,
+                    name,
+                    path: data.path || [parentPath, name].filter(Boolean).join('/'),
+                    isFolder: true,
+                });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
                 return;
@@ -1441,6 +1547,11 @@ export class GalleryGadget extends GadgetBase {
             });
             const data = await r.json();
             if (data.deleted_folders > 0) {
+                this.#emitFsDeleted({
+                    root,
+                    files: [{ subfolder, name, isFolder: true }],
+                    deletedFolders: data.deleted_folders,
+                });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             } else {
@@ -1614,8 +1725,19 @@ export class GalleryGadget extends GadgetBase {
             const data = await res.json();
 
             if (data.moved > 0) {
-                window.ComfyDrawer?.bus?.emit('fs:moved', {
-                    root: destRoot, srcRoot, files: filesToMove.map(f => ({ ...f, srcSubfolder: f.subfolder, destSubfolder })),
+                const renameByName = new Map((data.renamed || []).map(r => [r.original, r.renamed]));
+                this.#emitFsMoved({
+                    root: destRoot,
+                    srcRoot,
+                    files: filesToMove.map(f => ({
+                        ...f,
+                        srcSubfolder: f.subfolder,
+                        destSubfolder,
+                        from_subfolder: f.subfolder,
+                        to_subfolder: destSubfolder,
+                        newName: renameByName.get(f.name) || f.name,
+                        to_name: renameByName.get(f.name) || f.name,
+                    })),
                 });
             }
 
@@ -1655,6 +1777,20 @@ export class GalleryGadget extends GadgetBase {
                         });
                         const data2 = await res2.json();
                         if (data2.moved > 0) {
+                            const renameByName = new Map((data2.renamed || []).map(r => [r.original, r.renamed]));
+                            this.#emitFsMoved({
+                                root: destRoot,
+                                srcRoot,
+                                files: filesToMove.map(f => ({
+                                    ...f,
+                                    srcSubfolder: f.subfolder,
+                                    destSubfolder,
+                                    from_subfolder: f.subfolder,
+                                    to_subfolder: destSubfolder,
+                                    newName: renameByName.get(f.name) || f.name,
+                                    to_name: renameByName.get(f.name) || f.name,
+                                })),
+                            });
                             this.#showToast(_t('gallery.itemsMoved', { count: data.moved + data2.moved }));
                         }
                         if (data2.errors?.length) {
@@ -1696,13 +1832,30 @@ export class GalleryGadget extends GadgetBase {
 
     async #deleteFiles(files) {
         const root = this.#getRoot();
+        const payloadFiles = files.map(f => ({
+            subfolder: f.subfolder || '',
+            name: f.name,
+            isFolder: !!f.isFolder,
+        }));
         const r = await fetch('/drawer/fs/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ root, files: files.map(f => ({ subfolder: f.subfolder || '', name: f.name })) }),
+            body: JSON.stringify({ root, files: payloadFiles.map(f => ({ subfolder: f.subfolder, name: f.name })) }),
         });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
-        return r.json();
+        const result = await r.json();
+        const deletedFiles = (result.deleted_files || []).map(f => ({ ...f, isFolder: false }));
+        const deletedFolders = (result.deleted_folder_items || []).map(f => ({ ...f, isFolder: true }));
+        const eventFiles = deletedFiles.length || deletedFolders.length
+            ? [...deletedFiles, ...deletedFolders]
+            : payloadFiles;
+        this.#emitFsDeleted({
+            root,
+            files: eventFiles,
+            deleted: result.deleted || 0,
+            deletedFolders: result.deleted_folders || 0,
+        });
+        return result;
     }
 
     async #deleteSelected() {
@@ -1732,7 +1885,7 @@ export class GalleryGadget extends GadgetBase {
                 const lastSlash = folder.path.lastIndexOf('/');
                 const subfolder = lastSlash >= 0 ? folder.path.substring(0, lastSlash) : '';
                 const name = lastSlash >= 0 ? folder.path.substring(lastSlash + 1) : folder.path;
-                itemsToDelete.push({ subfolder, name });
+                itemsToDelete.push({ subfolder, name, isFolder: true });
             }
         }
 

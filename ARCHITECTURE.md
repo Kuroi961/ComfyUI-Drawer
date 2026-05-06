@@ -115,7 +115,7 @@ New repeated gadget access to `bridge.app` should usually become a focused Bridg
 | `drawer:*` | DrawerShell / platform services | Shell lifecycle, focus, back-button, graph, tab, resize, gadget visibility |
 | `comfy:*` | Platform bridge relay | ComfyUI API events normalized onto the bus |
 | `settings:*` | Platform setting owner | Settings changes that affect another component, e.g. `settings:highlight-changed` |
-| `fs:*` | File-mutating gadget/service | Emitted after successful filesystem mutation, e.g. `fs:moved` |
+| `fs:*` | File-mutating gadget/service | Emitted after successful filesystem mutation, e.g. `fs:moved`, `fs:renamed`, `fs:deleted`, `fs:created` |
 | `dict:*` / `tags:*` | DictService | Request/respond autocomplete API |
 | gadget scopes (e.g. `deck:*`) | Owning gadget | Private or semi-private gadget workflow events |
 
@@ -140,6 +140,9 @@ Shared menu types are extension points, but action IDs must keep ownership visib
 |---|---|
 | `GadgetBase` | Base class to extend |
 | `registerGadget(gadget)` | Register a gadget instance |
+| `registerHomeWidget(widget)` | Register a Home dashboard widget |
+| `unregisterHomeWidget(id)` | Remove a Home dashboard widget |
+| `getHomeWidgets()` | Snapshot registered Home dashboard widgets |
 
 ### Platform Services
 
@@ -205,5 +208,5 @@ Event names follow `<scope>:<action>` format:
 | `comfy:` | `executed` |
 | `deck:` | `generate-requested`, `cancel-requested` |
 | `dict:` | `suggest` request responder |
-| `fs:` | `moved` |
+| `fs:` | `moved`, `renamed`, `deleted`, `created` |
 | `settings:` | `highlight-changed` |

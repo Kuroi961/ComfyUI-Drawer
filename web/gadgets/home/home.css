@@ -197,6 +197,223 @@
     max-width: 100%;
 }
 
+/* ── Home widgets ── */
+.gadget-home .hm-home-widgets {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+    margin: 14px 0 4px;
+}
+
+.gadget-home .hm-home-widget {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--cd-divider);
+    border-radius: var(--hm-r-m);
+    background: var(--cd-shell);
+}
+
+.gadget-home .hm-home-widget-title {
+    margin-bottom: 10px;
+    color: var(--cd-accent);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.gadget-home .hm-home-widget-body {
+    min-width: 0;
+}
+
+.gadget-home .hm-storage-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 14px;
+    min-width: 0;
+}
+
+.gadget-home .hm-storage-pie-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 18px 18px 16px;
+    border: 1px solid var(--cd-divider);
+    border-radius: var(--hm-r-m);
+    background: var(--cd-s1);
+}
+
+.gadget-home .hm-storage-pie {
+    width: min(100%, 220px);
+    max-width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    justify-self: center;
+    align-self: center;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--cd-accent) 24%, transparent);
+}
+
+.gadget-home .hm-storage-pie-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+    width: min(100%, 520px);
+    align-self: center;
+}
+
+.gadget-home .hm-storage-pie-title {
+    color: var(--cd-text);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.gadget-home .hm-storage-pie-meta {
+    margin-top: 6px;
+    color: var(--cd-text-dim);
+    font-size: 13px;
+}
+
+.gadget-home .hm-storage-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 12px;
+    margin-top: 12px;
+}
+
+.gadget-home .hm-storage-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--cd-text-dim);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.gadget-home .hm-storage-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+.gadget-home .hm-storage-details {
+    margin-top: 12px;
+}
+
+.gadget-home .hm-storage-details summary {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    color: var(--cd-accent);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.gadget-home .hm-storage-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--cd-divider);
+}
+
+.gadget-home .hm-storage-row {
+    display: grid;
+    grid-template-columns: minmax(96px, 0.28fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--cd-divider);
+}
+
+.gadget-home .hm-storage-row:last-child {
+    border-bottom: none;
+}
+
+.gadget-home .hm-storage-name {
+    min-width: 0;
+    color: var(--cd-text);
+    font-size: 12px;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gadget-home .hm-storage-main {
+    min-width: 0;
+}
+
+.gadget-home .hm-storage-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    color: var(--cd-text-dim);
+    font-size: 11px;
+}
+
+.gadget-home .hm-storage-bar {
+    height: 6px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--cd-s1);
+}
+
+.gadget-home .hm-storage-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--cd-accent);
+}
+
+.gadget-home .hm-storage-breakdown {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.gadget-home .hm-storage-chip {
+    color: var(--cd-text-dim);
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+@media (max-width: 560px) {
+    .gadget-home .hm-home-widgets {
+        grid-template-columns: 1fr;
+    }
+
+    .gadget-home .hm-storage-overview {
+        grid-template-columns: 1fr;
+    }
+
+    .gadget-home .hm-storage-pie-card {
+        padding: 16px;
+    }
+
+    .gadget-home .hm-storage-pie {
+        width: min(100%, 210px);
+        max-width: 100%;
+    }
+
+    .gadget-home .hm-storage-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 13px 0;
+    }
+
+    .gadget-home .hm-storage-name {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+    }
+}
+
 /* ── Info rows ── */
 .gadget-home .hm-info-grid {
     display: grid;

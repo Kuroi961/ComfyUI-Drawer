@@ -346,6 +346,10 @@ function createColorPicker(row, def, settings) {
     swatch.className = 'cd-settings-color-swatch';
     swatch.style.background = currentValue;
     swatch.title = def.label;
+    swatch.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    });
 
     // Native color input sits inside the swatch (opacity:0, fills whole area)
     const input = document.createElement('input');
@@ -398,6 +402,10 @@ function createColorPalette(row, def, settings) {
         swatch.className = 'cd-settings-color-swatch cd-color-palette-swatch';
         swatch.style.background = curVal;
         swatch.title = colorDef.label;
+        swatch.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
 
         const input = document.createElement('input');
         input.type = 'color';

@@ -23,6 +23,7 @@ const ARROW_DOWN_UP = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height
 export class HomeGadget extends GadgetBase {
     #el = {};
     #changelogAbort = null;
+    #widgetCleanups = new Map();
 
     constructor() {
         super('home', {
@@ -38,18 +39,23 @@ export class HomeGadget extends GadgetBase {
     onMount(container, bus, _bridge) {
         this.#buildDOM();
         this.#renderGadgets();
+        this.#renderHomeWidgets();
         this.#renderSystemInfo();
 
         // Re-render gadget cards when gadgets are added/removed/visibility-changed
         const onGadgetChange = () => this.#renderGadgets();
+        const onHomeWidgetChange = () => this.#renderHomeWidgets();
         bus.on('drawer:gadget-registered', onGadgetChange);
         bus.on('drawer:gadget-unregistered', onGadgetChange);
         bus.on('drawer:gadget-visibility-changed', onGadgetChange);
+        bus.on('home-widget:changed', onHomeWidgetChange);
         this.addDisposable(() => {
             bus.off('drawer:gadget-registered', onGadgetChange);
             bus.off('drawer:gadget-unregistered', onGadgetChange);
             bus.off('drawer:gadget-visibility-changed', onGadgetChange);
+            bus.off('home-widget:changed', onHomeWidgetChange);
         });
+        this.addDisposable(() => this.#clearHomeWidgetCleanups());
         this.addDisposable(() => this.#changelogAbort?.abort());
     }
 
@@ -57,6 +63,13 @@ export class HomeGadget extends GadgetBase {
         // Refresh system info on tab switch (may have changed)
         this.#renderSystemInfo();
         this.#renderGadgets();
+        this.#renderHomeWidgets();
+    }
+
+    onGraphChanged() {
+        this.#renderSystemInfo();
+        this.#renderGadgets();
+        this.#renderHomeWidgets({ force: true });
     }
 
     /* ══════ DOM ══════ */
@@ -80,6 +93,8 @@ export class HomeGadget extends GadgetBase {
                 </div>
                 <div class="hm-gadget-zone hm-zone-hidden" data-zone="hidden"></div>
 
+                <div class="hm-home-widgets"></div>
+
                 <div class="hm-section-title">${_t('home.system', 'System')}</div>
                 <div class="hm-info-grid"></div>
 
@@ -96,6 +111,7 @@ export class HomeGadget extends GadgetBase {
             version: q('.hm-version'),
             zoneVisible: q('.hm-zone-visible'),
             zoneHidden: q('.hm-zone-hidden'),
+            homeWidgets: q('.hm-home-widgets'),
             infoGrid: q('.hm-info-grid'),
             links: q('.hm-links'),
             changelog: q('.hm-changelog'),
@@ -107,6 +123,56 @@ export class HomeGadget extends GadgetBase {
 
         this.#renderLinks();
         this.#renderChangelog();
+    }
+
+    async #renderHomeWidgets(options = {}) {
+        const host = this.#el.homeWidgets;
+        if (!host) return;
+
+        this.#clearHomeWidgetCleanups();
+        const widgets = window.ComfyDrawer?.getHomeWidgets?.() || [];
+        host.replaceChildren();
+        if (!widgets.length) return;
+
+        for (const widget of widgets) {
+            const card = document.createElement('section');
+            card.className = 'hm-home-widget';
+            card.dataset.widgetId = widget.id;
+
+            if (widget.title) {
+                const header = document.createElement('div');
+                header.className = 'hm-home-widget-title';
+                header.textContent = widget.title;
+                card.appendChild(header);
+            }
+
+            const body = document.createElement('div');
+            body.className = 'hm-home-widget-body';
+            card.appendChild(body);
+            host.appendChild(card);
+
+            try {
+                const cleanup = await widget.render?.(body, {
+                    t: window.ComfyDrawer?.t,
+                    bridge: window.ComfyDrawer?.bridge,
+                    shell: window.ComfyDrawer?.shell,
+                    bus: window.ComfyDrawer?.bus,
+                    force: !!options.force,
+                });
+                if (typeof cleanup === 'function') {
+                    this.#widgetCleanups.set(widget.id, cleanup);
+                }
+            } catch (e) {
+                body.innerHTML = `<div class="hm-empty">${this.#escapeHTML(e?.message || 'Widget error')}</div>`;
+            }
+        }
+    }
+
+    #clearHomeWidgetCleanups() {
+        for (const cleanup of this.#widgetCleanups.values()) {
+            try { cleanup(); } catch { /* ignore */ }
+        }
+        this.#widgetCleanups.clear();
     }
 
     /* ══════ Gadget Cards (Two-Zone D&D) ══════ */
