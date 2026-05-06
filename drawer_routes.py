@@ -961,6 +961,240 @@ def _summarize_tree(base_dir, allowed_exts=None):
     }
 
 
+def _normalize_search_query(query):
+    raw_query = (query or "").strip()
+    if raw_query.startswith('"') and raw_query.endswith('"') and len(raw_query) > 2:
+        raw_query = raw_query[1:-1]
+    return raw_query.lower()
+
+
+def _parse_search_terms(query):
+    """Parse search input into AND terms, preserving quoted phrases."""
+    include = []
+    exclude = []
+    buf = []
+    in_quote = False
+    quote_char = ""
+    negating = False
+    token_started = False
+
+    def commit_term():
+        nonlocal buf, negating, token_started
+        term = "".join(buf).strip().lower()
+        if term:
+            (exclude if negating else include).append(term)
+        buf = []
+        negating = False
+        token_started = False
+
+    for ch in (query or "").strip():
+        if ch in ("'", '"'):
+            if in_quote and ch == quote_char:
+                commit_term()
+                in_quote = False
+                quote_char = ""
+            elif not in_quote and not token_started:
+                in_quote = True
+                quote_char = ch
+                token_started = True
+            else:
+                buf.append(ch)
+        elif ch.isspace() and not in_quote:
+            commit_term()
+        elif ch == "-" and not in_quote and not token_started:
+            negating = True
+            token_started = True
+        else:
+            buf.append(ch)
+            token_started = True
+    commit_term()
+    return {"include": include, "exclude": exclude}
+
+
+def _search_text_matches(haystack, terms):
+    text = (haystack or "").lower()
+    return (
+        all(term in text for term in terms.get("include", []))
+        and all(term not in text for term in terms.get("exclude", []))
+    )
+
+
+def _search_terms_empty(terms):
+    return not terms.get("include") and not terms.get("exclude")
+
+
+def _parse_node_search_clauses(query):
+    clauses = []
+    out = []
+    i = 0
+    text = query or ""
+    while i < len(text):
+        lower = text[i:].lower()
+        if lower.startswith("type:"):
+            kind = "type"
+            prefix_len = 5
+        elif lower.startswith("title:"):
+            kind = "title"
+            prefix_len = 6
+        else:
+            out.append(text[i])
+            i += 1
+            continue
+        start = i
+        i += prefix_len
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if i >= len(text):
+            out.append(text[start:])
+            break
+        if text[i] in ("'", '"'):
+            quote = text[i]
+            i += 1
+            type_start = i
+            while i < len(text) and text[i] != quote:
+                i += 1
+            node_type = text[type_start:i].strip()
+            if i < len(text) and text[i] == quote:
+                i += 1
+        else:
+            type_start = i
+            if kind == "title":
+                while i < len(text) and text[i] != "[":
+                    i += 1
+            else:
+                while i < len(text) and text[i] != "[" and not text[i].isspace():
+                    i += 1
+            node_type = text[type_start:i].strip()
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if not node_type or i >= len(text) or text[i] != "[":
+            out.append(text[start:i])
+            continue
+        i += 1
+        depth = 1
+        inner = []
+        in_quote = False
+        quote = ""
+        while i < len(text) and depth > 0:
+            ch = text[i]
+            if ch in ("'", '"'):
+                if in_quote and ch == quote:
+                    in_quote = False
+                    quote = ""
+                elif not in_quote:
+                    in_quote = True
+                    quote = ch
+                inner.append(ch)
+            elif ch == "[" and not in_quote:
+                depth += 1
+                inner.append(ch)
+            elif ch == "]" and not in_quote:
+                depth -= 1
+                if depth > 0:
+                    inner.append(ch)
+            else:
+                inner.append(ch)
+            i += 1
+        if depth == 0:
+            clauses.append({
+                "kind": kind,
+                "selector": node_type,
+                "terms": _parse_search_terms("".join(inner)),
+            })
+            out.append(" ")
+        else:
+            out.append(text[start:])
+            break
+    return " ".join("".join(out).split()), clauses
+
+
+def _node_filters_match(nodes_json, node_filters):
+    if not node_filters:
+        return True
+    try:
+        nodes = json.loads(nodes_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return False
+    if not isinstance(nodes, list):
+        return False
+    for clause in node_filters:
+        kind = clause.get("kind", "type")
+        selector = str(clause.get("selector", "")).lower()
+        terms = clause["terms"]
+        matched = False
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            if kind == "title":
+                if selector not in str(node.get("title", "")).lower():
+                    continue
+            else:
+                if str(node.get("type", "")).lower() != selector:
+                    continue
+            if _search_terms_empty(terms) or _search_text_matches(node.get("text", ""), terms):
+                matched = True
+                break
+        if not matched:
+            return False
+    return True
+
+
+def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, scope="", include_metadata=False):
+    """Search files directly when the SQLite index is unavailable or stale."""
+    terms = _parse_search_terms(query)
+    if _search_terms_empty(terms):
+        return []
+    search_root = _safe_path(root, subpath) if subpath else root
+    if search_root is None or not os.path.isdir(search_root):
+        return []
+
+    results = []
+    for dirpath, dirnames, filenames in os.walk(search_root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        rel = os.path.relpath(dirpath, root).replace("\\", "/")
+        if rel == ".":
+            rel = ""
+        for fname in filenames:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in _MEDIA_EXTS:
+                continue
+            full = os.path.join(dirpath, fname)
+            name_match = _search_text_matches(fname, terms)
+            prompt_match = workflow_match = False
+            if include_metadata and (not name_match or scope in ("prompt", "workflow")):
+                meta = _read_embedded_meta(full)
+                if meta:
+                    parts = _extract_searchable_parts(meta)
+                    prompt_match = _search_text_matches(parts["prompt"], terms)
+                    workflow_match = _search_text_matches(parts["workflow"], terms)
+            if scope == "name":
+                matched = name_match
+            elif scope == "prompt":
+                matched = prompt_match
+            elif scope == "workflow":
+                matched = workflow_match
+            else:
+                matched = name_match or prompt_match or workflow_match
+            if not matched:
+                continue
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            results.append({
+                "name": fname,
+                "path": (rel + "/" + fname) if rel else fname,
+                "subfolder": rel,
+                "size": st.st_size,
+                "created": st.st_mtime,
+                "type": _ftype(ext),
+            })
+            if limit > 0 and len(results) >= limit:
+                return results
+    results.sort(key=lambda r: r["created"], reverse=True)
+    return results
+
+
 def _resolve_root(request):
     """Resolve the root parameter from request query to an absolute path.
     Returns (root_name, root_path) or (None, None) if invalid.
@@ -984,42 +1218,74 @@ def _safe_path(root, *parts):
 
 def _extract_searchable_parts(meta):
     """Extract structured searchable parts from ComfyUI metadata.
-    Returns dict with keys: classes, titles, inputs.
+    Returns dict with keys: prompt, workflow, nodes.
     """
-    classes = []
-    titles = []
-    inputs = []
+    prompt_parts = []
+    workflow_parts = []
+    nodes = []
     prompt = meta.get("prompt", {})
     if isinstance(prompt, dict):
         for _nid, node in prompt.items():
             if not isinstance(node, dict):
                 continue
+            node_parts = []
             ct = node.get("class_type", "")
+            title = ""
             if ct:
-                classes.append(ct)
+                prompt_parts.append(ct)
+                node_parts.append(ct)
             nm = node.get("_meta", {})
             if isinstance(nm, dict):
                 t = nm.get("title", "")
                 if t:
-                    titles.append(t)
+                    title = str(t)
+                    prompt_parts.append(t)
+                    node_parts.append(t)
             node_inputs = node.get("inputs", {})
             if isinstance(node_inputs, dict):
-                for _k, v in node_inputs.items():
+                for k, v in node_inputs.items():
+                    node_parts.append(str(k))
                     if isinstance(v, str) and v:
-                        inputs.append(v)
+                        prompt_parts.append(v)
+                        node_parts.append(v)
                     elif isinstance(v, (int, float)):
-                        inputs.append(str(v))
+                        prompt_parts.append(str(v))
+                        node_parts.append(str(v))
+            if ct:
+                nodes.append({"type": str(ct), "title": title, "text": " ".join(node_parts)})
     workflow = meta.get("workflow", {})
     if isinstance(workflow, dict):
         for wn in workflow.get("nodes", []):
             if isinstance(wn, dict):
+                node_parts = []
+                title = ""
                 t = wn.get("title", "")
                 if t:
-                    titles.append(t)
+                    title = str(t)
+                    workflow_parts.append(t)
+                    node_parts.append(t)
+                typ = wn.get("type", "")
+                if typ:
+                    workflow_parts.append(typ)
+                    node_parts.append(typ)
+                for key in ("widgets_values", "inputs", "outputs"):
+                    value = wn.get(key)
+                    node_parts.append(key)
+                    if isinstance(value, (list, tuple)):
+                        values = [str(v) for v in value if isinstance(v, (str, int, float))]
+                        workflow_parts.extend(values)
+                        node_parts.extend(values)
+                    elif isinstance(value, dict):
+                        values = [str(v) for v in value.values() if isinstance(v, (str, int, float))]
+                        workflow_parts.extend(values)
+                        node_parts.extend(str(k) for k in value.keys())
+                        node_parts.extend(values)
+                if typ:
+                    nodes.append({"type": str(typ), "title": title, "text": " ".join(node_parts)})
     return {
-        "classes": " ".join(classes),
-        "titles": " ".join(titles),
-        "inputs": " ".join(inputs),
+        "prompt": " ".join(prompt_parts),
+        "workflow": " ".join(workflow_parts),
+        "nodes": nodes,
     }
 
 
@@ -1035,7 +1301,7 @@ class _SearchIndex:
     - Incremental updates via mtime comparison.
     """
 
-    _SCHEMA_VERSION = 4  # v4: normalize path separators (always forward slash)
+    _SCHEMA_VERSION = 7  # v7: add node title data to scoped search
 
     def __init__(self):
         self._db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
@@ -1089,37 +1355,37 @@ class _SearchIndex:
                 mtime REAL NOT NULL,
                 size INTEGER NOT NULL,
                 ftype TEXT NOT NULL,
-                s_classes TEXT NOT NULL DEFAULT '',
-                s_titles TEXT NOT NULL DEFAULT '',
-                s_inputs TEXT NOT NULL DEFAULT ''
+                s_prompt TEXT NOT NULL DEFAULT '',
+                s_workflow TEXT NOT NULL DEFAULT '',
+                s_nodes TEXT NOT NULL DEFAULT '[]'
             )
         """)
         c.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_files_path
             ON files(root, subfolder, name)
         """)
-        # FTS5 virtual table — 4 searchable columns
+        # FTS5 virtual table — filename + metadata scopes
         c.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-                name, s_classes, s_titles, s_inputs,
+                name, s_prompt, s_workflow, s_nodes,
                 content='files', content_rowid='id'
             )
         """)
         # Triggers to keep FTS in sync
         c.executescript("""
             CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
-                INSERT INTO files_fts(rowid, name, s_classes, s_titles, s_inputs)
-                VALUES (new.id, new.name, new.s_classes, new.s_titles, new.s_inputs);
+                INSERT INTO files_fts(rowid, name, s_prompt, s_workflow, s_nodes)
+                VALUES (new.id, new.name, new.s_prompt, new.s_workflow, new.s_nodes);
             END;
             CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, s_classes, s_titles, s_inputs)
-                VALUES ('delete', old.id, old.name, old.s_classes, old.s_titles, old.s_inputs);
+                INSERT INTO files_fts(files_fts, rowid, name, s_prompt, s_workflow, s_nodes)
+                VALUES ('delete', old.id, old.name, old.s_prompt, old.s_workflow, old.s_nodes);
             END;
             CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, s_classes, s_titles, s_inputs)
-                VALUES ('delete', old.id, old.name, old.s_classes, old.s_titles, old.s_inputs);
-                INSERT INTO files_fts(rowid, name, s_classes, s_titles, s_inputs)
-                VALUES (new.id, new.name, new.s_classes, new.s_titles, new.s_inputs);
+                INSERT INTO files_fts(files_fts, rowid, name, s_prompt, s_workflow, s_nodes)
+                VALUES ('delete', old.id, old.name, old.s_prompt, old.s_workflow, old.s_nodes);
+                INSERT INTO files_fts(rowid, name, s_prompt, s_workflow, s_nodes)
+                VALUES (new.id, new.name, new.s_prompt, new.s_workflow, new.s_nodes);
             END;
         """)
 
@@ -1234,27 +1500,28 @@ class _SearchIndex:
                 if row and abs(st.st_mtime - row[0]) < 0.01:
                     continue  # unchanged file
                 # Index or update
-                s_classes = s_titles = s_inputs = ""
+                s_prompt = s_workflow = ""
+                s_nodes = "[]"
                 meta = _read_embedded_meta(full)
                 if meta:
                     parts = _extract_searchable_parts(meta)
-                    s_classes = parts["classes"]
-                    s_titles = parts["titles"]
-                    s_inputs = parts["inputs"]
+                    s_prompt = parts["prompt"]
+                    s_workflow = parts["workflow"]
+                    s_nodes = json.dumps(parts["nodes"], ensure_ascii=False)
                 ftype = _ftype(ext)
                 with self._lock:
                     conn.execute("""
                         INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                         s_classes, s_titles, s_inputs)
+                                         s_prompt, s_workflow, s_nodes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(root, subfolder, name) DO UPDATE SET
                             mtime=excluded.mtime, size=excluded.size,
                             ftype=excluded.ftype,
-                            s_classes=excluded.s_classes,
-                            s_titles=excluded.s_titles,
-                            s_inputs=excluded.s_inputs
+                            s_prompt=excluded.s_prompt,
+                            s_workflow=excluded.s_workflow,
+                            s_nodes=excluded.s_nodes
                     """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
-                          s_classes, s_titles, s_inputs))
+                          s_prompt, s_workflow, s_nodes))
             conn.commit()
 
     def _index_root(self, conn, root_name, root_path):
@@ -1287,28 +1554,29 @@ class _SearchIndex:
                     count += 1
                     continue  # unchanged
                 # Extract searchable parts from embedded metadata (images & video)
-                s_classes = s_titles = s_inputs = ""
+                s_prompt = s_workflow = ""
+                s_nodes = "[]"
                 meta = _read_embedded_meta(full)
                 if meta:
                     parts = _extract_searchable_parts(meta)
-                    s_classes = parts["classes"]
-                    s_titles = parts["titles"]
-                    s_inputs = parts["inputs"]
+                    s_prompt = parts["prompt"]
+                    s_workflow = parts["workflow"]
+                    s_nodes = json.dumps(parts["nodes"], ensure_ascii=False)
                 ext = os.path.splitext(fname)[1].lower()
                 ftype = _ftype(ext)
                 with self._lock:
                     conn.execute("""
                         INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                         s_classes, s_titles, s_inputs)
+                                         s_prompt, s_workflow, s_nodes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(root, subfolder, name) DO UPDATE SET
                             mtime=excluded.mtime, size=excluded.size,
                             ftype=excluded.ftype,
-                            s_classes=excluded.s_classes,
-                            s_titles=excluded.s_titles,
-                            s_inputs=excluded.s_inputs
+                            s_prompt=excluded.s_prompt,
+                            s_workflow=excluded.s_workflow,
+                            s_nodes=excluded.s_nodes
                     """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
-                          s_classes, s_titles, s_inputs))
+                          s_prompt, s_workflow, s_nodes))
                 count += 1
                 self._indexed_count = count
                 if count % 500 == 0:
@@ -1344,7 +1612,7 @@ class _SearchIndex:
 
     def search(self, query, root_name, subpath="", limit=200, scope=""):
         """Search the index. Returns list of file dicts, or None if index not ready.
-        scope: '' (all), 'name', 'class', 'title', 'input'
+        scope: '' (all), 'name', 'prompt', 'workflow'
         """
         if not self._ready:
             return None  # signal caller to fall back
@@ -1352,82 +1620,68 @@ class _SearchIndex:
         # Map scope to column names
         _SCOPE_MAP = {
             "name": ("name", "f.name"),
-            "class": ("s_classes", "f.s_classes"),
-            "title": ("s_titles", "f.s_titles"),
-            "input": ("s_inputs", "f.s_inputs"),
+            "prompt": ("s_prompt", "f.s_prompt"),
+            "workflow": ("s_workflow", "f.s_workflow"),
         }
 
         with self._lock:
             conn = self._get_conn()
 
-            # Exact match mode: "query" (double-quoted) → SQL LIKE on raw columns
-            if query.startswith('"') and query.endswith('"') and len(query) > 2:
-                exact = query[1:-1].lower()
-                pattern = f"%{exact}%"
-                if scope in _SCOPE_MAP:
-                    _, sql_col = _SCOPE_MAP[scope]
-                    sql = f"""
-                        SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype
-                        FROM files AS f
-                        WHERE f.root = ? AND LOWER({sql_col}) LIKE ?
-                    """
-                    params = [root_name, pattern]
-                else:
-                    sql = """
-                        SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype
-                        FROM files AS f
-                        WHERE f.root = ?
-                          AND (LOWER(f.name) LIKE ?
-                            OR LOWER(f.s_classes) LIKE ?
-                            OR LOWER(f.s_titles) LIKE ?
-                            OR LOWER(f.s_inputs) LIKE ?)
-                    """
-                    params = [root_name, pattern, pattern, pattern, pattern]
-                if subpath:
-                    sql += " AND (f.subfolder = ? OR f.subfolder LIKE ?)"
-                    params.extend([subpath, subpath + "/%"])
-                if limit > 0:
-                    sql += " ORDER BY f.mtime DESC LIMIT ?"
-                    params.append(limit)
-                else:
-                    sql += " ORDER BY f.mtime DESC"
-                try:
-                    rows = conn.execute(sql, params).fetchall()
-                except sqlite3.OperationalError:
-                    return []
-            else:
-                # FTS5 token search (fuzzy — ignores hyphens/underscores)
-                tokens = [t for t in query.lower().split() if t]
-                if not tokens:
-                    return []
-                # Build FTS5 query with optional column scope
-                if scope in _SCOPE_MAP:
-                    fts_col, _ = _SCOPE_MAP[scope]
-                    fts_query = " AND ".join(f'{fts_col}:"{t}"*' for t in tokens)
-                else:
-                    fts_query = " AND ".join(f'"{t}"*' for t in tokens)
-                sql = """
-                    SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype
-                    FROM files_fts AS idx
-                    JOIN files AS f ON f.id = idx.rowid
-                    WHERE files_fts MATCH ?
-                      AND f.root = ?
+            base_query, node_filters = _parse_node_search_clauses(query)
+            terms = _parse_search_terms(base_query)
+            if _search_terms_empty(terms) and not node_filters:
+                return []
+            include_patterns = [f"%{term}%" for term in terms["include"]]
+            exclude_patterns = [f"%{term}%" for term in terms["exclude"]]
+            if scope in _SCOPE_MAP:
+                _, sql_col = _SCOPE_MAP[scope]
+                include_conditions = [f"LOWER({sql_col}) LIKE ?"] * len(include_patterns)
+                exclude_conditions = [f"LOWER({sql_col}) NOT LIKE ?"] * len(exclude_patterns)
+                conditions = " AND ".join(include_conditions + exclude_conditions) or "1=1"
+                sql = f"""
+                    SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype, f.s_nodes
+                    FROM files AS f
+                    WHERE f.root = ? AND {conditions}
                 """
-                params = [fts_query, root_name]
-                if subpath:
-                    sql += " AND (f.subfolder = ? OR f.subfolder LIKE ?)"
-                    params.extend([subpath, subpath + "/%"])
-                if limit > 0:
-                    sql += " ORDER BY f.mtime DESC LIMIT ?"
-                    params.append(limit)
-                else:
-                    sql += " ORDER BY f.mtime DESC"
-                try:
-                    rows = conn.execute(sql, params).fetchall()
-                except sqlite3.OperationalError:
-                    return []
+                params = [root_name, *include_patterns, *exclude_patterns]
+            else:
+                include_conditions = [
+                    "(LOWER(f.name) LIKE ? OR LOWER(f.s_prompt) LIKE ? OR LOWER(f.s_workflow) LIKE ?)"
+                    for _term in include_patterns
+                ]
+                exclude_conditions = [
+                    "(LOWER(f.name) NOT LIKE ? AND LOWER(f.s_prompt) NOT LIKE ? AND LOWER(f.s_workflow) NOT LIKE ?)"
+                    for _term in exclude_patterns
+                ]
+                conditions = " AND ".join(include_conditions + exclude_conditions) or "1=1"
+                sql = """
+                    SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype, f.s_nodes
+                    FROM files AS f
+                    WHERE f.root = ?
+                      AND {conditions}
+                """
+                sql = sql.format(conditions=conditions)
+                params = [root_name]
+                for pattern in include_patterns:
+                    params.extend([pattern, pattern, pattern])
+                for pattern in exclude_patterns:
+                    params.extend([pattern, pattern, pattern])
+            if subpath:
+                sql += " AND (f.subfolder = ? OR f.subfolder LIKE ?)"
+                params.extend([subpath, subpath + "/%"])
+            if limit > 0:
+                sql += " ORDER BY f.mtime DESC LIMIT ?"
+                params.append(limit)
+            else:
+                sql += " ORDER BY f.mtime DESC"
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                return []
         results = []
-        for name, subfolder, size, mtime, ftype in rows:
+        for name, subfolder, size, mtime, ftype, s_nodes in rows:
+            if not _node_filters_match(s_nodes, node_filters):
+                continue
             subfolder = subfolder.replace("\\", "/")
             results.append({
                 "name": name,
@@ -1441,10 +1695,10 @@ class _SearchIndex:
 
     def update_searchable(self, root_name, subfolder, name,
                           searchable_text="",
-                          s_classes="", s_titles="", s_inputs=""):
+                          s_prompt="", s_workflow="", s_nodes="[]", **legacy):
         """Update searchable fields for an indexed file.
-        Accepts either structured fields (s_classes, s_titles, s_inputs)
-        or a single searchable_text (stored as s_inputs for backward compat).
+        Accepts prompt/workflow fields, legacy structured fields, or a single
+        searchable_text (stored as prompt for backward compat).
         """
         getter = _ALLOWED_ROOTS.get(root_name)
         if getter is None:
@@ -1461,25 +1715,30 @@ class _SearchIndex:
             st = os.stat(full)
         except OSError:
             return False
-        # Backward compat: if only searchable_text given, put it in s_inputs
-        if searchable_text and not (s_classes or s_titles or s_inputs):
-            s_inputs = searchable_text
+        if not s_prompt:
+            s_prompt = " ".join(
+                legacy.get(key, "")
+                for key in ("s_classes", "s_titles", "s_inputs")
+                if legacy.get(key, "")
+            )
+        if searchable_text and not (s_prompt or s_workflow):
+            s_prompt = searchable_text
         ext = os.path.splitext(name)[1].lower()
         ftype = _ftype(ext)
         with self._lock:
             conn = self._get_conn()
             conn.execute("""
                 INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                 s_classes, s_titles, s_inputs)
+                                 s_prompt, s_workflow, s_nodes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(root, subfolder, name) DO UPDATE SET
                     mtime=excluded.mtime, size=excluded.size,
                     ftype=excluded.ftype,
-                    s_classes=excluded.s_classes,
-                    s_titles=excluded.s_titles,
-                    s_inputs=excluded.s_inputs
+                    s_prompt=excluded.s_prompt,
+                    s_workflow=excluded.s_workflow,
+                    s_nodes=excluded.s_nodes
             """, (root_name, subfolder.replace("\\", "/"), name, st.st_mtime, st.st_size, ftype,
-                  s_classes, s_titles, s_inputs))
+                  s_prompt, s_workflow, s_nodes))
             conn.commit()
         return True
 
@@ -2146,47 +2405,18 @@ async def fs_search(request):
     results = _search_index.search(query, root_name, subpath, limit=limit, scope=scope)
     if results is not None and len(results) > 0:
         return web.json_response({"files": results, "total": len(results), "query": query})
-    # For scoped searches (class/title/input), index is authoritative — no fallback
-    if results is not None and scope in ("class", "title", "input"):
-        return web.json_response({"files": [], "total": 0, "query": query})
-    # Fallback: filename-only walk (only if index is NOT ready yet)
     if results is not None:
-        # Index is ready but returned 0 — trust it, don't fall back
+        # Once the index is ready, trust it. Metadata fallback can require
+        # reading many media files and can block ComfyUI's HTTP server.
         return web.json_response({"files": [], "total": 0, "query": query})
 
-    # Fallback: filename-only search (index not ready yet)
-    tokens = [t for t in query.lower().split() if t]
-    if not tokens:
+    # Fallback while the index is still rebuilding: filename-only raw substring
+    # search. Metadata scopes need the index to avoid blocking the server.
+    if scope in ("prompt", "workflow"):
         return web.json_response({"files": [], "total": 0, "query": query})
-    search_root = _safe_path(root, subpath) if subpath else root
-    if search_root is None:
-        return web.json_response({"error": "Invalid path"}, status=400)
-    if not os.path.isdir(search_root):
-        return web.json_response({"files": [], "total": 0, "query": query})
-    results = []
-    for dirpath, dirnames, filenames in os.walk(search_root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        for fname in filenames:
-            ext = os.path.splitext(fname)[1].lower()
-            if ext not in _MEDIA_EXTS:
-                continue
-            if not all(tok in fname.lower() for tok in tokens):
-                continue
-            full = os.path.join(dirpath, fname)
-            try:
-                st = os.stat(full)
-            except OSError:
-                continue
-            rel = os.path.relpath(dirpath, root).replace("\\", "/")
-            if rel == ".":
-                rel = ""
-            results.append({
-                "name": fname,
-                "path": (rel + "/" + fname) if rel else fname,
-                "subfolder": rel, "size": st.st_size, "created": st.st_ctime,
-                "type": _ftype(ext),
-            })
-    results.sort(key=lambda r: r["created"], reverse=True)
+    results = _search_filesystem_raw(
+        root_name, root, query, subpath, limit=limit, scope=scope, include_metadata=False
+    )
     return web.json_response({"files": results, "total": len(results), "query": query})
 
 
@@ -2217,14 +2447,19 @@ async def fs_index_update(request):
             subfolder = entry.get("subfolder", "").strip()
             name = entry.get("name", "").strip()
             searchable = entry.get("searchable", "").strip()
-            s_classes = entry.get("s_classes", "").strip()
-            s_titles = entry.get("s_titles", "").strip()
-            s_inputs = entry.get("s_inputs", "").strip()
-            if name and (searchable or s_classes or s_titles or s_inputs):
+            s_prompt = entry.get("s_prompt", entry.get("prompt", "")).strip()
+            s_workflow = entry.get("s_workflow", entry.get("workflow", "")).strip()
+            s_nodes = entry.get("s_nodes", "[]")
+            legacy = {
+                "s_classes": entry.get("s_classes", "").strip(),
+                "s_titles": entry.get("s_titles", "").strip(),
+                "s_inputs": entry.get("s_inputs", "").strip(),
+            }
+            if name and (searchable or s_prompt or s_workflow or any(legacy.values())):
                 if _search_index.update_searchable(
                     root_name, subfolder, name,
                     searchable_text=searchable,
-                    s_classes=s_classes, s_titles=s_titles, s_inputs=s_inputs,
+                    s_prompt=s_prompt, s_workflow=s_workflow, s_nodes=s_nodes, **legacy,
                 ):
                     ok_count += 1
         return web.json_response({"ok": True, "updated": ok_count})
@@ -2234,15 +2469,20 @@ async def fs_index_update(request):
     subfolder = body.get("subfolder", "").strip()
     name = body.get("name", "").strip()
     searchable = body.get("searchable", "").strip()
-    s_classes = body.get("s_classes", "").strip()
-    s_titles = body.get("s_titles", "").strip()
-    s_inputs = body.get("s_inputs", "").strip()
+    s_prompt = body.get("s_prompt", body.get("prompt", "")).strip()
+    s_workflow = body.get("s_workflow", body.get("workflow", "")).strip()
+    s_nodes = body.get("s_nodes", "[]")
+    legacy = {
+        "s_classes": body.get("s_classes", "").strip(),
+        "s_titles": body.get("s_titles", "").strip(),
+        "s_inputs": body.get("s_inputs", "").strip(),
+    }
     if not name:
         return web.json_response({"error": "name required"}, status=400)
     ok = _search_index.update_searchable(
         root_name, subfolder, name,
         searchable_text=searchable,
-        s_classes=s_classes, s_titles=s_titles, s_inputs=s_inputs,
+        s_prompt=s_prompt, s_workflow=s_workflow, s_nodes=s_nodes, **legacy,
     )
     if not ok:
         return web.json_response({"error": "File not found or invalid root"}, status=404)

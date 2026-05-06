@@ -157,14 +157,19 @@ No dedicated XYZ nodes or extra wiring are required; sweep the widgets and bypas
 ### Gallery
 
 <p align="left">
-  <img src="docs/gallery.webp" width="25%">
+  <img src="docs/gallery.webp" width="75%">
 </p>
 
 A gadget for browsing media and folders under the output, input, and temp directories.
 
 - Folder navigation with breadcrumbs, sorting by name/date/size
 - File rename, move (D&D / batch selection), and delete
-- Automatically builds a SQLite search index on first launch, enabling full-text search by workflow metadata such as node type, node title, and input values
+- Automatically builds a SQLite search index on first launch for filename, prompt, workflow, and node type-scoped metadata search
+- Search supports quoted phrases, space-separated AND terms, and NOT terms with `-word` or `-"quoted phrase"`
+- Node type-scoped search can target values from a specific node type with syntax such as `type:CLIPTextEncode[white hair -night]`. The `[...]` part acts like a virtual search box for values inside that node type, using the same phrase / AND / NOT rules as the main search field
+- Node title-scoped search is also available with syntax such as `title:My Prompt Node[school uniform]` or `title:"Prompt A"[blue sky]`. The title part matches node titles, and the `[...]` part searches values inside matching titled nodes
+- Search filters include target field, date range, and file size, with a compact mobile-friendly two-row search toolbar
+- Node type, user dictionary, and Danbooru dictionary autocomplete are available in the Gallery search field
 - New folder creation, folder move, and folder delete
 
 ---

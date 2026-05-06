@@ -66,6 +66,7 @@ function parseDanbooruCSV(csv) {
     return tags;
 }
 
+
 // ═══════════════════════════════════════════════════════
 //  DictService Class
 // ═══════════════════════════════════════════════════════
@@ -196,7 +197,9 @@ export class DictService {
 
         for (const [id, dict] of this.#dictionaries) {
             if (!this.isEnabled(id)) continue;
-            if (context !== 'all' && dict.context !== 'all' && dict.context !== context) continue;
+            if (context !== 'all' && dict.context !== 'all' && dict.context !== context) {
+                if (!(context === 'search' && dict.context === 'prompt' && id === 'danbooru')) continue;
+            }
 
             await this.#ensureLoaded(id);
             if (!dict.data || dict.data.length === 0) continue;
@@ -377,6 +380,7 @@ export function createDanbooruLoader() {
         return parseDanbooruCSV(csv);
     };
 }
+
 /**
  * Create a loader for all user dictionaries (type="dict" only).
  * Fetches the manifest from `/drawer/user-dicts`, then loads entries
@@ -449,6 +453,50 @@ export function createWildcardLoader() {
     };
 }
 
+/**
+ * Create a loader for registered ComfyUI node types.
+ * @returns {function(): Promise<Array>}
+ */
+export function createNodeTypeLoader() {
+    const formatNodeSearch = (type) => {
+        const raw = String(type);
+        const safe = /^[A-Za-z0-9_.:-]+$/.test(raw) ? raw : `"${raw.replace(/"/g, '\\"')}"`;
+        return `type:${safe}[]`;
+    };
+    return async () => {
+        const types = new Map();
+        const registered = globalThis.LiteGraph?.registered_node_types || {};
+        for (const [key, def] of Object.entries(registered)) {
+            const nodeData = def?.nodeData || def?.comfyClass || {};
+            const type = nodeData.name || def?.comfyClass || key;
+            if (!type || String(type).startsWith('workflow/')) continue;
+            types.set(String(type), {
+                t: String(type).toLowerCase(),
+                c: -3,
+                n: 999999,
+                insertText: formatNodeSearch(type),
+                cursorOffset: -1,
+                displayText: String(type),
+            });
+        }
+
+        const nodes = globalThis.app?.graph?._nodes || [];
+        for (const node of nodes) {
+            const type = node?.comfyClass || node?.type;
+            if (!type) continue;
+            types.set(String(type), {
+                t: String(type).toLowerCase(),
+                c: -3,
+                n: 999999,
+                insertText: formatNodeSearch(type),
+                cursorOffset: -1,
+                displayText: String(type),
+            });
+        }
+
+        return [...types.values()].sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+    };
+}
 
 // ═══════════════════════════════════════════════════════
 //  Autocomplete UI
@@ -490,7 +538,11 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
         const pos = textarea.selectionStart;
         const text = textarea.value.substring(0, pos);
         const lastSep = text.lastIndexOf(separator);
-        return text.substring(lastSep + 1).trim().toLowerCase().replace(/ /g, '_');
+        let q = text.substring(lastSep + 1).trim();
+        if (context === 'search' && q.toLowerCase().startsWith('type:')) {
+            q = q.slice(5).trim().replace(/^["']/, '');
+        }
+        return q.toLowerCase().replace(/ /g, '_');
     };
 
     const close = () => {
@@ -526,7 +578,7 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
         }
     };
 
-    const insertTag = (tag, category = 0) => {
+    const insertTag = (tag, category = 0, entry = null) => {
         // Escape parentheses for Danbooru tags (where parens are literal, not emphasis)
         // but NOT for user dictionaries (c=-1) or wildcards (c=-2) — users may
         // intentionally register entries with emphasis syntax like (masterpiece:1.2)
@@ -553,7 +605,11 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
         const suffix = hasSep ? after : sepSuffix + after;
         textarea.value = prefix + tag + suffix;
         lastValue = textarea.value;   // Update tracked value
-        const cursorPos = prefix.length + tag.length + (hasSep ? 0 : sepSuffix.length);
+        const selected = entry || matches[activeIdx >= 0 ? activeIdx : 0];
+        const cursorOffset = Number.isFinite(selected?.cursorOffset) ? selected.cursorOffset : 0;
+        const cursorPos = Number.isFinite(selected?.cursorOffset)
+            ? prefix.length + tag.length + cursorOffset
+            : prefix.length + tag.length + (hasSep ? 0 : sepSuffix.length);
         textarea.selectionStart = textarea.selectionEnd = Math.min(cursorPos, textarea.value.length);
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         close();
@@ -616,6 +672,10 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
                 // Wildcard entry
                 const display = m.t;
                 item.innerHTML = `<span class="dc-name">🎲 __${display}__</span><span class="dc-count">wildcard</span>`;
+            } else if (m.c === -3) {
+                // Node type dictionary entry
+                const display = m.displayText || m.insertText || m.t;
+                item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">node</span>`;
             } else if (m.c === -1) {
                 // User dictionary entry
                 const display = m.t.replace(/_/g, ' ');
@@ -628,7 +688,7 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
             }
             item.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                insertTag(insertText, m.c);
+                insertTag(insertText, m.c, m);
             });
             dropdown.appendChild(item);
         });
@@ -674,27 +734,31 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
             setActive(Math.max(activeIdx - 1, 0));
         } else if (e.key === 'Enter' && activeIdx >= 0) {
             e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation?.();
             const m = matches[activeIdx];
-            insertTag(m.insertText || (m.orig || m.t).replace(/_/g, ' '), m.c);
+            insertTag(m.insertText || (m.orig || m.t).replace(/_/g, ' '), m.c, m);
         } else if (e.key === 'Escape') {
             close();
         } else if (e.key === 'Tab' && matches.length > 0) {
             e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation?.();
             const m = matches[activeIdx >= 0 ? activeIdx : 0];
-            insertTag(m.insertText || (m.orig || m.t).replace(/_/g, ' '), m.c);
+            insertTag(m.insertText || (m.orig || m.t).replace(/_/g, ' '), m.c, m);
         }
     };
 
     textarea.addEventListener('input', onInput);
     textarea.addEventListener('blur', onBlur);
-    textarea.addEventListener('keydown', onKeyDown);
+    textarea.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('mousedown', onDocMouseDown, true);
 
     // Return cleanup function
     return () => {
         textarea.removeEventListener('input', onInput);
         textarea.removeEventListener('blur', onBlur);
-        textarea.removeEventListener('keydown', onKeyDown);
+        textarea.removeEventListener('keydown', onKeyDown, true);
         document.removeEventListener('mousedown', onDocMouseDown, true);
         close();
     };

@@ -37,6 +37,7 @@ export class GalleryGadget extends GadgetBase {
         breadcrumb: [],
         total: 0,
         sort: localStorage.getItem('gallery-sort') || 'name-asc',
+        rawFiles: [],
         selectMode: false,
         selected: new Set(),   // Set<filePath|folderPath>
         moveMode: false,       // Phase 3: browse-to-move
@@ -44,6 +45,11 @@ export class GalleryGadget extends GadgetBase {
         moveSrcRoot: '',       // Phase 3: original root before move browse
         autoplay: localStorage.getItem('gallery-autoplay') === 'true',
         searchScope: '',
+        dateFrom: '',
+        dateTo: '',
+        minSizeMB: '',
+        maxSizeMB: '',
+        indexStatus: null,
     };
 
     /* ── DOM refs (set in onMount) ── */
@@ -153,20 +159,51 @@ export class GalleryGadget extends GadgetBase {
                         </button>
                     </div>
                     <div class="gg-scope-wrap">
-                        <button class="gg-scope-trigger" title="Search Scope">
+                        <button class="gg-scope-trigger" title="${_t('gallery.searchScope')}">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
                             </svg>
                         </button>
                         <div class="gg-scope-menu" hidden>
-                            <label class="gg-scope-option active" data-value="">All</label>
-                            <label class="gg-scope-option" data-value="name">Filename</label>
-                            <label class="gg-scope-option" data-value="class">Node Type</label>
-                            <label class="gg-scope-option" data-value="title">Node Title</label>
-                            <label class="gg-scope-option" data-value="input">Input</label>
+                            <div class="gg-filter-section">
+                                <div class="gg-filter-headline">
+                                    <div class="gg-filter-heading">${_t('gallery.searchScope')}</div>
+                                    <button class="gg-filter-clear" type="button">${_t('common.clear')}</button>
+                                </div>
+                                <label class="gg-scope-option active" data-value="">${_t('gallery.scopeAll')}</label>
+                                <label class="gg-scope-option" data-value="name">${_t('gallery.scopeFilename')}</label>
+                                <label class="gg-scope-option" data-value="prompt">${_t('gallery.scopePrompt')}</label>
+                                <label class="gg-scope-option" data-value="workflow">${_t('gallery.scopeWorkflow')}</label>
+                            </div>
+                            <div class="gg-filter-section">
+                                <div class="gg-filter-heading">${_t('gallery.filterDate')}</div>
+                                <div class="gg-date-range">
+                                    <label>
+                                        <span>${_t('gallery.filterDateFrom')}</span>
+                                        <input class="gg-date-from" type="date" />
+                                    </label>
+                                    <label>
+                                        <span>${_t('gallery.filterDateTo')}</span>
+                                        <input class="gg-date-to" type="date" />
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="gg-filter-section">
+                                <div class="gg-filter-heading">${_t('gallery.filterSizeMB')}</div>
+                                <div class="gg-size-filter">
+                                    <label>
+                                        <span>${_t('gallery.filterMin')}</span>
+                                        <input class="gg-min-size" type="number" min="0" step="0.1" inputmode="decimal" />
+                                    </label>
+                                    <label>
+                                        <span>${_t('gallery.filterMax')}</span>
+                                        <input class="gg-max-size" type="number" min="0" step="0.1" inputmode="decimal" />
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <select class="gg-sort-select" title="Sort">
+                    <select class="gg-sort-select" title="${_t('common.sort')}">
                         <option value="name-asc">${_t('gallery.sortName')} ↑</option>
                         <option value="name-desc">${_t('gallery.sortName')} ↓</option>
                         <option value="date-asc">${_t('gallery.sortDate')} ↑</option>
@@ -174,6 +211,18 @@ export class GalleryGadget extends GadgetBase {
                         <option value="size-asc">${_t('gallery.sortSize')} ↑</option>
                         <option value="size-desc">${_t('gallery.sortSize')} ↓</option>
                     </select>
+                    <div class="gg-search-bar">
+                        <div class="gg-search-summary"></div>
+                        <div class="gg-index-status" hidden></div>
+                        <select class="gg-sort-select gg-search-sort-select" title="${_t('common.sort')}">
+                            <option value="name-asc">${_t('gallery.sortName')} ↑</option>
+                            <option value="name-desc">${_t('gallery.sortName')} ↓</option>
+                            <option value="date-asc">${_t('gallery.sortDate')} ↑</option>
+                            <option value="date-desc">${_t('gallery.sortDate')} ↓</option>
+                            <option value="size-asc">${_t('gallery.sortSize')} ↑</option>
+                            <option value="size-desc">${_t('gallery.sortSize')} ↓</option>
+                        </select>
+                    </div>
                     <button class="gg-autoplay-toggle" title="Autoplay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
                     <button class="gg-search-trigger" title="${_t('gallery.search')}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -201,7 +250,6 @@ export class GalleryGadget extends GadgetBase {
 
             <nav class="gg-breadcrumb">
                 <ol class="gg-breadcrumb-list"></ol>
-                <div class="gg-search-summary"></div>
             </nav>
 
             <div class="gg-content">
@@ -223,9 +271,15 @@ export class GalleryGadget extends GadgetBase {
             searchBack: q('.gg-search-back'),
             scopeTrigger: q('.gg-scope-trigger'),
             scopeMenu: q('.gg-scope-menu'),
+            dateFrom: q('.gg-date-from'),
+            dateTo: q('.gg-date-to'),
+            minSize: q('.gg-min-size'),
+            maxSize: q('.gg-max-size'),
+            filterClear: q('.gg-filter-clear'),
             resultCount: q('.gg-result-count'),
             clearBtn: q('.gg-clear-btn'),
             sortSelect: q('.gg-sort-select'),
+            searchSortSelect: q('.gg-search-sort-select'),
             autoplayToggle: q('.gg-autoplay-toggle'),
             // Select toolbar
             toolbarSelect: q('.gg-toolbar-select'),
@@ -242,11 +296,13 @@ export class GalleryGadget extends GadgetBase {
             breadcrumb: q('.gg-breadcrumb'),
             breadcrumbList: q('.gg-breadcrumb-list'),
             searchSummary: q('.gg-search-summary'),
+            indexStatus: q('.gg-index-status'),
             grid: q('.gg-grid'),
             status: q('.gg-status'),
         };
 
         this.#el.sortSelect.value = this.#state.sort;
+        this.#el.searchSortSelect.value = this.#state.sort;
         if (this.#state.autoplay) this.#el.autoplayToggle.classList.add('active');
     }
 
@@ -258,6 +314,14 @@ export class GalleryGadget extends GadgetBase {
         // Sort
         el.sortSelect.addEventListener('change', () => {
             this.#state.sort = el.sortSelect.value;
+            el.searchSortSelect.value = this.#state.sort;
+            localStorage.setItem('gallery-sort', this.#state.sort);
+            this.#sortFiles();
+            this.#renderGrid();
+        });
+        el.searchSortSelect.addEventListener('change', () => {
+            this.#state.sort = el.searchSortSelect.value;
+            el.sortSelect.value = this.#state.sort;
             localStorage.setItem('gallery-sort', this.#state.sort);
             this.#sortFiles();
             this.#renderGrid();
@@ -281,6 +345,7 @@ export class GalleryGadget extends GadgetBase {
             }
         });
         el.searchInput.addEventListener('keydown', (e) => {
+            if (e.defaultPrevented) return;
             if (e.key === 'Enter' && !e.isComposing) {
                 e.preventDefault();
                 doSearch();
@@ -308,6 +373,7 @@ export class GalleryGadget extends GadgetBase {
         el.searchTrigger.addEventListener('click', () => {
             if (this.#state.root === 'temp') return;  // search disabled for temp
             this.#openSearch();
+            this.#refreshIndexStatus();
         });
         el.searchSubmit.addEventListener('click', () => doSearch());
         el.searchBack.addEventListener('click', () => {
@@ -327,15 +393,45 @@ export class GalleryGadget extends GadgetBase {
             el.scopeTrigger.classList.toggle('active', !isOpen);
         });
         el.scopeMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
             const option = e.target.closest('.gg-scope-option');
             if (!option) return;
             el.scopeMenu.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
             option.classList.add('active');
             this.#state.searchScope = option.dataset.value;
-            el.scopeMenu.hidden = true;
-            el.scopeTrigger.classList.remove('active');
             // Highlight funnel when non-default scope is selected
-            el.scopeTrigger.classList.toggle('filtered', !!option.dataset.value);
+            this.#syncFilterState();
+            const q = el.searchInput.value.trim();
+            if (this.#state.mode === 'search' && q.length >= 2) {
+                this.#search(q);
+            }
+        });
+        el.scopeMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+        const applyClientFilters = () => {
+            this.#state.dateFrom = el.dateFrom.value;
+            this.#state.dateTo = el.dateTo.value;
+            this.#state.minSizeMB = el.minSize.value;
+            this.#state.maxSizeMB = el.maxSize.value;
+            this.#syncFilterState();
+            this.#applyFiltersSortRender();
+        };
+        el.dateFrom.addEventListener('change', applyClientFilters);
+        el.dateTo.addEventListener('change', applyClientFilters);
+        el.minSize.addEventListener('input', this.#debounce(applyClientFilters, 250));
+        el.maxSize.addEventListener('input', this.#debounce(applyClientFilters, 250));
+        el.filterClear.addEventListener('click', () => {
+            el.scopeMenu.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
+            el.scopeMenu.querySelector('.gg-scope-option[data-value=""]')?.classList.add('active');
+            el.dateFrom.value = '';
+            el.dateTo.value = '';
+            el.minSize.value = '';
+            el.maxSize.value = '';
+            this.#state.searchScope = '';
+            applyClientFilters();
+            const q = el.searchInput.value.trim();
+            if (this.#state.mode === 'search' && q.length >= 2) {
+                this.#search(q);
+            }
         });
         // Close scope menu on outside click
         const closeScopeMenu = () => {
@@ -344,6 +440,8 @@ export class GalleryGadget extends GadgetBase {
         };
         document.addEventListener('click', closeScopeMenu);
         this.addDisposable(() => document.removeEventListener('click', closeScopeMenu));
+        const offClosePopovers = this.bus?.on?.('drawer:close-popovers', closeScopeMenu);
+        if (offClosePopovers) this.addDisposable(offClosePopovers);
 
         const onNavKey = (e) => this.#handleHierarchyKey(e);
         document.addEventListener('keydown', onNavKey, { capture: true });
@@ -388,6 +486,38 @@ export class GalleryGadget extends GadgetBase {
         this.#el.searchSummary.textContent = text || '';
     }
 
+    #renderIndexStatus(status = this.#state.indexStatus) {
+        const el = this.#el.indexStatus;
+        if (!el) return;
+        if (this.#state.root === 'temp' || !status || status.ready) {
+            el.hidden = true;
+            el.textContent = '';
+            el.classList.remove('building', 'error');
+            return;
+        }
+        el.hidden = false;
+        el.classList.toggle('building', !!status.building);
+        el.classList.toggle('error', !status.building);
+        const progress = status.progress || _t('gallery.searchIndexPreparing');
+        el.textContent = status.building
+            ? _t('gallery.searchIndexBuilding', { progress })
+            : progress;
+    }
+
+    async #refreshIndexStatus() {
+        if (this.#state.root === 'temp') return null;
+        try {
+            const r = await fetch('/drawer/fs/index-status');
+            if (!r.ok) return null;
+            const status = await r.json();
+            this.#state.indexStatus = status;
+            this.#renderIndexStatus(status);
+            return status;
+        } catch {
+            return null;
+        }
+    }
+
     /* ═══ Helpers ═══ */
 
     #debounce(fn, ms) {
@@ -402,6 +532,38 @@ export class GalleryGadget extends GadgetBase {
         const d = new Date(ts * 1000);
         const p = (n) => String(n).padStart(2, '0');
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    #hasActiveFilters() {
+        const s = this.#state;
+        return !!(s.searchScope || s.dateFrom || s.dateTo || s.minSizeMB || s.maxSizeMB);
+    }
+
+    #syncFilterState() {
+        this.#el.scopeTrigger.classList.toggle('filtered', this.#hasActiveFilters());
+    }
+
+    #applyClientFilters(files) {
+        const s = this.#state;
+        const minSize = Number.parseFloat(s.minSizeMB);
+        const maxSize = Number.parseFloat(s.maxSizeMB);
+        const fromDate = s.dateFrom ? new Date(`${s.dateFrom}T00:00:00`) : null;
+        const toDate = s.dateTo ? new Date(`${s.dateTo}T23:59:59.999`) : null;
+        const minCreated = fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate.getTime() / 1000 : 0;
+        const maxCreated = toDate && !Number.isNaN(toDate.getTime()) ? toDate.getTime() / 1000 : 0;
+        return (files || []).filter(file => {
+            if (minCreated && (file.created || 0) < minCreated) return false;
+            if (maxCreated && (file.created || 0) > maxCreated) return false;
+            if (Number.isFinite(minSize) && minSize > 0 && (file.size || 0) < minSize * 1048576) return false;
+            if (Number.isFinite(maxSize) && maxSize > 0 && (file.size || 0) > maxSize * 1048576) return false;
+            return true;
+        });
+    }
+
+    #applyFiltersSortRender() {
+        this.#state.files = this.#applyClientFilters(this.#state.rawFiles);
+        this.#sortFiles();
+        this.#renderGrid();
     }
 
     #highlight(snippet, query) {
@@ -619,6 +781,7 @@ export class GalleryGadget extends GadgetBase {
         this.#el.clearBtn.hidden = true;
         this.#el.resultCount.textContent = '';
         this.#renderSearchSummary('');
+        this.#renderIndexStatus(null);
         this.#el.breadcrumb.classList.remove('hidden');
         // Disable search on temp root
         const isTemp = s.root === 'temp';
@@ -630,7 +793,8 @@ export class GalleryGadget extends GadgetBase {
         try {
             const data = await this.#apiBrowse(path);
             s.folders = data.folders || [];
-            s.files = data.files || [];
+            s.rawFiles = data.files || [];
+            s.files = this.#applyClientFilters(s.rawFiles);
             s.breadcrumb = data.breadcrumb || [];
             this.#sortFiles();
             this.#renderBreadcrumb();
@@ -662,12 +826,17 @@ export class GalleryGadget extends GadgetBase {
         this.#el.grid.innerHTML = '';
         this.#el.resultCount.textContent = '';
         this.#renderSearchSummary('');
+        const indexStatus = await this.#refreshIndexStatus();
+        if (indexStatus && !indexStatus.ready) {
+            this.#renderSearchSummary(_t('gallery.searchIndexWaiting'));
+        }
         try {
             const data = await this.#apiSearch(query, s.path);
             if (query !== this.#el.searchInput.value.trim()) return; // stale
-            s.files = data.files || [];
+            s.rawFiles = data.files || [];
+            s.files = this.#applyClientFilters(s.rawFiles);
             s.folders = [];
-            s.total = data.total || 0;
+            s.total = s.files.length;
             this.#sortFiles();
             const summary = _t('gallery.searchResults', { count: s.total.toLocaleString() });
             this.#el.resultCount.textContent = '';

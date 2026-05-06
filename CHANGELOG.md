@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.8 - 2026-05-06
+
+- Rework Gallery search with filename, prompt, workflow, node type-scoped, and node title-scoped queries
+- Add quoted phrase, AND, and NOT search handling for Gallery metadata searches
+- Add node type autocomplete and enable user/Danbooru dictionary suggestions in Gallery search
+- Add Gallery search filters for date range, file size, and search target with one-click clear
+- Move Gallery search controls into a two-row mobile-friendly toolbar layout
+- Show Gallery search index preparation status while metadata search is becoming available
+
 ## v1.0.7 - 2026-05-06
 
 - Add Home dashboard widgets and a Storage overview for Output, Input, and Models

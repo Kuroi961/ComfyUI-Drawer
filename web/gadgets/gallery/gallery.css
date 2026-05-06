@@ -128,8 +128,39 @@
         display: flex;
     }
 
+    .gadget-gallery .gg-toolbar-browse.search-open {
+        height: 86px;
+        flex-wrap: wrap;
+        align-content: center;
+        justify-content: flex-start;
+        gap: 6px 8px;
+        padding: 6px 12px;
+    }
+
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-bar {
+        display: flex;
+        order: 2;
+        flex: 1 1 auto;
+        width: auto;
+        justify-content: flex-end;
+    }
+
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-back {
+        order: 1;
+    }
+
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-scope-wrap {
+        order: 3;
+    }
+
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-box {
+        order: 4;
+        flex: 0 0 100%;
+        width: 100%;
+    }
+
     /* Hide sort/autoplay/trigger when search is open */
-    .gadget-gallery .gg-toolbar-browse.search-open .gg-sort-select,
+    .gadget-gallery .gg-toolbar-browse.search-open > .gg-sort-select:not(.gg-search-sort-select),
     .gadget-gallery .gg-toolbar-browse.search-open .gg-autoplay-toggle,
     .gadget-gallery .gg-toolbar-browse.search-open .gg-search-trigger {
         display: none;
@@ -354,11 +385,37 @@
         background: var(--cd-shell, #111016);
         border: 1px solid color-mix(in srgb, var(--gg-border) 78%, var(--gg-text-2));
         border-radius: var(--gg-r-m);
-        padding: 4px;
-        min-width: 140px;
+        padding: 12px;
+        width: min(224px, calc(100vw - 56px));
+        max-height: min(78vh, 620px);
+        overflow-y: auto;
         box-shadow: 0 12px 34px rgba(0, 0, 0, 0.68);
         z-index: 500;
         animation: ggFadeIn 0.15s var(--gg-ease);
+    }
+
+    .gadget-gallery .gg-filter-section + .gg-filter-section {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--gg-border);
+    }
+
+    .gadget-gallery .gg-filter-heading {
+        margin: 0 0 6px;
+        color: var(--gg-text-3);
+        font: 600 11px var(--gg-font);
+    }
+
+    .gadget-gallery .gg-filter-headline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 6px;
+    }
+
+    .gadget-gallery .gg-filter-headline .gg-filter-heading {
+        margin: 0;
     }
 
     .gadget-gallery .gg-scope-menu[hidden] {
@@ -402,6 +459,76 @@
         border-color: var(--gg-accent);
         background: var(--gg-accent);
         box-shadow: inset 0 0 0 2px var(--cd-shell, #111016);
+    }
+
+    .gadget-gallery .gg-date-range label,
+    .gadget-gallery .gg-size-filter label {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+        color: var(--gg-text-3);
+        font: 600 11px var(--gg-font);
+    }
+
+    .gadget-gallery .gg-date-range input,
+    .gadget-gallery .gg-size-filter input {
+        width: 100%;
+        height: 34px;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        background: var(--gg-bg-2);
+        color: var(--gg-text-1);
+        font: 500 13px var(--gg-font);
+        outline: none;
+    }
+
+    .gadget-gallery .gg-date-range {
+        display: grid;
+        gap: 9px;
+    }
+
+    .gadget-gallery .gg-date-range input {
+        min-width: 0;
+        height: 34px;
+        padding: 0 8px;
+        font-size: 13px;
+        color-scheme: dark;
+    }
+
+    .gadget-gallery .gg-date-range input::-webkit-calendar-picker-indicator {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .gadget-gallery .gg-size-filter {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    .gadget-gallery .gg-size-filter input {
+        min-width: 0;
+        padding: 0 8px;
+    }
+
+    .gadget-gallery .gg-filter-clear {
+        flex: 0 0 auto;
+        height: 24px;
+        padding: 0 8px;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        background: transparent;
+        color: var(--gg-text-3);
+        font: 600 11px var(--gg-font);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    .gadget-gallery .gg-filter-clear:hover {
+        background: var(--gg-bg-hover);
+        border-color: var(--gg-text-3);
+        color: var(--gg-text-1);
     }
 
     /* ── Autoplay toggle button ── */
@@ -496,11 +623,18 @@
         padding: 0;
     }
 
-    .gadget-gallery .gg-search-summary {
+    .gadget-gallery .gg-search-bar {
         display: none;
         align-items: center;
+        gap: 6px;
         min-width: 0;
         width: 100%;
+        height: 28px;
+    }
+
+    .gadget-gallery .gg-search-summary {
+        min-width: 0;
+        flex: 1 1 auto;
         color: var(--gg-text-2);
         font-size: 12px;
         font-weight: 500;
@@ -510,12 +644,34 @@
         white-space: nowrap;
     }
 
-    .gadget-gallery .gg-breadcrumb.search-open .gg-breadcrumb-list {
-        display: none;
+    .gadget-gallery .gg-index-status {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 38%;
+        padding: 3px 7px;
+        border: 1px solid rgba(77, 166, 255, 0.3);
+        border-radius: var(--gg-r-s);
+        background: rgba(77, 166, 255, 0.1);
+        color: var(--gg-accent);
+        font-size: 11px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .gadget-gallery .gg-breadcrumb.search-open .gg-search-summary {
-        display: flex;
+    .gadget-gallery .gg-index-status.error {
+        border-color: rgba(255, 86, 86, 0.35);
+        background: rgba(255, 86, 86, 0.1);
+        color: var(--gg-danger);
+    }
+
+    .gadget-gallery .gg-search-sort-select {
+        flex: 0 0 auto;
+    }
+
+    .gadget-gallery .gg-breadcrumb.search-open {
+        display: none;
     }
 
     .gadget-gallery .gg-breadcrumb-list li {

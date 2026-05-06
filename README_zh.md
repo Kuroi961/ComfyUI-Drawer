@@ -157,14 +157,19 @@ https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
 ### Gallery
 
 <p align="left">
-  <img src="docs/gallery.webp" width="25%">
+  <img src="docs/gallery.webp" width="75%">
 </p>
 
 用于浏览 output、input、temp 目录下媒体和文件夹的小工具。
 
 - 文件夹导航（面包屑）、按名称/日期/大小排序
 - 文件重命名、移动（D&D / 批量选择）和删除
-- 首次启动时自动生成基于 SQLite 的搜索索引，可按节点类型、节点标题、输入值等工作流元数据全文搜索
+- 首次启动时自动生成基于 SQLite 的搜索索引，可搜索文件名、prompt、workflow 和按节点类型限定的元数据
+- 搜索支持带引号的短语、空格分隔的 AND 条件，以及 `-word` / `-"quoted phrase"` 形式的 NOT 条件
+- 可用 `type:CLIPTextEncode[white hair -night]` 等语法搜索指定节点类型中的值。`[...]` 部分相当于只搜索该节点类型内部值的虚拟搜索框，并使用与主搜索框相同的短语 / AND / NOT 规则
+- 也可用 `title:My Prompt Node[school uniform]` 或 `title:"Prompt A"[blue sky]` 按节点标题限定搜索。标题部分匹配节点标题，`[...]` 部分搜索匹配标题的节点内部值
+- 支持搜索范围、日期区间、文件大小过滤，并提供适合移动端的两行搜索工具栏
+- Gallery 搜索框中也可使用节点类型、用户词典和 Danbooru 词典自动补全
 - 新建文件夹、移动文件夹、删除文件夹
 
 ---

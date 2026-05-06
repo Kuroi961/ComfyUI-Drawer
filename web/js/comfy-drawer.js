@@ -53,7 +53,7 @@ import { ContextMenuService } from "./services/context-menu.js";
 import { GadgetBase } from "./core/gadget-base.js";
 import { openLightbox, closeLightbox, isLightboxOpen, removeLightboxItem } from "./services/lightbox.js";
 import { createMediaCard, createMediaGrid } from "./components/media-card.js";
-import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, attachDictAutocomplete } from "./services/dict-service.js";
+import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, createNodeTypeLoader, attachDictAutocomplete } from "./services/dict-service.js";
 import { escapeHTML, truncate, getLinkedInputNames, CollapseStore, sanitizeComfyDrawerWorkflowExtra } from "./utils.js";
 import { showDialog, showAlert, showConfirm, showPrompt } from "./services/dialog.js";
 import { openImagePicker } from "./services/image-picker.js";
@@ -447,6 +447,13 @@ app.registerExtension({
             priority: 4,
             defaultEnabled: true,
             settingsToggle: false,
+        });
+        dict.register('nodeTypes', {
+            label: t('dict.nodeTypes'),
+            load: createNodeTypeLoader(),
+            context: 'search',
+            priority: 6,
+            defaultEnabled: true,
         });
         dict.registerOnBus(bus);
 
