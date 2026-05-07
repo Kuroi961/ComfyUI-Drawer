@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+  <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later">
   <img src="https://img.shields.io/badge/ComfyUI-Custom_Node-purple.svg" alt="ComfyUI Custom Node">
   <img src="https://img.shields.io/badge/lang-en%20%7C%20ja%20%7C%20zh-green.svg" alt="Languages: en, ja, zh">
 </p>
@@ -164,7 +164,7 @@ A gadget for browsing media and folders under the output, input, and temp direct
 
 - Folder navigation with breadcrumbs, sorting by name/date/size
 - File rename, move (D&D / batch selection), and delete
-- Automatically builds a SQLite search index on first launch for filename, prompt, workflow, and node type-scoped metadata search
+- Filename search works without an index; prompt, workflow, node type, and node title metadata search use an explicitly created SQLite search index
 - Search supports quoted phrases, space-separated AND terms, and NOT terms with `-word` or `-"quoted phrase"`
 - Node type-scoped search can target values from a specific node type with syntax such as `type:CLIPTextEncode[white hair -night]`. The `[...]` part acts like a virtual search box for values inside that node type, using the same phrase / AND / NOT rules as the main search field
 - Node title-scoped search is also available with syntax such as `title:My Prompt Node[school uniform]` or `title:"Prompt A"[blue sky]`. The title part matches node titles, and the `[...]` part searches values inside matching titled nodes
@@ -353,4 +353,10 @@ ComfyUI-Drawer is 100% coded by AI under human direction, review, and testing.
 
 ## License
 
-[MIT License](LICENSE) © 2026 Kuroi
+ComfyUI-Drawer uses split licensing:
+
+- Implementation: [GPL-3.0-or-later](LICENSE)
+- Public specification docs (`ARCHITECTURE.md`, `CONVENTIONS.md`, `GADGET_API.md`): CC0-1.0
+- Gadget template (`docs/gadget-template.js`): MIT
+
+© 2026 Kuroi

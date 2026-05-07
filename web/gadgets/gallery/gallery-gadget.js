@@ -19,6 +19,8 @@ const SEARCH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const AUDIO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 const VIDEO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const X_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+const DEBUG_INDEX_STATUS_KEY = 'gallery-debug-index-status';
+const INDEX_NOTICE_DISMISSED_KEY = 'gallery-index-notice-dismissed';
 
 function isEditableTarget(target) {
     if (!target || target.nodeType !== 1) return false;
@@ -65,6 +67,10 @@ export class GalleryGadget extends GadgetBase {
     #gridCleanups = [];
     /** @type {function|null} Swipe navigation detach */
     #swipeDetach = null;
+    #indexPollTimer = null;
+    #indexUiTimer = null;
+    #indexEtaText = '';
+    #indexEtaTextUpdatedAt = 0;
 
     constructor() {
         super('gallery', {
@@ -89,6 +95,7 @@ export class GalleryGadget extends GadgetBase {
         this.#registerContextActions();
 
         this.#browse('');
+        this.#refreshIndexStatus();
         this.#attachSwipe();
 
         // Auto-refresh when a generation completes (debounced — executed fires per node)
@@ -105,6 +112,17 @@ export class GalleryGadget extends GadgetBase {
             }, 2000);
         }));
         this.addDisposable(() => clearTimeout(execTimer));
+        this.addDisposable(bus.on('drawer:cache-cleared', () => {
+            localStorage.removeItem(INDEX_NOTICE_DISMISSED_KEY);
+            this.#state.indexStatus = { state: 'cleared', ready: false, building: false, cleared: true };
+            this.#renderIndexStatus(this.#state.indexStatus);
+            this.#refreshIndexStatus();
+        }));
+        this.addDisposable(bus.on('drawer:index-build-started', (status) => {
+            this.#state.indexStatus = status || { ready: false, building: true };
+            this.#renderIndexStatus(this.#state.indexStatus);
+            this.#refreshIndexStatus();
+        }));
     }
 
     onActivate() {
@@ -130,6 +148,11 @@ export class GalleryGadget extends GadgetBase {
             this.#fetchController.abort();
             this.#fetchController = null;
         }
+        if (this.#indexPollTimer) {
+            clearTimeout(this.#indexPollTimer);
+            this.#indexPollTimer = null;
+        }
+        this.#stopIndexUiTicker();
         for (const fn of this.#gridCleanups) fn();
         this.#gridCleanups = [];
         this.#swipeDetach?.();
@@ -158,51 +181,7 @@ export class GalleryGadget extends GadgetBase {
                             </svg>
                         </button>
                     </div>
-                    <div class="gg-scope-wrap">
-                        <button class="gg-scope-trigger" title="${_t('gallery.searchScope')}">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
-                            </svg>
-                        </button>
-                        <div class="gg-scope-menu" hidden>
-                            <div class="gg-filter-section">
-                                <div class="gg-filter-headline">
-                                    <div class="gg-filter-heading">${_t('gallery.searchScope')}</div>
-                                    <button class="gg-filter-clear" type="button">${_t('common.clear')}</button>
-                                </div>
-                                <label class="gg-scope-option active" data-value="">${_t('gallery.scopeAll')}</label>
-                                <label class="gg-scope-option" data-value="name">${_t('gallery.scopeFilename')}</label>
-                                <label class="gg-scope-option" data-value="prompt">${_t('gallery.scopePrompt')}</label>
-                                <label class="gg-scope-option" data-value="workflow">${_t('gallery.scopeWorkflow')}</label>
-                            </div>
-                            <div class="gg-filter-section">
-                                <div class="gg-filter-heading">${_t('gallery.filterDate')}</div>
-                                <div class="gg-date-range">
-                                    <label>
-                                        <span>${_t('gallery.filterDateFrom')}</span>
-                                        <input class="gg-date-from" type="date" />
-                                    </label>
-                                    <label>
-                                        <span>${_t('gallery.filterDateTo')}</span>
-                                        <input class="gg-date-to" type="date" />
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="gg-filter-section">
-                                <div class="gg-filter-heading">${_t('gallery.filterSizeMB')}</div>
-                                <div class="gg-size-filter">
-                                    <label>
-                                        <span>${_t('gallery.filterMin')}</span>
-                                        <input class="gg-min-size" type="number" min="0" step="0.1" inputmode="decimal" />
-                                    </label>
-                                    <label>
-                                        <span>${_t('gallery.filterMax')}</span>
-                                        <input class="gg-max-size" type="number" min="0" step="0.1" inputmode="decimal" />
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="gg-index-status gg-index-status-browse" hidden></div>
                     <select class="gg-sort-select" title="${_t('common.sort')}">
                         <option value="name-asc">${_t('gallery.sortName')} ↑</option>
                         <option value="name-desc">${_t('gallery.sortName')} ↓</option>
@@ -213,7 +192,7 @@ export class GalleryGadget extends GadgetBase {
                     </select>
                     <div class="gg-search-bar">
                         <div class="gg-search-summary"></div>
-                        <div class="gg-index-status" hidden></div>
+                        <div class="gg-index-status gg-index-status-search" hidden></div>
                         <select class="gg-sort-select gg-search-sort-select" title="${_t('common.sort')}">
                             <option value="name-asc">${_t('gallery.sortName')} ↑</option>
                             <option value="name-desc">${_t('gallery.sortName')} ↓</option>
@@ -222,6 +201,51 @@ export class GalleryGadget extends GadgetBase {
                             <option value="size-asc">${_t('gallery.sortSize')} ↑</option>
                             <option value="size-desc">${_t('gallery.sortSize')} ↓</option>
                         </select>
+                        <div class="gg-scope-wrap">
+                            <button class="gg-scope-trigger" title="${_t('gallery.searchScope')}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+                                </svg>
+                            </button>
+                            <div class="gg-scope-menu" hidden>
+                                <div class="gg-filter-section gg-scope-section">
+                                    <div class="gg-filter-headline">
+                                        <div class="gg-filter-heading">${_t('gallery.searchScope')}</div>
+                                        <button class="gg-filter-clear" type="button">${_t('common.clear')}</button>
+                                    </div>
+                                    <label class="gg-scope-option active" data-value="">${_t('gallery.scopeAll')}</label>
+                                    <label class="gg-scope-option" data-value="name">${_t('gallery.scopeFilename')}</label>
+                                    <label class="gg-scope-option" data-value="prompt">${_t('gallery.scopePrompt')}</label>
+                                    <label class="gg-scope-option" data-value="workflow">${_t('gallery.scopeWorkflow')}</label>
+                                </div>
+                                <div class="gg-filter-section">
+                                    <div class="gg-filter-heading">${_t('gallery.filterDate')}</div>
+                                    <div class="gg-date-range">
+                                        <label>
+                                            <span>${_t('gallery.filterDateFrom')}</span>
+                                            <input class="gg-date-from" type="date" />
+                                        </label>
+                                        <label>
+                                            <span>${_t('gallery.filterDateTo')}</span>
+                                            <input class="gg-date-to" type="date" />
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="gg-filter-section">
+                                    <div class="gg-filter-heading">${_t('gallery.filterSizeMB')}</div>
+                                    <div class="gg-size-filter">
+                                        <label>
+                                            <span>${_t('gallery.filterMin')}</span>
+                                            <input class="gg-min-size" type="number" min="0" step="0.1" inputmode="decimal" />
+                                        </label>
+                                        <label>
+                                            <span>${_t('gallery.filterMax')}</span>
+                                            <input class="gg-max-size" type="number" min="0" step="0.1" inputmode="decimal" />
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <button class="gg-autoplay-toggle" title="Autoplay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
                     <button class="gg-search-trigger" title="${_t('gallery.search')}">
@@ -248,6 +272,7 @@ export class GalleryGadget extends GadgetBase {
                 </div>
             </div>
 
+            <div class="gg-index-strip" hidden></div>
             <nav class="gg-breadcrumb">
                 <ol class="gg-breadcrumb-list"></ol>
             </nav>
@@ -271,6 +296,7 @@ export class GalleryGadget extends GadgetBase {
             searchBack: q('.gg-search-back'),
             scopeTrigger: q('.gg-scope-trigger'),
             scopeMenu: q('.gg-scope-menu'),
+            scopeSection: q('.gg-scope-section'),
             dateFrom: q('.gg-date-from'),
             dateTo: q('.gg-date-to'),
             minSize: q('.gg-min-size'),
@@ -281,6 +307,8 @@ export class GalleryGadget extends GadgetBase {
             sortSelect: q('.gg-sort-select'),
             searchSortSelect: q('.gg-search-sort-select'),
             autoplayToggle: q('.gg-autoplay-toggle'),
+            indexStatusBrowse: q('.gg-index-status-browse'),
+            indexStatusSearch: q('.gg-index-status-search'),
             // Select toolbar
             toolbarSelect: q('.gg-toolbar-select'),
             selCount: q('.gg-sel-count'),
@@ -295,8 +323,8 @@ export class GalleryGadget extends GadgetBase {
             // Shared
             breadcrumb: q('.gg-breadcrumb'),
             breadcrumbList: q('.gg-breadcrumb-list'),
+            indexStrip: q('.gg-index-strip'),
             searchSummary: q('.gg-search-summary'),
-            indexStatus: q('.gg-index-status'),
             grid: q('.gg-grid'),
             status: q('.gg-status'),
         };
@@ -371,6 +399,7 @@ export class GalleryGadget extends GadgetBase {
 
         // Collapsible search: trigger opens, back closes, submit searches
         el.searchTrigger.addEventListener('click', () => {
+            if (el.searchTrigger.disabled) return;
             if (this.#state.root === 'temp') return;  // search disabled for temp
             this.#openSearch();
             this.#refreshIndexStatus();
@@ -471,6 +500,7 @@ export class GalleryGadget extends GadgetBase {
         this.#el.toolbarBrowse.classList.add('search-open');
         this.#el.breadcrumb.classList.add('search-open');
         this.#renderSearchSummary('');
+        this.#setSearchReady(false);
         this.#el.searchInput.focus();
     }
 
@@ -478,7 +508,20 @@ export class GalleryGadget extends GadgetBase {
         this.#el.toolbarBrowse.classList.remove('search-open');
         this.#el.breadcrumb.classList.remove('search-open');
         this.#renderSearchSummary('');
+        if (this.#indexPollTimer) {
+            clearTimeout(this.#indexPollTimer);
+            this.#indexPollTimer = null;
+        }
+        this.#renderIndexStatus(this.#state.indexStatus);
         this.#el.searchInput.blur();
+    }
+
+    #setSearchReady(isReady) {
+        const disabled = !isReady;
+        this.#el.searchInput.disabled = disabled;
+        this.#el.searchSubmit.disabled = disabled;
+        this.#el.searchTrigger.disabled = disabled || this.#state.root === 'temp';
+        this.#el.searchBox?.classList.toggle('disabled', disabled);
     }
 
     #renderSearchSummary(text) {
@@ -487,33 +530,314 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #renderIndexStatus(status = this.#state.indexStatus) {
-        const el = this.#el.indexStatus;
-        if (!el) return;
+        const els = [this.#el.indexStatusBrowse, this.#el.indexStatusSearch].filter(Boolean);
+        const strip = this.#el.indexStrip;
+        if (!els.length && !strip) return;
+        if (localStorage.getItem(DEBUG_INDEX_STATUS_KEY) === '1') {
+            status = {
+                ready: false,
+                building: true,
+                progress: 'Debug preview',
+                indexed: 4200,
+                total: 100000,
+                percent: 4.2,
+            };
+        }
         if (this.#state.root === 'temp' || !status || status.ready) {
-            el.hidden = true;
-            el.textContent = '';
-            el.classList.remove('building', 'error');
+            this.#syncIndexDependentControls(true);
+            for (const el of els) {
+                el.hidden = true;
+                el.replaceChildren();
+                el.classList.remove('building', 'error');
+            }
+            if (strip) {
+                strip.hidden = true;
+                strip.replaceChildren();
+            }
+            if (this.#indexPollTimer) {
+                clearTimeout(this.#indexPollTimer);
+                this.#indexPollTimer = null;
+            }
+            this.#stopIndexUiTicker();
+            this.#setSearchReady(true);
             return;
         }
-        el.hidden = false;
-        el.classList.toggle('building', !!status.building);
-        el.classList.toggle('error', !status.building);
-        const progress = status.progress || _t('gallery.searchIndexPreparing');
-        el.textContent = status.building
+        const state = status.state || (status.building ? 'building' : status.paused ? 'paused' : status.cleared ? 'cleared' : 'missing');
+        this.#syncIndexDependentControls(false);
+        if (['missing', 'cleared'].includes(state) && localStorage.getItem(INDEX_NOTICE_DISMISSED_KEY) === '1') {
+            if (strip) {
+                strip.hidden = true;
+                strip.replaceChildren();
+            }
+            this.#stopIndexUiTicker();
+            this.#setSearchReady(true);
+            return;
+        }
+        const needsBuild = ['missing', 'cleared'].includes(state);
+        const percent = Number.isFinite(Number(status.percent)) ? Math.max(0, Math.min(100, Number(status.percent))) : 0;
+        const indexed = Number(status.indexed || 0).toLocaleString();
+        const total = Number(status.total || 0).toLocaleString();
+        const etaText = this.#getStableEtaText(status, state);
+        const elapsedText = status.elapsed ? _t('gallery.searchIndexElapsed', { time: this.#formatDuration(status.elapsed) }) : '';
+        const progress = status.total
+            ? `${indexed}/${total} (${percent.toFixed(percent % 1 ? 1 : 0)}%)`
+            : (status.progress || _t('gallery.searchIndexPreparing'));
+        const label = state === 'building'
             ? _t('gallery.searchIndexBuilding', { progress })
-            : progress;
+            : state === 'paused'
+                ? _t('gallery.searchIndexPaused', { progress })
+                : _t('gallery.searchIndexMissing');
+        for (const el of els) {
+            el.hidden = true;
+            el.replaceChildren();
+            el.classList.remove('building', 'error');
+        }
+        if (strip) {
+            strip.hidden = false;
+            strip.classList.toggle('notice', needsBuild);
+            const count = document.createElement('span');
+            count.className = 'gg-index-strip-count';
+            if (state === 'building' || state === 'paused') {
+                const main = document.createElement('span');
+                main.className = 'gg-index-count-main';
+                main.textContent = status.total ? `${indexed}/${total}` : label;
+                const meta = document.createElement('span');
+                meta.className = 'gg-index-count-meta';
+                meta.textContent = [elapsedText, etaText].filter(Boolean).join(' / ');
+                count.replaceChildren(main, meta);
+            } else {
+                count.textContent = label;
+            }
+            const track = document.createElement('span');
+            track.className = 'gg-index-progress';
+            const fill = document.createElement('span');
+            fill.className = 'gg-index-progress-fill';
+            fill.style.width = `${percent}%`;
+            track.appendChild(fill);
+            const action = document.createElement('button');
+            action.className = 'gg-index-action';
+            action.type = 'button';
+            action.textContent = state === 'building'
+                ? _t('gallery.searchIndexPause')
+                : state === 'paused'
+                    ? _t('gallery.searchIndexResume')
+                    : _t('gallery.searchIndexCreate');
+            action.addEventListener('click', () => {
+                if (state === 'building') {
+                    this.#pauseIndexBuild();
+                } else {
+                    this.#startIndexBuild(state === 'paused');
+                }
+            });
+            const dismiss = document.createElement('button');
+            dismiss.className = 'gg-index-dismiss';
+            dismiss.type = 'button';
+            dismiss.title = _t('common.close');
+            dismiss.innerHTML = X_ICON_SVG;
+            dismiss.addEventListener('click', () => {
+                localStorage.setItem(INDEX_NOTICE_DISMISSED_KEY, '1');
+                this.#renderIndexStatus(this.#state.indexStatus);
+            });
+            if (needsBuild) {
+                const actions = document.createElement('span');
+                actions.className = 'gg-index-actions';
+                actions.append(action, dismiss);
+                strip.replaceChildren(count, actions);
+            } else {
+                strip.replaceChildren(count, track, action);
+            }
+        }
+        this.#setSearchReady(true);
+        if (!status.building && this.#indexPollTimer) {
+            clearTimeout(this.#indexPollTimer);
+            this.#indexPollTimer = null;
+        }
+        if (status.building) {
+            this.#startIndexUiTicker(status, state, label);
+        } else {
+            this.#stopIndexUiTicker();
+        }
+        if (!this.#indexPollTimer && status.building) {
+            this.#indexPollTimer = setTimeout(async () => {
+                this.#indexPollTimer = null;
+                await this.#refreshIndexStatus();
+            }, 1000);
+        }
+    }
+
+    #startIndexUiTicker(status, state, label) {
+        this.#stopIndexUiTicker();
+        status._clientReceivedAt = Date.now();
+        this.#indexUiTimer = setInterval(() => {
+            this.#updateIndexStripProgress(status, state, label);
+        }, 1000);
+    }
+
+    #stopIndexUiTicker() {
+        if (!this.#indexUiTimer) return;
+        clearInterval(this.#indexUiTimer);
+        this.#indexUiTimer = null;
+    }
+
+    #getStableEtaText(status, state) {
+        if (state !== 'building') {
+            this.#indexEtaText = '';
+            this.#indexEtaTextUpdatedAt = 0;
+            return '';
+        }
+        const now = Date.now();
+        if (!this.#indexEtaText || now - this.#indexEtaTextUpdatedAt >= 15000) {
+            this.#indexEtaText = status.etaReady && status.eta != null
+                ? _t('gallery.searchIndexEta', { time: this.#formatApproxDuration(status.eta) })
+                : _t('gallery.searchIndexEtaMeasuring');
+            this.#indexEtaTextUpdatedAt = now;
+        }
+        return this.#indexEtaText;
+    }
+
+    #updateIndexStripProgress(status, state, label) {
+        const strip = this.#el.indexStrip;
+        if (!strip || strip.hidden || state !== 'building') return;
+        const count = strip.querySelector('.gg-index-strip-count');
+        const fill = strip.querySelector('.gg-index-progress-fill');
+        if (!count && !fill) return;
+        const elapsedSinceFetch = Math.max(0, (Date.now() - (status._clientReceivedAt || Date.now())) / 1000);
+        const totalRaw = Number(status.total || 0);
+        const indexedRaw = Number(status.indexed || 0);
+        const rate = Number(status.rate || 0);
+        const projectedIndexed = totalRaw > 0 && rate > 0
+            ? Math.min(Math.max(0, totalRaw - 1), indexedRaw + elapsedSinceFetch * rate)
+            : indexedRaw;
+        const percent = totalRaw > 0 ? Math.max(0, Math.min(100, (projectedIndexed / totalRaw) * 100)) : 0;
+        const elapsed = Number(status.elapsed || 0) + elapsedSinceFetch;
+        const etaText = this.#getStableEtaText(status, state);
+        const elapsedText = _t('gallery.searchIndexElapsed', { time: this.#formatDuration(elapsed) });
+        if (count) {
+            const indexed = Math.floor(projectedIndexed).toLocaleString();
+            const total = totalRaw.toLocaleString();
+            let main = count.querySelector('.gg-index-count-main');
+            let meta = count.querySelector('.gg-index-count-meta');
+            if (!main) {
+                main = document.createElement('span');
+                main.className = 'gg-index-count-main';
+                meta = document.createElement('span');
+                meta.className = 'gg-index-count-meta';
+                count.replaceChildren(main, meta);
+            }
+            main.textContent = totalRaw ? `${indexed}/${total}` : label;
+            if (meta) meta.textContent = [elapsedText, etaText].filter(Boolean).join(' / ');
+        }
+        if (fill) {
+            fill.style.width = `${percent}%`;
+        }
+    }
+
+    #syncIndexDependentControls(indexReady) {
+        if (this.#el.scopeSection) {
+            this.#el.scopeSection.hidden = !indexReady;
+        }
+        if (!indexReady && ['prompt', 'workflow'].includes(this.#state.searchScope || '')) {
+            this.#state.searchScope = '';
+            this.#el.scopeMenu?.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
+            this.#el.scopeMenu?.querySelector('.gg-scope-option[data-value=""]')?.classList.add('active');
+            this.#syncFilterState();
+        }
+    }
+
+    #formatDuration(seconds) {
+        const value = Math.max(0, Math.round(Number(seconds) || 0));
+        const mins = Math.floor(value / 60);
+        const secs = value % 60;
+        if (mins <= 0) return `${secs}s`;
+        const hours = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        if (hours <= 0) return `${mins}m ${secs}s`;
+        return `${hours}h ${remMins}m`;
+    }
+
+    #formatApproxDuration(seconds) {
+        const value = Math.max(0, Math.round(Number(seconds) || 0));
+        if (value < 60) return _t('gallery.searchIndexUnderMinute');
+        const mins = Math.max(1, Math.round(value / 60));
+        if (mins < 10) return _t('gallery.searchIndexApproxMinutes', { count: mins });
+        const rounded = Math.max(10, Math.round(mins / 5) * 5);
+        return _t('gallery.searchIndexApproxMinutes', { count: rounded });
+    }
+
+    async #getIndexCreateConfirmMessage(scope) {
+        try {
+            const r = await fetch('/drawer/fs/index-estimate');
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const estimate = await r.json();
+            if (!estimate.requiresConfirm) return null;
+            const count = Number(estimate.total || 0).toLocaleString();
+            const time = this.#formatDuration(estimate.estimatedSeconds || 0);
+            return _t(`${scope}.searchIndexCreateConfirmWithEstimate`, { count, time });
+        } catch {
+            return _t(`${scope}.searchIndexCreateConfirm`);
+        }
+    }
+
+    async #startIndexBuild(isResume = false) {
+        const showConfirm = window.ComfyDrawer?.showConfirm;
+        if (!isResume && showConfirm) {
+            const message = await this.#getIndexCreateConfirmMessage('gallery');
+            if (message) {
+                const ok = await showConfirm(message, { variant: 'warning' });
+                if (!ok) return;
+            }
+        }
+        try {
+            const endpoint = isResume ? '/drawer/fs/index-resume' : '/drawer/fs/index-start';
+            const r = await fetch(endpoint, { method: 'POST' });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const status = await r.json();
+            this.#state.indexStatus = status;
+            this.#renderIndexStatus(status);
+        } catch (e) {
+            console.error(`[ComfyDrawer:${this.id}] Index start failed:`, e);
+        }
+    }
+
+    async #pauseIndexBuild() {
+        try {
+            const r = await fetch('/drawer/fs/index-pause', { method: 'POST' });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const status = await r.json();
+            this.#state.indexStatus = status;
+            this.#renderIndexStatus(status);
+        } catch (e) {
+            console.error(`[ComfyDrawer:${this.id}] Index pause failed:`, e);
+        }
     }
 
     async #refreshIndexStatus() {
         if (this.#state.root === 'temp') return null;
+        if (localStorage.getItem(DEBUG_INDEX_STATUS_KEY) === '1') {
+            const status = {
+                ready: false,
+                building: true,
+                progress: 'Debug preview',
+                indexed: 4200,
+                total: 100000,
+                percent: 4.2,
+            };
+            this.#state.indexStatus = status;
+            this.#renderIndexStatus(status);
+            return status;
+        }
         try {
             const r = await fetch('/drawer/fs/index-status');
-            if (!r.ok) return null;
+            if (!r.ok) {
+                this.#setSearchReady(true);
+                return null;
+            }
             const status = await r.json();
             this.#state.indexStatus = status;
             this.#renderIndexStatus(status);
             return status;
         } catch {
+            this.#setSearchReady(true);
             return null;
         }
     }
@@ -785,8 +1109,7 @@ export class GalleryGadget extends GadgetBase {
         this.#el.breadcrumb.classList.remove('hidden');
         // Disable search on temp root
         const isTemp = s.root === 'temp';
-        this.#el.searchTrigger.style.opacity = isTemp ? '0.3' : '';
-        this.#el.searchTrigger.style.pointerEvents = isTemp ? 'none' : '';
+        this.#el.searchTrigger.disabled = isTemp;
         if (isTemp) this.#closeSearch();
         this.#setStatus(_t('common.loading'));
         this.#el.grid.innerHTML = '';
@@ -799,6 +1122,7 @@ export class GalleryGadget extends GadgetBase {
             this.#sortFiles();
             this.#renderBreadcrumb();
             this.#renderGrid();
+            this.#refreshIndexStatus();
         } catch (e) {
             if (e.name === 'AbortError') return; // intentional cancellation
             this.#setStatus(_t('common.error') + ': ' + e.message);
@@ -827,8 +1151,10 @@ export class GalleryGadget extends GadgetBase {
         this.#el.resultCount.textContent = '';
         this.#renderSearchSummary('');
         const indexStatus = await this.#refreshIndexStatus();
-        if (indexStatus && !indexStatus.ready) {
+        if (indexStatus && !indexStatus.ready && this.#isIndexRequiredForCurrentSearch()) {
             this.#renderSearchSummary(_t('gallery.searchIndexWaiting'));
+            this.#setStatus(_t('gallery.searchIndexWaiting'));
+            return;
         }
         try {
             const data = await this.#apiSearch(query, s.path);
@@ -1015,6 +1341,10 @@ export class GalleryGadget extends GadgetBase {
 
         if (result?.skip) localStorage.setItem(LS_KEY, '1');
         onProceed();
+    }
+
+    #isIndexRequiredForCurrentSearch() {
+        return ['prompt', 'workflow'].includes(this.#state.searchScope || '');
     }
 
     /** Build and display a positioned dropdown list */

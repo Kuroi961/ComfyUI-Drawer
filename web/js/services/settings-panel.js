@@ -301,22 +301,46 @@ function createAction(row, def, settings) {
 
     const btn = document.createElement('button');
     btn.className = 'cd-settings-action-btn';
-    btn.textContent = def.buttonLabel || _t('common.execute');
     if (def.dangerous) btn.classList.add('cd-settings-action-danger');
+    const applyButtonState = async () => {
+        const state = typeof def.getButtonState === 'function'
+            ? await def.getButtonState()
+            : {};
+        btn.textContent = state.label || def.buttonLabel || _t('common.execute');
+        btn.disabled = !!state.disabled;
+    };
+    applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
+    const refreshEvents = Array.isArray(def.refreshEvents) ? def.refreshEvents : [];
+    const cleanups = refreshEvents
+        .map(event => window.ComfyDrawer?.bus?.on?.(event, () => {
+            applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
+        }))
+        .filter(Boolean);
+    if (cleanups.length) {
+        const observer = new MutationObserver(() => {
+            if (document.body.contains(row)) return;
+            for (const cleanup of cleanups) cleanup();
+            observer.disconnect();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
 
     btn.addEventListener('click', async () => {
         if (typeof def.action !== 'function') return;
+        if (btn.disabled) return;
         btn.disabled = true;
         const origText = btn.textContent;
         btn.textContent = _t('common.processing');
         try {
             await def.action();
-            btn.textContent = _t('common.done');
-            setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 1500);
+            await applyButtonState();
         } catch (e) {
             btn.textContent = _t('common.errorOccurred');
             console.error('[Settings] Action error:', e);
-            setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+            setTimeout(() => {
+                btn.textContent = origText;
+                applyButtonState().catch(err => console.error('[Settings] Button state error:', err));
+            }, 2000);
         }
     });
 

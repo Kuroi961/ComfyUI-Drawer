@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+
 # ComfyUI-Drawer Gadget API Reference
 
 > Complete API for building gadgets. All APIs available via `window.ComfyDrawer` — no ES imports needed.

@@ -1,4 +1,6 @@
 /**
+ * SPDX-License-Identifier: MIT
+ *
  * ┌─────────────────────────────────────────────────────────────┐
  * │  ComfyUI-Drawer — Single-File Gadget Template              │
  * │                                                             │

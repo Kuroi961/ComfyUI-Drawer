@@ -3,21 +3,29 @@ __pycache__/
 *.py[cod]
 *.pyo
 
-# Editors and OS metadata
+# IDE
 .vscode/
 .idea/
-.DS_Store
+
+# OS
 Thumbs.db
 desktop.ini
+.DS_Store
 
-# Local agent/workspace files
-.handoff/
+# Agent working directories
 .response/
-.agent/
+.handoff/
 
-# Runtime/user-generated data
+# User data (dictionaries are user-managed)
 data/user_dicts/
+
+# Database (generated at runtime)
 *.db
 *.db-wal
 *.db-shm
+
+# Backup files
 *.bak
+
+# Agent working directories
+.agent/

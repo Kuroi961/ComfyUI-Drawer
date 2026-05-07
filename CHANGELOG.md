@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.0.0 - 2026-05-07
+
+- Change the project implementation license to GPL-3.0-or-later, with CC0 public API/specification docs and an MIT gadget template
+- Add the full GPLv3 license text in `COPYING` and document split licensing in the README files
+- Make Gallery metadata indexing an explicit user-started operation instead of an automatic startup task
+- Keep filename search available without a search index, while prompt/workflow/node metadata searches use the SQLite index
+- Add Gallery and Settings controls for creating, pausing, resuming, and clearing the search index
+- Add index progress UI with live counts, progress bar, elapsed time, coarse ETA, dismissible unindexed notice, and cache-clear reset behavior
+- Add search index estimates using extension-aware sampling before large index builds
+- Fix Drawer server restart by using an in-place process replacement flow and update restart confirmation text
+- Add Settings action state refresh for long-running or state-dependent actions
+
 ## v1.0.8 - 2026-05-06
 
 - Rework Gallery search with filename, prompt, workflow, node type-scoped, and node title-scoped queries

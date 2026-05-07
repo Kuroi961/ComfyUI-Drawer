@@ -7,6 +7,7 @@ import io
 import datetime
 import json
 import logging
+import random
 import sqlite3
 import struct
 import threading
@@ -1302,16 +1303,28 @@ class _SearchIndex:
     """
 
     _SCHEMA_VERSION = 7  # v7: add node title data to scoped search
+    _FALLBACK_ESTIMATE_RATE = 25.0  # files/sec; intentionally conservative
+    _ESTIMATE_SAMPLE_LIMIT = 100
+    _ETA_WARMUP_SECONDS = 15
+    _ETA_WARMUP_FILES = 200
 
     def __init__(self):
         self._db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
         self._lock = threading.Lock()
-        self._ready = False
+        self._ready = os.path.isfile(self._db_path)
         self._building = False
         self._progress = ""
         self._indexed_count = 0
         self._total_count = 0
+        self._total_expected = 0
+        self._cleared = False
         self._conn = None
+        self._generation = 0
+        self._paused = False
+        self._started_at = 0.0
+        self._last_rate_sample_at = 0.0
+        self._last_rate_sample_count = 0
+        self._ema_rate = 0.0
 
     def _get_conn(self):
         """Get or create a thread-safe connection."""
@@ -1391,7 +1404,24 @@ class _SearchIndex:
 
     def start_background_build(self):
         """Start indexing in a background thread."""
-        t = threading.Thread(target=self._build_all, daemon=True)
+        with self._lock:
+            if self._building:
+                return
+            self._generation += 1
+            generation = self._generation
+            self._ready = False
+            self._building = True
+            self._progress = "Starting index build..."
+            self._indexed_count = 0
+            self._total_count = 0
+            self._total_expected = 0
+            self._cleared = False
+            self._paused = False
+            self._started_at = time.time()
+            self._last_rate_sample_at = self._started_at
+            self._last_rate_sample_count = 0
+            self._ema_rate = 0.0
+        t = threading.Thread(target=self._build_all, args=(generation,), daemon=True)
         t.start()
 
     # Roots to watch for incremental indexing after initial build.
@@ -1399,14 +1429,21 @@ class _SearchIndex:
     _WATCH_INTERVAL = 10  # seconds between incremental scans
     _PURGE_EVERY = 6      # run _purge_stale every N watcher cycles
 
-    def _build_all(self):
+    def _is_generation_current(self, generation):
+        return generation == self._generation
+
+    def _build_all(self, generation):
         """Scan all allowed roots and index media files."""
-        self._building = True
-        self._progress = "Starting index build..."
+        with self._lock:
+            if not self._is_generation_current(generation):
+                return
         try:
             with self._lock:
+                if not self._is_generation_current(generation):
+                    return
                 conn = self._get_conn()
 
+            roots = []
             for root_name, getter in _ALLOWED_ROOTS.items():
                 try:
                     root_path = getter()
@@ -1414,27 +1451,43 @@ class _SearchIndex:
                     continue
                 if not os.path.isdir(root_path):
                     continue
-                self._index_root(conn, root_name, root_path)
+                roots.append((root_name, root_path))
 
-            self._purge_stale(conn)
+            self._progress = "Counting index targets..."
+            self._total_expected = sum(self._count_media_files(root_path) for _root_name, root_path in roots)
 
-            self._progress = "Index ready"
-            self._ready = True
+            for root_name, root_path in roots:
+                if not self._is_generation_current(generation):
+                    return
+                self._index_root(conn, root_name, root_path, generation)
+
+            if self._is_generation_current(generation):
+                self._purge_stale(conn)
+
+            with self._lock:
+                if self._is_generation_current(generation):
+                    self._progress = "Index ready"
+                    self._ready = True
         except Exception as e:
-            self._progress = f"Index error: {e}"
+            with self._lock:
+                if self._is_generation_current(generation):
+                    self._progress = f"Index error: {e}"
             logger.error(f"Search index build failed: {e}")
         finally:
-            self._building = False
+            with self._lock:
+                if self._is_generation_current(generation):
+                    self._building = False
 
         # Start incremental watcher for output/input roots
-        self._start_watcher()
+        if self._is_generation_current(generation):
+            self._start_watcher(generation)
 
-    def _start_watcher(self):
+    def _start_watcher(self, generation):
         """Launch a daemon thread that periodically indexes new files."""
-        t = threading.Thread(target=self._watch_loop, daemon=True)
+        t = threading.Thread(target=self._watch_loop, args=(generation,), daemon=True)
         t.start()
 
-    def _watch_loop(self):
+    def _watch_loop(self, generation):
         """Periodically re-scan watched roots for new/changed files.
         Uses directory mtime to skip unchanged directories.
         Prevents overlapping cycles.
@@ -1445,9 +1498,13 @@ class _SearchIndex:
         dir_mtimes = {}
         while True:
             time.sleep(self._WATCH_INTERVAL)
+            if not self._is_generation_current(generation):
+                return
             cycle += 1
             try:
                 with self._lock:
+                    if not self._is_generation_current(generation):
+                        return
                     conn = self._get_conn()
                 for root_name in self._WATCH_ROOTS:
                     getter = _ALLOWED_ROOTS.get(root_name)
@@ -1520,11 +1577,22 @@ class _SearchIndex:
                             s_prompt=excluded.s_prompt,
                             s_workflow=excluded.s_workflow,
                             s_nodes=excluded.s_nodes
-                    """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
-                          s_prompt, s_workflow, s_nodes))
+            """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
+                  s_prompt, s_workflow, s_nodes))
             conn.commit()
 
-    def _index_root(self, conn, root_name, root_path):
+    def _count_media_files(self, root_path):
+        """Count searchable media files for index progress reporting."""
+        count = 0
+        for _dirpath, dirnames, filenames in os.walk(root_path):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            count += sum(
+                1 for fname in filenames
+                if os.path.splitext(fname)[1].lower() in _MEDIA_EXTS
+            )
+        return count
+
+    def _index_root(self, conn, root_name, root_path, generation):
         """Walk a root directory and index/update media files."""
         existing = {}
         for row in conn.execute(
@@ -1543,6 +1611,9 @@ class _SearchIndex:
                 if os.path.splitext(f)[1].lower() in _MEDIA_EXTS
             ]
             for fname in media_files:
+                if not self._is_generation_current(generation):
+                    conn.commit()
+                    return
                 full = os.path.join(dirpath, fname)
                 try:
                     st = os.stat(full)
@@ -1552,6 +1623,7 @@ class _SearchIndex:
                 old_mtime = existing.pop(key, None)
                 if old_mtime is not None and abs(st.st_mtime - old_mtime) < 0.01:
                     count += 1
+                    self._record_indexed()
                     continue  # unchanged
                 # Extract searchable parts from embedded metadata (images & video)
                 s_prompt = s_workflow = ""
@@ -1578,13 +1650,28 @@ class _SearchIndex:
                     """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
                           s_prompt, s_workflow, s_nodes))
                 count += 1
-                self._indexed_count = count
+                self._record_indexed()
                 if count % 500 == 0:
                     conn.commit()
                     self._progress = f"Indexing {root_name}: {count} files..."
         conn.commit()
         self._progress = f"Indexed {root_name}: {count} files"
         self._total_count += count
+
+    def _record_indexed(self, delta=1):
+        """Track progress and a smoothed indexing rate for ETA reporting."""
+        now = time.time()
+        with self._lock:
+            self._indexed_count += delta
+            elapsed = now - self._last_rate_sample_at
+            if elapsed < 1.0:
+                return
+            processed = self._indexed_count - self._last_rate_sample_count
+            instant_rate = processed / elapsed if elapsed > 0 else 0.0
+            if instant_rate > 0:
+                self._ema_rate = instant_rate if self._ema_rate <= 0 else (self._ema_rate * 0.75 + instant_rate * 0.25)
+            self._last_rate_sample_at = now
+            self._last_rate_sample_count = self._indexed_count
 
     def _purge_stale(self, conn):
         """Remove index entries for files that no longer exist on disk."""
@@ -1744,17 +1831,156 @@ class _SearchIndex:
 
     @property
     def status(self):
+        percent = 100 if self._ready else 0
+        if self._total_expected > 0:
+            percent = min(100, round((self._indexed_count / self._total_expected) * 100, 1))
+        db_exists = any(os.path.isfile(self._db_path + suffix) for suffix in ("", "-wal", "-shm"))
+        state = "ready" if self._ready else "building" if self._building else "paused" if self._paused else "cleared" if self._cleared else "idle" if db_exists else "missing"
+        elapsed = max(0.0, time.time() - self._started_at) if self._started_at and self._building else 0.0
+        remaining = max(0, self._total_expected - self._indexed_count)
+        fallback_rate = (self._indexed_count / elapsed) if elapsed > 0 and self._indexed_count > 0 else 0.0
+        eta_rate = self._ema_rate if self._ema_rate > 0 else fallback_rate
+        eta_ready = (
+            self._building
+            and eta_rate > 0
+            and self._total_expected > 0
+            and elapsed >= self._ETA_WARMUP_SECONDS
+            and self._indexed_count >= self._ETA_WARMUP_FILES
+        )
+        eta = round(remaining / eta_rate) if eta_ready else None
         return {
+            "state": state,
             "ready": self._ready,
             "building": self._building,
             "progress": self._progress,
-            "indexed": self._total_count,
+            "indexed": self._indexed_count if (self._building or self._paused) else self._total_count,
+            "total": self._total_expected,
+            "percent": percent,
+            "cleared": self._cleared,
+            "paused": self._paused,
+            "rate": round(eta_rate, 2),
+            "elapsed": round(elapsed),
+            "eta": eta,
+            "etaReady": eta_ready,
         }
 
+    def clear_index(self):
+        """Close the DB and reset in-memory state before cache deletion."""
+        with self._lock:
+            self._generation += 1
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+            self._ready = False
+            self._building = False
+            self._progress = "Index cleared"
+            self._indexed_count = 0
+            self._total_count = 0
+            self._total_expected = 0
+            self._cleared = True
+            self._paused = False
+            self._started_at = 0.0
+            self._last_rate_sample_at = 0.0
+            self._last_rate_sample_count = 0
+            self._ema_rate = 0.0
 
-# Global search index instance — starts building on module load
+    def pause(self):
+        """Stop the current build/watch generation and keep the partial DB."""
+        with self._lock:
+            self._generation += 1
+            self._building = False
+            self._ready = False
+            self._paused = True
+            self._cleared = False
+            self._progress = "Index paused"
+
+    def estimate(self):
+        """Estimate index build size and duration before starting."""
+        by_ext = {}
+        for _root_name, getter in _ALLOWED_ROOTS.items():
+            try:
+                root_path = getter()
+            except Exception:
+                continue
+            if not os.path.isdir(root_path):
+                continue
+            for dirpath, dirnames, filenames in os.walk(root_path):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                for fname in filenames:
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in _MEDIA_EXTS:
+                        by_ext.setdefault(ext, []).append(os.path.join(dirpath, fname))
+        total = sum(len(paths) for paths in by_ext.values())
+        sampled = 0
+        sample_seconds = 0.0
+        sample_rate = 0.0
+        method = "empty" if total == 0 else "small" if total < self._ESTIMATE_SAMPLE_LIMIT else "sample"
+        if total >= self._ESTIMATE_SAMPLE_LIMIT:
+            sample = self._sample_by_extension(by_ext, self._ESTIMATE_SAMPLE_LIMIT)
+            started = time.time()
+            for full in sample:
+                if not os.path.isfile(full):
+                    continue
+                sampled += 1
+                try:
+                    meta = _read_embedded_meta(full)
+                    if meta:
+                        _extract_searchable_parts(meta)
+                except Exception:
+                    pass
+            sample_seconds = max(0.001, time.time() - started)
+            sample_rate = sampled / sample_seconds if sampled else 0.0
+        rate = sample_rate or self._ema_rate or self._FALLBACK_ESTIMATE_RATE
+        if sample_rate:
+            rate = max(2.0, min(80.0, sample_rate))
+        seconds = round(total / rate) if total > 0 and rate > 0 else 0
+        return {
+            "total": total,
+            "sampled": sampled,
+            "sampleSeconds": round(sample_seconds, 2),
+            "estimatedSeconds": seconds,
+            "rate": round(rate, 2),
+            "method": method,
+            "requiresConfirm": total >= self._ESTIMATE_SAMPLE_LIMIT,
+            "estimated": not sample_rate and self._ema_rate <= 0,
+        }
+
+    def _sample_by_extension(self, by_ext, limit):
+        """Choose a stratified random sample that roughly preserves extension mix."""
+        total = sum(len(paths) for paths in by_ext.values())
+        if total <= limit:
+            return [path for paths in by_ext.values() for path in paths]
+        samples = []
+        remainders = []
+        for ext, paths in by_ext.items():
+            exact = (len(paths) / total) * limit
+            take = int(exact)
+            if take == 0 and paths:
+                take = 1
+            take = min(take, len(paths))
+            samples.extend(random.sample(paths, take))
+            remainders.append((exact - int(exact), ext))
+        if len(samples) > limit:
+            return random.sample(samples, limit)
+        used = set(samples)
+        for _fraction, ext in sorted(remainders, reverse=True):
+            if len(samples) >= limit:
+                break
+            candidates = [path for path in by_ext[ext] if path not in used]
+            if not candidates:
+                continue
+            picked = random.choice(candidates)
+            samples.append(picked)
+            used.add(picked)
+        return samples
+
+
+# Global search index instance. Builds are user-started because large
+# galleries can take minutes to index.
 _search_index = _SearchIndex()
-_search_index.start_background_build()
 
 
 def _read_png_text_chunks(filepath):
@@ -2423,6 +2649,33 @@ async def fs_search(request):
 @_routes.get("/drawer/fs/index-status")
 async def fs_index_status(request):
     """GET /drawer/fs/index-status — report indexing progress."""
+    return web.json_response(_search_index.status)
+
+
+@_routes.get("/drawer/fs/index-estimate")
+async def fs_index_estimate(request):
+    """GET /drawer/fs/index-estimate — estimate index build size/duration."""
+    return web.json_response(_search_index.estimate())
+
+
+@_routes.post("/drawer/fs/index-start")
+async def fs_index_start(request):
+    """POST /drawer/fs/index-start — start or resume the search index build."""
+    _search_index.start_background_build()
+    return web.json_response(_search_index.status)
+
+
+@_routes.post("/drawer/fs/index-resume")
+async def fs_index_resume(request):
+    """POST /drawer/fs/index-resume — resume the search index build."""
+    _search_index.start_background_build()
+    return web.json_response(_search_index.status)
+
+
+@_routes.post("/drawer/fs/index-pause")
+async def fs_index_pause(request):
+    """POST /drawer/fs/index-pause — pause the current search index build."""
+    _search_index.pause()
     return web.json_response(_search_index.status)
 
 
@@ -4059,6 +4312,10 @@ async def clear_drawer_cache(request):
     freed_bytes = 0
     errors = []
 
+    # Close SQLite before deleting files. On Windows, deleting an open DB can
+    # silently fail or leave WAL/SHM files out of the accounting path.
+    _search_index.clear_index()
+
     # 1. Remove .thumbs/ cache directories from each FS root
     for root_name, root_fn in _ALLOWED_ROOTS.items():
         try:
@@ -4090,15 +4347,6 @@ async def clear_drawer_cache(request):
             except Exception as e:
                 errors.append(f"index{suffix}: {e}")
 
-    # Reset in-memory search index state so it rebuilds on next use
-    if _search_index._conn is not None:
-        try:
-            _search_index._conn.close()
-        except Exception:
-            pass
-        _search_index._conn = None
-        _search_index._ready = False
-
     if errors:
         logger.warning(f"[Drawer] clear-cache partial errors: {errors[:3]}")
 
@@ -4106,52 +4354,41 @@ async def clear_drawer_cache(request):
         "ok": True,
         "deleted": deleted,
         "freedBytes": freed_bytes,
+        "errors": errors,
     })
 
 
-@_routes.get("/drawer/reboot")
+@_routes.post("/drawer/reboot")
 def drawer_reboot(request):
-    """Restart the ComfyUI server process.
+    """Restart the ComfyUI server process in-place."""
 
-    Strategy:
-    1. Launch a fully independent child process (DETACHED_PROCESS on Windows)
-    2. Immediately os._exit(0) — no Python cleanup, no atexit, no flush.
-       The OS closes all handles atomically, avoiding the race where
-       concurrent threads (KSampler/tqdm) write to half-closed handles.
+    def build_restart_argv():
+        argv = list(sys.argv)
+        if not argv:
+            return [sys.executable]
+        if "--windows-standalone-build" in argv:
+            argv.remove("--windows-standalone-build")
+        entry = argv[0]
+        if entry.endswith("__main__.py"):
+            module = os.path.basename(os.path.dirname(entry))
+            return [sys.executable, "-m", module, *argv[1:]]
+        if sys.platform.startswith("win32"):
+            return [f'"{sys.executable}"', f'"{entry}"', *argv[1:]]
+        return [sys.executable, *argv]
 
-    IMPORTANT: Do NOT call sys.stdout.close_log() or print() before
-    os._exit — Manager's stderr wrappers are shared with KSampler threads,
-    and closing them while sampling is active causes OSError [Errno 22].
-    """
-    import subprocess
+    # Some launch wrappers replace stdout with an object that must be detached
+    # before exec, otherwise the replacement process can inherit a broken stream.
+    try:
+        sys.stdout.close_log()
+    except Exception:
+        pass
 
-    if '__COMFY_CLI_SESSION__' in os.environ:
-        # comfy-cli managed session: signal restart via .reboot file
-        with open(os.environ['__COMFY_CLI_SESSION__'] + '.reboot', 'w'):
-            pass
-        os._exit(0)
+    cli_session = os.environ.get("__COMFY_CLI_SESSION__")
+    if cli_session:
+        open(cli_session + ".reboot", "w").close()
+        exit(0)
 
-    sys_argv = sys.argv.copy()
-    if '--windows-standalone-build' in sys_argv:
-        sys_argv.remove('--windows-standalone-build')
-
-    if sys_argv[0].endswith('__main__.py'):
-        module_name = os.path.basename(os.path.dirname(sys_argv[0]))
-        cmds = [sys.executable, '-m', module_name] + sys_argv[1:]
-    else:
-        cmds = [sys.executable] + sys_argv
-
-    # Launch the new process
-    if sys.platform.startswith('win32'):
-        # Windows: os.execv doesn't truly replace the process — it spawns
-        # a child and lets the parent run cleanup, which crashes when
-        # tqdm/colorama/Manager try to write to invalidated console handles.
-        # Use subprocess.Popen (fully detached) + os._exit(0) instead.
-        import subprocess
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-        subprocess.Popen(cmds, creationflags=flags, close_fds=True)
-        os._exit(0)
-    else:
-        # Unix: os.execv genuinely replaces the process image in-place.
-        # Same PID, same terminal, same session — no handle issues.
-        os.execv(sys.executable, cmds)
+    print("\nRestarting... [Drawer]\n\n")
+    cmds = build_restart_argv()
+    print(f"Command: {cmds}", flush=True)
+    return os.execv(sys.executable, cmds)

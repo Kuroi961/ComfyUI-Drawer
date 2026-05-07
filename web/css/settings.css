@@ -601,7 +601,8 @@
     transition: all 0.15s ease;
     white-space: nowrap;
     line-height: 1.5;
-    min-width: 60px;
+    min-width: 72px;
+    height: 34px;
     text-align: center;
 }
 

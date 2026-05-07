@@ -1247,7 +1247,11 @@ app.registerExtension({
                 const ok = await showConfirm(t('home.serverRestartConfirm'));
                 if (!ok) return;
                 try {
-                    await fetch('/drawer/reboot');
+                    await fetch('/drawer/reboot', { method: 'POST' });
+                } catch {
+                    // os.execv closes the HTTP connection; treat that as restart in progress.
+                }
+                try {
                     showAlert(t('home.serverRestarting'));
                     const poll = setInterval(async () => {
                         try {
@@ -1300,6 +1304,31 @@ app.registerExtension({
             bus.emit('settings:highlight-changed', { commentsEnabled: enabled });
         });
 
+        const formatDuration = (seconds) => {
+            const value = Math.max(0, Math.round(Number(seconds) || 0));
+            const mins = Math.floor(value / 60);
+            const secs = value % 60;
+            if (mins <= 0) return `${secs}s`;
+            const hours = Math.floor(mins / 60);
+            const remMins = mins % 60;
+            if (hours <= 0) return `${mins}m ${secs}s`;
+            return `${hours}h ${remMins}m`;
+        };
+        const getSearchIndexCreateConfirmMessage = async () => {
+            try {
+                const resp = await fetch('/drawer/fs/index-estimate');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const estimate = await resp.json();
+                if (!estimate.requiresConfirm) return null;
+                return t('settings.createSearchIndexConfirmWithEstimate', {
+                    count: Number(estimate.total || 0).toLocaleString(),
+                    time: formatDuration(estimate.estimatedSeconds || 0),
+                });
+            } catch {
+                return t('settings.createSearchIndexConfirm');
+            }
+        };
+
         // 2. Clear Drawer cache action
         settings.define('util.clearCache', {
             type: 'action',
@@ -1311,11 +1340,45 @@ app.registerExtension({
             dangerous: true,
             order: 90,
             action: async () => {
+                const ok = await showConfirm(t('settings.clearCacheConfirm'), { variant: 'danger', danger: true });
+                if (!ok) return;
                 const resp = await fetch('/drawer/clear-cache', { method: 'POST' });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const mb = (data.freedBytes / 1024 / 1024).toFixed(1);
+                bus.emit('drawer:cache-cleared', data);
                 showAlert(t('settings.cacheCleared', { count: data.deleted, mb }));
+            },
+        });
+
+        settings.define('util.createSearchIndex', {
+            type: 'action',
+            label: t('settings.createSearchIndex'),
+            description: t('settings.createSearchIndexDesc'),
+            section: t('settings.utility'),
+            sectionOrder: 0,
+            buttonLabel: t('settings.create'),
+            order: 80,
+            refreshEvents: ['drawer:cache-cleared', 'drawer:index-build-started'],
+            getButtonState: async () => {
+                const resp = await fetch('/drawer/fs/index-status');
+                if (!resp.ok) return { label: t('settings.create'), disabled: true };
+                const status = await resp.json();
+                if (status.ready && status.state !== 'missing' && status.state !== 'cleared') return { label: t('settings.created'), disabled: true };
+                if (status.building) return { label: t('settings.creating'), disabled: true };
+                return { label: t('settings.create'), disabled: false };
+            },
+            action: async () => {
+                const message = await getSearchIndexCreateConfirmMessage();
+                if (message) {
+                    const ok = await showConfirm(message, { variant: 'warning' });
+                    if (!ok) return;
+                }
+                const resp = await fetch('/drawer/fs/index-start', { method: 'POST' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                bus.emit('drawer:index-build-started', data);
+                showAlert(t('settings.searchIndexStarted'));
             },
         });
 

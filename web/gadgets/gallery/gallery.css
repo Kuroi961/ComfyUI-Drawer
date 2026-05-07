@@ -129,34 +129,41 @@
     }
 
     .gadget-gallery .gg-toolbar-browse.search-open {
-        height: 86px;
-        flex-wrap: wrap;
+        height: 100px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: 38px 42px;
         align-content: center;
-        justify-content: flex-start;
-        gap: 6px 8px;
-        padding: 6px 12px;
+        align-items: center;
+        gap: 8px 8px;
+        padding: 10px 16px;
     }
 
     .gadget-gallery .gg-toolbar-browse.search-open .gg-search-bar {
         display: flex;
+        grid-column: 2 / -1;
+        grid-row: 1;
         order: 2;
-        flex: 1 1 auto;
-        width: auto;
+        min-width: 0;
+        width: 100%;
         justify-content: flex-end;
     }
 
     .gadget-gallery .gg-toolbar-browse.search-open .gg-search-back {
+        grid-column: 1;
+        grid-row: 1;
         order: 1;
     }
 
-    .gadget-gallery .gg-toolbar-browse.search-open .gg-scope-wrap {
-        order: 3;
+    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-box {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        order: 4;
+        width: 100%;
     }
 
-    .gadget-gallery .gg-toolbar-browse.search-open .gg-search-box {
-        order: 4;
-        flex: 0 0 100%;
-        width: 100%;
+    .gadget-gallery .gg-toolbar-browse.search-open > .gg-index-status-browse {
+        display: none;
     }
 
     /* Hide sort/autoplay/trigger when search is open */
@@ -200,6 +207,12 @@
         border-color: var(--gg-accent-dim);
     }
 
+    .gadget-gallery .gg-search-trigger:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
     /* ── Search back button (← arrow, standalone) ── */
     .gadget-gallery .gg-search-back {
         background: none;
@@ -237,7 +250,18 @@
         color: var(--gg-text-3);
     }
 
+    .gadget-gallery .gg-search-box.disabled {
+        opacity: 0.72;
+    }
 
+    .gadget-gallery .gg-search-input:disabled,
+    .gadget-gallery .gg-search-submit:disabled {
+        cursor: not-allowed;
+    }
+
+    .gadget-gallery .gg-search-input:disabled {
+        color: var(--gg-text-3);
+    }
 
     .gadget-gallery .gg-result-count {
         display: none;
@@ -335,6 +359,11 @@
     .gadget-gallery .gg-search-submit:hover {
         color: var(--gg-text-1);
         background: var(--gg-accent-dim);
+    }
+
+    .gadget-gallery .gg-search-submit:disabled:hover {
+        color: var(--gg-text-2);
+        background: var(--gg-bg-hover);
     }
 
     /* ── Scope funnel trigger + menu ── */
@@ -645,19 +674,141 @@
     }
 
     .gadget-gallery .gg-index-status {
-        flex: 0 1 auto;
+        flex: 1 1 auto;
         min-width: 0;
-        max-width: 38%;
-        padding: 3px 7px;
-        border: 1px solid rgba(77, 166, 255, 0.3);
-        border-radius: var(--gg-r-s);
-        background: rgba(77, 166, 255, 0.1);
+        max-width: 260px;
+        padding: 0 8px;
+        border: 0;
+        background: transparent;
         color: var(--gg-accent);
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        overflow: hidden;
+    }
+
+    .gadget-gallery .gg-index-status[hidden] {
+        display: none;
+    }
+
+    .gadget-gallery .gg-index-status-text {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-index-strip {
+        display: grid;
+        grid-template-columns: minmax(118px, auto) minmax(120px, 1fr) auto;
+        align-items: center;
+        gap: 14px;
+        min-height: 36px;
+        padding: 4px 16px;
+        border-top: 1px solid var(--gg-border);
+        background: color-mix(in srgb, var(--cd-panel) 92%, #000);
+        order: 97;
+        flex-shrink: 0;
+    }
+
+    .gadget-gallery .gg-index-strip[hidden] {
+        display: none;
+    }
+
+    .gadget-gallery .gg-index-strip.notice {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .gadget-gallery .gg-index-strip-count {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        color: var(--gg-text-2);
+        font: 500 12px var(--gg-font);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .gadget-gallery .gg-index-count-main,
+    .gadget-gallery .gg-index-count-meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-index-count-meta {
+        color: color-mix(in srgb, var(--gg-text-2) 74%, transparent);
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .gadget-gallery .gg-index-progress {
+        display: block;
+        height: 5px;
+        border-radius: 999px;
+        background: rgba(77, 166, 255, 0.18);
+        overflow: hidden;
+    }
+
+    .gadget-gallery .gg-index-progress-fill {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: var(--gg-accent);
+        transition: width 0.2s var(--gg-ease);
+    }
+
+    .gadget-gallery .gg-index-action {
+        min-width: 74px;
+        height: 26px;
+        padding: 0 12px;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        background: var(--cd-s2);
+        color: var(--gg-text);
+        font: 600 12px var(--gg-font);
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .gadget-gallery .gg-index-action:hover {
+        border-color: color-mix(in srgb, var(--gg-accent) 55%, var(--gg-border));
+        color: var(--gg-accent);
+    }
+
+    .gadget-gallery .gg-index-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .gadget-gallery .gg-index-dismiss {
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-r-s);
+        background: transparent;
+        color: var(--gg-text-2);
+        cursor: pointer;
+        display: inline-grid;
+        place-items: center;
+    }
+
+    .gadget-gallery .gg-index-dismiss svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    .gadget-gallery .gg-index-dismiss:hover {
+        color: var(--gg-text);
+        border-color: var(--gg-border-2);
     }
 
     .gadget-gallery .gg-index-status.error {
