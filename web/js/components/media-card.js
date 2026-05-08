@@ -255,6 +255,7 @@ export function initCustomDrag(card, thumbEl, opts = {}) {
  * Create a MediaCard element.
  * @param {object} opts
  * @param {string} opts.src - Image/video URL
+ * @param {string} [opts.dragSrc] - Full media URL for drag/drop when src is a thumbnail
  * @param {string} [opts.filename] - Filename (used for Lightbox / D&D)
  * @param {string} [opts.subfolder] - Subfolder path
  * @param {string} [opts.type='output'] - 'output' | 'input' | 'temp'
@@ -262,6 +263,7 @@ export function initCustomDrag(card, thumbEl, opts = {}) {
  * @param {boolean} [opts.lightbox=true] - Open Lightbox on click
  * @param {boolean} [opts.draggable=true] - Custom drag to ComfyUI canvas
  * @param {boolean} [opts.lazy=true] - Lazy-load the thumbnail
+ * @param {boolean} [opts.checkWorkflow=true] - Pre-check workflow metadata for menu visibility
  * @param {number|null} [opts.thumbHeight=160] - Thumbnail height in px (null = auto)
  * @param {Function|null} [opts.onClick] - Custom click handler (overrides lightbox)
  * @param {Function|null} [opts.onContextMenu] - Right-click / long-tap handler
@@ -272,6 +274,7 @@ export function initCustomDrag(card, thumbEl, opts = {}) {
 export function createMediaCard(opts = {}) {
     const {
         src,
+        dragSrc = src,
         filename = '',
         subfolder = '',
         type = 'output',
@@ -279,6 +282,7 @@ export function createMediaCard(opts = {}) {
         lightbox = true,
         draggable = true,
         lazy = true,
+        checkWorkflow = true,
         thumbHeight = 160,
         onClick = null,
         onContextMenu = null,
@@ -301,7 +305,7 @@ export function createMediaCard(opts = {}) {
         thumbEl.muted = true;
         thumbEl.loop = true;
         thumbEl.playsInline = true;
-        thumbEl.preload = 'auto';
+        thumbEl.preload = 'metadata';
         // Capture first frame as poster once video data is loaded
         thumbEl.addEventListener('loadeddata', () => {
             thumbEl.dataset.loaded = 'true';
@@ -313,9 +317,6 @@ export function createMediaCard(opts = {}) {
                 thumbEl.poster = c.toDataURL('image/jpeg', 0.8);
             } catch { /* CORS or other error — frame still visible via video element */ }
         }, { once: true });
-        // Hover to preview
-        card.addEventListener('mouseenter', () => thumbEl.play?.());
-        card.addEventListener('mouseleave', () => { thumbEl.pause?.(); thumbEl.currentTime = 0; });
     } else {
         thumbEl = document.createElement('img');
         thumbEl.loading = lazy ? 'lazy' : 'eager';
@@ -325,6 +326,34 @@ export function createMediaCard(opts = {}) {
     thumbEl.dataset.loaded = 'false';
     thumbEl.alt = filename;
     thumbEl.draggable = false; // Always disable native image drag
+
+    let loadRetryTimer = null;
+    let loadRetryCount = 0;
+    const markLoaded = () => {
+        if (loadRetryTimer !== null) {
+            clearTimeout(loadRetryTimer);
+            loadRetryTimer = null;
+        }
+        thumbEl.dataset.loaded = 'true';
+        delete card.dataset.mcThumbError;
+    };
+    const retryLoad = () => {
+        if (!src || mediaType === 'video') {
+            markLoaded();
+            return;
+        }
+        if (loadRetryCount >= 4) {
+            markLoaded();
+            card.dataset.mcThumbError = 'true';
+            return;
+        }
+        loadRetryCount += 1;
+        thumbEl.dataset.loaded = 'false';
+        const sep = src.includes('?') ? '&' : '?';
+        loadRetryTimer = setTimeout(() => {
+            thumbEl.src = `${src}${sep}_retry=${Date.now()}`;
+        }, 700 * loadRetryCount);
+    };
 
     // Lazy loading via IntersectionObserver
     if (lazy && src) {
@@ -336,9 +365,9 @@ export function createMediaCard(opts = {}) {
 
     // Loaded state (images only — video uses loadeddata handler above)
     if (mediaType !== 'video') {
-        thumbEl.addEventListener('load', () => { thumbEl.dataset.loaded = 'true'; }, { once: true });
+        thumbEl.addEventListener('load', markLoaded);
     }
-    thumbEl.addEventListener('error', () => { thumbEl.dataset.loaded = 'true'; }); // show broken state
+    thumbEl.addEventListener('error', retryLoad);
 
     thumbWrap.appendChild(thumbEl);
     card.appendChild(thumbWrap);
@@ -380,7 +409,7 @@ export function createMediaCard(opts = {}) {
 
     // ── Custom Drag to ComfyUI Canvas ──
     if (draggable) {
-        initCustomDrag(card, thumbEl, { src, filename, mediaType, onFolderDrop: opts.onFolderDrop });
+        initCustomDrag(card, thumbEl, { src: dragSrc, filename, mediaType, onFolderDrop: opts.onFolderDrop });
     }
 
     // ── Async workflow metadata detection ──
@@ -408,7 +437,7 @@ export function createMediaCard(opts = {}) {
             .catch(() => updateHasWorkflow(false));
     }
 
-    if (src && filename) {
+    if (checkWorkflow && src && filename) {
         runWorkflowCheck(src);
     }
 
@@ -421,12 +450,18 @@ export function createMediaCard(opts = {}) {
         get hasWorkflow() { return card._hasWorkflow; },
         setSrc(newSrc) {
             if (lazy && _lazyObserver) _lazyObserver.unobserve(thumbEl);
+            if (loadRetryTimer !== null) {
+                clearTimeout(loadRetryTimer);
+                loadRetryTimer = null;
+            }
+            loadRetryCount = 0;
             thumbEl.dataset.loaded = 'false';
             thumbEl.src = newSrc;
             // Re-check workflow availability for the new source
             runWorkflowCheck(newSrc);
         },
         destroy() {
+            if (loadRetryTimer !== null) clearTimeout(loadRetryTimer);
             if (_lazyObserver) _lazyObserver.unobserve(thumbEl);
             card.remove();
         },

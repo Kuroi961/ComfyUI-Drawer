@@ -108,6 +108,47 @@ Gadgets should use `ComfyBridge` for ComfyUI graph, queue, file, setting, and ev
 
 New repeated gadget access to `bridge.app` should usually become a focused Bridge method. One-off compatibility hooks may stay as escape hatches when they are documented near the call site.
 
+## Gallery Metadata Boundary
+
+Gallery search indexing reads raw metadata through a Python provider registry before falling back to embedded PNG/WebP metadata. Drawer does not assume where third-party metadata is stored. A provider only answers "do you have raw metadata for this file?" and returns that raw dict when it does.
+
+Providers receive a context object with `path`, `root_name`, `root_path`, `subfolder`, `name`, and `filename`. They should return `None` when they do not own the file's metadata. If no provider returns raw metadata, Drawer reads embedded metadata from the media file.
+
+Raw metadata is interpreted in a second step. Drawer extracts standard ComfyUI `prompt` and `workflow` metadata itself. Third parties that store custom metadata in `workflow.extra` or elsewhere may register an index contributor that recognizes its own data and returns namespace/key/value custom search entries.
+
+This keeps the responsibilities separate:
+
+| Owner | Responsibility |
+|---|---|
+| Drawer | Index lifecycle, normalized search fields, embedded metadata fallback, standard ComfyUI metadata extraction |
+| Third-party raw provider | Its own metadata storage and lookup policy |
+| Third-party index contributor | Conversion of its own raw metadata shape to namespaced custom search entries |
+| Third-party dictionary provider | Optional autocomplete entries for custom metadata keys or search snippets |
+
+Existing indexes must be rebuilt or refreshed after adding or changing a provider or contributor, because search rows are materialized during index creation. Drawer stores a metadata pipeline signature in the index DB; `POST /drawer/fs/index-sync` automatically switches to metadata refresh when the registered raw providers or index contributors changed. `POST /drawer/fs/index-refresh-metadata` can also force the same reread/reapply pass without dropping the index database.
+
+Contributor-owned searchable metadata should be returned as `{"namespace": "...", "fields": {"key": value}}` rather than by asking Drawer to index raw metadata. Drawer treats the namespace/key/value entries as the normalized search contract for third-party custom values; third parties remain responsible for deciding which of their own fields are meaningful enough to expose. Gallery search supports `namespace[value]` for contributor-wide search and `namespace:key[value]` for a specific contributor key.
+
+Dictionary providers do not affect index contents. They are only a UI convenience for autocomplete and settings visibility, so a third party can expose search without autocomplete, autocomplete without search, or both.
+
+The Gallery index is a search snapshot, not a live metadata store. Metadata is treated as stable once materialized: normal indexing preserves existing search fields and only updates file location/stat fields when a file appears to have moved or been renamed. Existing metadata should be rewritten only by an explicit user action such as rebuilding the index, or by an explicit replace request from a trusted maintenance tool.
+
+Generated files are handled as a narrow explicit update: Drawer relays ComfyUI `executed` events to collect output file references, then uses `execution_success` to index only those generated files after the queue item completes. This path reads providers/embedded metadata for new or empty rows, preserves existing metadata, and does not trigger a full scan.
+
+Ready indexes also run a low-priority reconciliation pass. This behaves like a local sync index rather than a rebuild:
+
+| Filesystem change | Reconcile behavior |
+|---|---|
+| New media file | Add a row and read provider/embedded metadata |
+| Existing media file | Preserve search metadata; update mtime/size/type only |
+| Move or rename | Match by file fingerprint where possible and update root/subfolder/name |
+| Missing file | Remove the stale search row |
+| Provider/contributor implementation change | Sync auto-switches to metadata refresh when the stored pipeline signature changes |
+
+This keeps filesystem changes autonomous while preventing background sync from replacing third-party metadata with empty or embedded-only fields.
+
+Direct file interactions may perform a one-file opportunistic sync. For example, opening a media context menu first checks that file's provider/embedded metadata, fills a missing or empty index row, and only then renders the menu. Search result lists do not bulk-sync their hits; only the item the user directly opens or targets is checked.
+
 ## Ownership Boundaries
 
 ### Bus Events

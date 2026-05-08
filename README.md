@@ -168,8 +168,9 @@ A gadget for browsing media and folders under the output, input, and temp direct
 - Search supports quoted phrases, space-separated AND terms, and NOT terms with `-word` or `-"quoted phrase"`
 - Node type-scoped search can target values from a specific node type with syntax such as `type:CLIPTextEncode[white hair -night]`. The `[...]` part acts like a virtual search box for values inside that node type, using the same phrase / AND / NOT rules as the main search field
 - Node title-scoped search is also available with syntax such as `title:My Prompt Node[school uniform]` or `title:"Prompt A"[blue sky]`. The title part matches node titles, and the `[...]` part searches values inside matching titled nodes
+- Third-party custom metadata can be searched when a custom node registers a Drawer index contributor. Custom fields use `namespace[value]` or `namespace:key[value]`, for example `myPlugin:tags[black hair]`
 - Search filters include target field, date range, and file size, with a compact mobile-friendly two-row search toolbar
-- Node type, user dictionary, and Danbooru dictionary autocomplete are available in the Gallery search field
+- Node type, user dictionary, Danbooru dictionary, and registered custom metadata key autocomplete are available in the Gallery search field
 - New folder creation, folder move, and folder delete
 
 ---
@@ -334,11 +335,13 @@ app.registerExtension({
 - `window.ComfyDrawer` exposes services such as `GadgetBase`, `bus`, `bridge`, `settings`, and `dict`
 - CSS can be injected with a `<style>` tag. Scoping with `@layer gadget-<id>` is recommended
 - The only external import needed is `app.js`; gadgets do not need to depend on Drawer internals
+- Python extensions can register Gallery metadata providers, search index contributors, metadata panel contributors, and dictionary providers. This lets existing custom metadata become searchable and visible in Drawer without forcing a Drawer-specific storage format
 
 See [GADGET_API.md](GADGET_API.md) for the complete API reference.
 
 | Document | Description |
 |----------|-------------|
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Detailed user guide beyond the README |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Platform architecture, module responsibilities, and design decisions |
 | [CONVENTIONS.md](CONVENTIONS.md) | Code style, CSS scoping, and naming conventions |
 | [GADGET_API.md](GADGET_API.md) | Gadget development API reference |

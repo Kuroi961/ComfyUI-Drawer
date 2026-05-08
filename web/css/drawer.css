@@ -200,6 +200,22 @@
         overflow-x: hidden;
     }
 
+    .comfy-drawer-gadget-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--cd-text-muted);
+        background: var(--cd-panel);
+        font-size: 14px;
+        letter-spacing: 0;
+    }
+
+    .comfy-drawer-gadget:not(.comfy-drawer-gadget-mounting) > .comfy-drawer-gadget-placeholder {
+        display: none;
+    }
+
     /* ── Tab Bar (Floating Pill) ──
        Pill-shaped, auto-width, floats above ComfyUI's native bottom bar.
        Only the pill itself captures pointer events. */
@@ -216,6 +232,10 @@
         pointer-events: auto;
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
         zoom: 1.05;
+    }
+
+    .comfy-drawer.loading .comfy-drawer-tabs {
+        display: none;
     }
 
     /* When panel is open, tab bar docks to panel bottom edge */

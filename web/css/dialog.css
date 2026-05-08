@@ -168,6 +168,28 @@
     margin-bottom: 0;
 }
 
+.cd-index-estimating {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+}
+
+.cd-index-estimating-spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--cd-divider);
+    border-top-color: var(--cd-accent);
+    border-radius: 50%;
+    animation: cd-index-estimating-spin 0.8s linear infinite;
+}
+
+@keyframes cd-index-estimating-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* ── Input field (for prompt mode) ── */
 .cd-dialog-input {
     width: 100%;
@@ -495,6 +517,30 @@ textarea.cd-meta-node-list {
 
 .cd-dialog-body .cd-dialog-field:last-child {
     margin-bottom: 0;
+}
+
+.cd-cache-clear-options {
+    display: grid;
+    gap: 8px;
+}
+
+.cd-dialog-body label.cd-cache-clear-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    margin: 0;
+    color: var(--cd-text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.cd-cache-clear-option input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--cd-danger);
+    flex: 0 0 auto;
 }
 
 /* Select dropdown */

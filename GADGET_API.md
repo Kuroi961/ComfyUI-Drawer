@@ -140,6 +140,97 @@ Filesystem mutation events are emitted after successful Gallery operations. `fs:
 
 ---
 
+## Python Metadata Providers
+
+Gallery indexing can use third-party raw metadata providers and index contributors. Providers are Python callables registered by another custom node; Drawer passes file context and expects raw metadata back. If no provider returns metadata for a file, Drawer falls back to embedded PNG/WebP metadata.
+
+```python
+from comfyui_drawer import (
+    register_dictionary_provider,
+    register_index_contributor,
+    register_metadata_panel_contributor,
+    register_metadata_provider,
+)
+
+def provide_raw_metadata(ctx):
+    # ctx: path, root_name, root_path, subfolder, name, filename
+    return lookup_metadata_somewhere(ctx) or None
+
+def contribute_search_fields(raw, ctx):
+    mine = raw.get("workflow", {}).get("extra", {}).get("myPlugin")
+    if not isinstance(mine, dict):
+        return None
+    return {
+        "namespace": "myPlugin",
+        "fields": {
+            "project": mine.get("project"),
+            "caption": mine.get("caption"),
+            "tags": mine.get("tags") or [],
+        },
+    }
+
+def contribute_metadata_panel(raw, ctx):
+    mine = raw.get("workflow", {}).get("extra", {}).get("myPlugin")
+    if not isinstance(mine, dict):
+        return None
+    return {
+        "title": "myPlugin",
+        "fields": {
+            "Project": mine.get("project"),
+            "Tags": mine.get("tags") or [],
+            "Caption": mine.get("caption"),
+        },
+    }
+
+def provide_dictionary_entries(ctx):
+    return [
+        {
+            "tag": "myPlugin:tags[black hair]",
+            "insert_text": "myPlugin:tags[black hair]",
+            "display_text": "myPlugin tags search",
+        },
+    ]
+
+unregister_provider = register_metadata_provider(provide_raw_metadata, name="my-metadata", priority=40)
+unregister_contributor = register_index_contributor(contribute_search_fields, name="my-plugin-index", priority=40)
+unregister_panel = register_metadata_panel_contributor(contribute_metadata_panel, name="my-plugin-panel", priority=40)
+unregister_dict = register_dictionary_provider(
+    provide_dictionary_entries,
+    name="my-plugin-dict",
+    label="myPlugin",
+    context="search",
+    priority=40,
+)
+```
+
+Providers should return raw metadata only when they own metadata for the file. Drawer does not require any specific provider storage format. Provider raw metadata may be the normal ComfyUI `prompt`/`workflow` shape, a third-party shape, or data loaded from a sidecar/database.
+
+Index contributors receive the raw metadata selected for the file and the same context object. They should return `None` when they do not recognize any metadata they own. Contributions may contain `namespace` plus `fields`, where `fields` maps contributor-owned keys to strings, numbers, booleans, lists, or nested dicts. Standard `prompt_*` and `workflow_*` fields are extracted by Drawer itself.
+
+Metadata panel contributors receive the same raw metadata and context. They may return `title` plus `fields`, or `sections` containing `{title, rows, text}`. Dictionary providers return autocomplete entries for Drawer search/prompt inputs; entries may use `{tag, insert_text, display_text}` or the internal `{t, insertText, displayText}` shape.
+
+Index contributors and dictionary providers are intentionally separate. An index contributor makes existing metadata searchable after the Gallery index is built or refreshed. A dictionary provider only supplies autocomplete candidates, such as useful `namespace:key[...]` snippets, and does not make anything searchable by itself.
+
+Custom metadata search syntax mirrors Drawer's existing bracket searches:
+
+```text
+myPlugin[black hair]          # search all custom fields from myPlugin
+myPlugin:tags[black hair]     # search only the myPlugin tags field
+myPlugin:project[archive A]
+```
+
+Drawer extracts standard ComfyUI `prompt` and `workflow` metadata itself. A third-party custom node that embeds custom data in `workflow.extra` can register only an index contributor. A third-party system that stores metadata outside the image can register a raw provider, and can also register an index contributor when that raw format needs custom interpretation. After adding or changing a provider or contributor, rebuild the Gallery search index.
+
+If the index already exists and only provider/contributor interpretation changed, `POST /drawer/fs/index-refresh-metadata` rereads metadata for existing files and reapplies current contributors without dropping the index database. Normal `POST /drawer/fs/index-sync` automatically switches to this refresh path when Drawer detects that the registered raw providers or index contributors changed since the last build/refresh.
+
+Gallery treats indexed metadata as stable snapshot data. Move/rename-style updates should preserve existing search fields. External `/drawer/fs/index-update` calls also preserve existing metadata by default; pass `replace: true` only for an explicit maintenance action that should overwrite already-indexed search fields.
+
+Ready indexes reconcile file changes in the background. Reconcile adds new files, updates file location/stat fields, matches likely moves/renames by fingerprint, and removes stale rows, but it does not reinterpret existing metadata. A manual low-priority reconcile can also be requested with `POST /drawer/fs/index-sync`; provider/contributor changes still require an explicit rebuild or replace.
+
+Direct one-file interactions, such as opening a media context menu, may check provider/embedded metadata before rendering UI and fill a missing or empty index row. Search result lists should not bulk-sync every hit.
+
+---
+
 ## ComfyBridge
 
 ### Node Operations

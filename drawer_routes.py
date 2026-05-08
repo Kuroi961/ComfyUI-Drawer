@@ -2,17 +2,18 @@
 
 import os
 import sys
+import asyncio
 import csv
 import io
 import datetime
 import json
 import logging
 import random
-import sqlite3
-import struct
+import re
 import threading
 import time
-import zlib
+import tempfile
+import uuid as _uuid
 
 try:
     from send2trash import send2trash as _send2trash
@@ -23,9 +24,70 @@ from aiohttp import web
 import server
 import folder_paths
 
+from .dict_store import (
+    count_entries as _count_entries,
+    dict_file_path as _dict_file_path,
+    get_dict_type as _get_dict_type,
+    read_dict_entries as _read_dict_entries,
+    read_manifest as _read_manifest,
+    read_wildcard_entries as _read_wildcard_entries,
+    write_dict_entries as _write_dict_entries,
+    write_manifest as _write_manifest,
+    write_wildcard_entries as _write_wildcard_entries,
+)
+from .fs_utils import (
+    ALLOWED_ROOTS as _ALLOWED_ROOTS,
+    DELETABLE_ROOTS as _DELETABLE_ROOTS,
+    MEDIA_EXTS as _MEDIA_EXTS,
+    ROOT_LABELS as _ROOT_LABELS,
+    THUMB_WARM_EXTS as _THUMB_WARM_EXTS,
+    as_str as _as_str,
+    body_str as _body_str,
+    format_storage_rel as _format_storage_rel,
+    ftype as _ftype,
+    is_plain_name as _is_plain_name,
+    resolve_root as _resolve_root,
+    safe_path as _safe_path,
+    summarize_tree as _summarize_tree,
+    truthy as _truthy,
+)
+from .metadata_ext import (
+    apply_metadata_panel_contributors as _apply_metadata_panel_contributors,
+    has_dictionary_providers as _has_dictionary_providers,
+    read_dictionary_provider_entries as _read_dictionary_provider_entries,
+    register_dictionary_provider,
+    register_index_contributor,
+    register_metadata_panel_contributor,
+    register_metadata_provider,
+    setup_metadata_extensions,
+    unregister_dictionary_provider,
+    unregister_index_contributor,
+    unregister_metadata_panel_contributor,
+    unregister_metadata_provider,
+)
+from .media_metadata import (
+    provider_context as _provider_context,
+    read_media_meta as _read_media_meta,
+    read_media_meta_with_source as _read_media_meta_with_source,
+)
+from .prompt_processor import setup_prompt_processing
+from .search_query import (
+    extract_searchable_parts as _extract_searchable_parts,
+    parse_search_scopes as _parse_search_scopes,
+    parse_search_terms as _parse_search_terms,
+    search_scope_group_matches as _search_scope_group_matches,
+    search_terms_empty as _search_terms_empty,
+    search_text_matches as _search_text_matches,
+)
+from .search_index import SearchIndex
+from .thumbnails import ensure_gallery_thumbnail as _ensure_gallery_thumbnail
+
 logger = logging.getLogger("ComfyUI-Drawer")
 
 _routes = server.PromptServer.instance.routes
+
+sys.modules.setdefault("comfyui_drawer.drawer_routes", sys.modules[__name__])
+setup_metadata_extensions(server.PromptServer.instance)
 
 
 @_routes.get("/drawer/changelog")
@@ -187,6 +249,18 @@ async def get_tags(request):
     )
 
 
+@_routes.get("/drawer/dict/third-party")
+async def get_third_party_dicts(request):
+    """Return dictionary entries provided by third-party Python providers."""
+    return web.json_response({"providers": _sanitize_json_floats(_read_dictionary_provider_entries())})
+
+
+@_routes.get("/drawer/dict/third-party/status")
+async def get_third_party_dict_status(request):
+    """Return whether third-party dictionary providers are registered."""
+    return web.json_response({"hasProviders": _has_dictionary_providers()})
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Model Paths — per-category models grouped by source directory
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -232,124 +306,6 @@ async def get_model_paths(request):
 #    {id}.csv        — tag,insert_text rows  (type="dict")
 #    {id}.txt        — one entry per line     (type="wildcard")
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-import uuid as _uuid
-
-def _dicts_dir() -> str:
-    return os.path.join(folder_paths.get_user_directory(), "drawer_dicts")
-
-def _manifest_path() -> str:
-    return os.path.join(_dicts_dir(), "manifest.json")
-
-def _dict_file_path(dict_id: str, dtype: str = "dict") -> str:
-    """Return file path for a dictionary. CSV for dict, TXT for wildcard."""
-    safe_id = dict_id.replace("/", "").replace("\\", "").replace("..", "")
-    ext = ".txt" if dtype == "wildcard" else ".csv"
-    return os.path.join(_dicts_dir(), f"{safe_id}{ext}")
-
-def _get_dict_type(dict_id: str) -> str:
-    """Look up the type of a dictionary from the manifest."""
-    manifest = _read_manifest()
-    for d in manifest:
-        if d["id"] == dict_id:
-            return d.get("type", "dict")
-    return "dict"
-
-
-def _read_manifest() -> list[dict]:
-    """Read manifest.json. Auto-migrates old user_dict.csv if present."""
-    ddir = _dicts_dir()
-    mpath = _manifest_path()
-    os.makedirs(ddir, exist_ok=True)
-
-    if os.path.exists(mpath):
-        with open(mpath, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-        # Ensure backward compat: add type if missing
-        for d in manifest:
-            if "type" not in d:
-                d["type"] = "dict"
-        return manifest
-
-    # ── Auto-migrate legacy user_dict.csv ──
-    legacy = os.path.join(folder_paths.get_user_directory(), "user_dict.csv")
-    manifest = []
-    if os.path.exists(legacy):
-        new_id = str(_uuid.uuid4())[:8]
-        import shutil
-        shutil.copy2(legacy, _dict_file_path(new_id, "dict"))
-        manifest.append({"id": new_id, "title": "ユーザー辞書", "enabled": True, "type": "dict"})
-        _write_manifest(manifest)
-        logger.info(f"[UserDict] Migrated legacy user_dict.csv → {new_id}.csv")
-    else:
-        _write_manifest(manifest)
-
-    return manifest
-
-
-def _write_manifest(manifest: list[dict]) -> None:
-    os.makedirs(_dicts_dir(), exist_ok=True)
-    with open(_manifest_path(), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
-
-
-def _read_dict_entries(dict_id: str) -> list[dict]:
-    path = _dict_file_path(dict_id, "dict")
-    if not os.path.exists(path):
-        return []
-    entries = []
-    with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            entries.append({
-                "tag": row.get("tag", "").strip(),
-                "insert_text": row.get("insert_text", "").strip(),
-            })
-    return [e for e in entries if e["tag"]]
-
-
-def _write_dict_entries(dict_id: str, entries: list[dict]) -> None:
-    path = _dict_file_path(dict_id, "dict")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["tag", "insert_text"])
-        writer.writeheader()
-        for e in entries:
-            if e.get("tag", "").strip():
-                writer.writerow({
-                    "tag": e["tag"].strip(),
-                    "insert_text": e.get("insert_text", "").strip(),
-                })
-
-
-# ── Wildcard (TXT) read/write ──
-
-def _read_wildcard_entries(dict_id: str) -> list[str]:
-    path = _dict_file_path(dict_id, "wildcard")
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]
-
-
-def _write_wildcard_entries(dict_id: str, entries: list[str]) -> None:
-    path = _dict_file_path(dict_id, "wildcard")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for entry in entries:
-            stripped = entry.strip()
-            if stripped:
-                f.write(stripped + "\n")
-
-
-# ── Unified entry count ──
-
-def _count_entries(d: dict) -> int:
-    dtype = d.get("type", "dict")
-    if dtype == "wildcard":
-        return len(_read_wildcard_entries(d["id"]))
-    return len(_read_dict_entries(d["id"]))
-
 
 # ── Dictionary Management Endpoints ──
 
@@ -590,281 +546,7 @@ async def import_user_dict(request):
 #  automatically skipped because the comment alternation consumes them first.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import random as _random
-import re as _re
-
-# -- Comment processing toggle (runtime setting) --
-_comments_enabled = True
-
-@_routes.get("/drawer/settings/comments-enabled")
-async def get_comments_enabled(request):
-    return web.json_response({"enabled": _comments_enabled})
-
-@_routes.put("/drawer/settings/comments-enabled")
-async def set_comments_enabled(request):
-    global _comments_enabled
-    data = await request.json()
-    _comments_enabled = bool(data.get("enabled", True))
-    return web.json_response({"enabled": _comments_enabled})
-
-@_routes.get("/drawer/settings/wildcard-names")
-async def get_wildcard_names(request):
-    """Return list of valid wildcard names (enabled wildcards from manifest)."""
-    manifest = _read_manifest()
-    names = [d["title"] for d in manifest
-             if d.get("type") == "wildcard" and d.get("enabled", True)]
-    return web.json_response({"names": names})
-
-# Combined regex: comments OR wildcards.
-# Alternation order is critical: comments match first, consuming any wildcards
-# they contain, so __name__ inside /* */ or // never reaches the wildcard branch.
-_PROMPT_PROC = _re.compile(
-    r'/\*.*?\*/'                 # /* block comment */
-    r'|(?:(?<=\s)|(?<=,)|(?:^))//[^\n]*'  # // line comment (after whitespace/comma/BOL)
-    r'|^[ \t]*#[^\n]*'          # # line comment (start of line only)
-    r'|__([^_]+(?:_[^_]+)*)__'  # __wildcard__
-    , _re.DOTALL | _re.MULTILINE
-)
-
-# Wildcard-only regex — used when comments are disabled.
-_WILDCARD_ONLY = _re.compile(
-    r'__([^_]+(?:_[^_]+)*)__'
-    , _re.DOTALL | _re.MULTILINE
-)
-
-# Comment-only regex (no wildcard matching) for second-pass stripping.
-# Used to strip comments that were introduced by wildcard expansion.
-_COMMENT_ONLY = _re.compile(
-    r'/\*.*?\*/'                 # /* block comment */
-    r'|(?:(?<=\s)|(?<=,)|(?:^))//[^\n]*'  # // line comment
-    r'|^[ \t]*#[^\n]*'          # # line comment
-    , _re.DOTALL | _re.MULTILINE
-)
-
-def _needs_processing(text, comments_on=True):
-    """Quick pre-filter: might this text contain comments or wildcards?"""
-    if comments_on:
-        return '/*' in text or '//' in text or '#' in text or '__' in text
-    return '__' in text
-
-
-def _find_prompt_seed(prompt):
-    """Find a seed value from prompt nodes for deterministic wildcard expansion.
-
-    Searches all nodes sorted by node_id for 'seed' or 'noise_seed' inputs.
-    Returns the first integer seed found, or None.
-    """
-    for node_id in sorted(prompt.keys(),
-                          key=lambda x: int(x) if x.isdigit() else float('inf')):
-        node = prompt.get(node_id)
-        if not isinstance(node, dict):
-            continue
-        inputs = node.get("inputs")
-        if not isinstance(inputs, dict):
-            continue
-        for key in ("seed", "noise_seed", "seed_value"):
-            val = inputs.get(key)
-            if isinstance(val, (int, float)):
-                ival = int(val)
-                if ival == val:            # reject NaN, fractional
-                    return ival
-    return None
-
-
-def _process_prompt_text(text, rng, wc_map, keep_comments):
-    """Process a single text value: handle comments and expand wildcards.
-
-    Two-pass processing:
-      Pass 1: Comments + wildcards in one regex.  Wildcards inside comments
-              are automatically skipped (comment alternation consumes them first).
-      Pass 2: Strip any comments introduced by wildcard expansion.
-
-    Escaped comment markers (\\# \\/) are preserved as literal characters.
-
-    Args:
-        text:          Input text
-        rng:           Random instance (deterministic via seed)
-        wc_map:        {title: [entries...]} for wildcard expansion
-        keep_comments: True → preserve comments.  False → strip them.
-    """
-    # ── Protect escaped comment markers ──
-    # Use Unicode PUA placeholders that won't appear in normal text.
-    _ESC_HASH  = '\uf8e0'   # placeholder for \#
-    _ESC_SLASH = '\uf8e1'   # placeholder for \/
-    text = text.replace('\\#', _ESC_HASH).replace('\\/', _ESC_SLASH)
-
-    has_wildcards = False
-
-    if keep_comments:
-        # Comments disabled — only expand wildcards, no comment processing
-        def wc_replacer(m):
-            nonlocal has_wildcards
-            name = m.group(1)
-            if name not in wc_map:
-                return m.group(0)
-            has_wildcards = True
-            return rng.choice(wc_map[name])
-        result = _WILDCARD_ONLY.sub(wc_replacer, text)
-    else:
-        # Comments enabled — full processing (comments + wildcards in one pass)
-        def replacer(m):
-            nonlocal has_wildcards
-            if m.group(1) is None:
-                # Comment match — strip
-                return ''
-            # Wildcard match
-            name = m.group(1)
-            if name not in wc_map:
-                return m.group(0)  # unresolved — leave as-is
-            has_wildcards = True
-            return rng.choice(wc_map[name])
-
-        result = _PROMPT_PROC.sub(replacer, text)
-
-        # Pass 2: strip comments introduced by wildcard expansion
-        if has_wildcards:
-            result = _COMMENT_ONLY.sub('', result)
-
-    # ── Restore escaped markers ──
-    # Execution path (keep_comments=False): restore to bare literal chars (# /)
-    # Metadata path  (keep_comments=True):  restore to original escaped form (\# \/)
-    #   so that round-tripping through metadata preserves the user's intent.
-    if keep_comments:
-        result = result.replace(_ESC_HASH, '\\#').replace(_ESC_SLASH, '\\/')
-    else:
-        result = result.replace(_ESC_HASH, '#').replace(_ESC_SLASH, '/')
-
-    return result
-
-
-def _expand_wildcards(json_data):
-    """on_prompt handler: process comments and wildcards in prompt text.
-
-    Comments: stripped from execution prompt, preserved in workflow metadata.
-    Wildcards: expanded deterministically (seeded from workflow's seed/noise_seed)
-               in both prompt and metadata.
-    """
-    prompt = json_data.get("prompt")
-    if not prompt or not isinstance(prompt, dict):
-        return json_data
-
-    # ── Strip DrawerSeed 'mode' from prompt so it doesn't affect cache ──
-    # The 'mode' widget is a frontend-only concern (randomize vs fixed);
-    # only seed_value matters for execution and caching.
-    for node in prompt.values():
-        if isinstance(node, dict) and node.get("class_type") == "DrawerSeed":
-            inputs = node.get("inputs")
-            if isinstance(inputs, dict):
-                inputs.pop("mode", None)
-
-    # Build wildcard map (may be empty — comments still need processing)
-    manifest = _read_manifest()
-    wc_map = {}
-    for d in manifest:
-        if d.get("type") == "wildcard" and d.get("enabled", True):
-            raw = _read_wildcard_entries(d["id"])
-            # Filter out comment lines (# or // at start of line)
-            entries = [e for e in raw
-                       if not e.startswith('#') and not e.startswith('//')]
-            if entries:
-                wc_map[d["title"]] = entries
-
-    # Deterministic RNG — two instances with the same seed so prompt and
-    # metadata produce identical wildcard expansions while differing only
-    # in comment handling.
-    wf_seed = _find_prompt_seed(prompt)
-    rng_prompt = _random.Random(wf_seed)   # for execution (strip comments)
-    rng_meta   = _random.Random(wf_seed)   # for metadata  (keep comments)
-
-    # Process prompt inputs (deterministic order: sorted node_id → sorted key)
-    # meta_log: {node_id: {original: meta_text}}  — for workflow metadata sync
-    meta_log = {}
-    prompt_changed = False
-
-    for node_id in sorted(prompt.keys(),
-                          key=lambda x: int(x) if x.isdigit() else float('inf')):
-        node = prompt.get(node_id)
-        if not isinstance(node, dict):
-            continue
-        inputs = node.get("inputs")
-        if not isinstance(inputs, dict):
-            continue
-        for key in sorted(inputs.keys()):
-            value = inputs[key]
-            if not isinstance(value, str) or not _needs_processing(value, _comments_enabled):
-                continue
-
-            # For execution: strip comments (if enabled) + expand wildcards
-            exec_text = _process_prompt_text(value, rng_prompt, wc_map,
-                                             keep_comments=not _comments_enabled)
-            # For metadata: always keep comments + expand wildcards
-            meta_text = _process_prompt_text(value, rng_meta, wc_map,
-                                             keep_comments=True)
-
-
-            if exec_text != value:
-                inputs[key] = exec_text
-                prompt_changed = True
-            if meta_text != value:
-                meta_log.setdefault(node_id, {})[value] = meta_text
-
-
-    if not prompt_changed and not meta_log:
-        return json_data
-
-    # Apply wildcard expansions (but not comment removal) to workflow metadata
-    if meta_log:
-        _apply_expansion_to_workflow(json_data, meta_log)
-
-    logger.info("[Prompt] Processed comments/wildcards (seed=%s)", wf_seed)
-    return json_data
-
-
-def _apply_expansion_to_workflow(json_data, expansion_log):
-    """Copy processed text into extra_data.workflow so output images record
-    the resolved prompt (wildcards expanded, comments preserved).
-
-    Uses expansion_log {node_id → {original: processed}} built during prompt
-    processing to ensure prompt and metadata stay perfectly in sync.
-    """
-    extra = json_data.get("extra_data")
-    if not extra or not isinstance(extra, dict):
-        return
-
-    # ComfyUI V2: workflow lives under extra_data.extra_pnginfo.workflow
-    # (fallback to extra_data.workflow for older versions)
-    pnginfo = extra.get("extra_pnginfo")
-    if isinstance(pnginfo, dict):
-        workflow = pnginfo.get("workflow")
-    else:
-        workflow = extra.get("workflow")
-
-    if not workflow or not isinstance(workflow, dict):
-        return
-    nodes = workflow.get("nodes")
-    if not nodes or not isinstance(nodes, list):
-        return
-
-    for wf_node in nodes:
-        if not isinstance(wf_node, dict):
-            continue
-        node_id_str = str(wf_node.get("id", ""))
-        log = expansion_log.get(node_id_str)
-        if not log:
-            continue
-        widgets = wf_node.get("widgets_values")
-        if isinstance(widgets, list):
-            for i, val in enumerate(widgets):
-                if isinstance(val, str) and val in log:
-                    widgets[i] = log[val]
-        elif isinstance(widgets, dict):
-            for key, val in widgets.items():
-                if isinstance(val, str) and val in log:
-                    widgets[key] = log[val]
-
-
-server.PromptServer.instance.add_on_prompt_handler(_expand_wildcards)
-
+setup_prompt_processing(_routes, _read_manifest, _read_wildcard_entries)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Filesystem API — Browse, search, meta, delete
@@ -873,93 +555,8 @@ server.PromptServer.instance.add_on_prompt_handler(_expand_wildcards)
 #  among whitelisted directories (output, input, temp).
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')
-_VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.avi', '.mkv')
-_AUDIO_EXTS = ('.flac', '.mp3', '.opus', '.wav', '.ogg')
-_MEDIA_EXTS = _IMAGE_EXTS + _VIDEO_EXTS + _AUDIO_EXTS
-
-def _ftype(ext):
-    if ext in _IMAGE_EXTS: return 'image'
-    if ext in _VIDEO_EXTS: return 'video'
-    if ext in _AUDIO_EXTS: return 'audio'
-    return 'unknown'
-
-# Whitelist of allowed root directories.
-# Maps root name -> callable that returns the absolute path.
-_ALLOWED_ROOTS = {
-    "output": lambda: os.path.realpath(folder_paths.get_output_directory()),
-    "input":  lambda: os.path.realpath(folder_paths.get_input_directory()),
-    "temp":   lambda: os.path.realpath(folder_paths.get_temp_directory()),
-}
-
-# Only these roots allow file deletion (safety measure).
-_DELETABLE_ROOTS = {"output", "input", "temp"}
-
-# Root display names for breadcrumbs.
-_ROOT_LABELS = {
-    "output": "Output",
-    "input":  "Input",
-    "temp":   "Temp",
-}
-
-_STORAGE_SKIP_DIRS = {".git", ".thumbs", "__pycache__"}
 _STORAGE_SUMMARY_CACHE = {"ts": 0.0, "data": None}
 _STORAGE_SUMMARY_TTL = 30.0
-
-
-def _format_storage_rel(path):
-    return path.replace("\\", "/").strip("/")
-
-
-def _summarize_tree(base_dir, allowed_exts=None):
-    total_bytes = 0
-    file_count = 0
-    folder_count = 0
-    by_ext = {}
-    top_dirs = {}
-    if not base_dir or not os.path.isdir(base_dir):
-        return {
-            "bytes": 0,
-            "files": 0,
-            "folders": 0,
-            "byExt": [],
-            "topDirs": [],
-        }
-
-    for dirpath, dirnames, filenames in os.walk(base_dir):
-        dirnames[:] = [d for d in dirnames if d not in _STORAGE_SKIP_DIRS and not d.startswith(".")]
-        rel_dir = os.path.relpath(dirpath, base_dir)
-        if rel_dir != ".":
-            folder_count += 1
-        top = "" if rel_dir == "." else _format_storage_rel(rel_dir).split("/", 1)[0]
-        for filename in filenames:
-            if filename.startswith("."):
-                continue
-            ext = os.path.splitext(filename)[1].lower() or "(none)"
-            if allowed_exts and ext not in allowed_exts:
-                continue
-            full = os.path.join(dirpath, filename)
-            try:
-                size = os.path.getsize(full)
-            except OSError:
-                continue
-            total_bytes += size
-            file_count += 1
-            by_ext.setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
-            by_ext[ext]["bytes"] += size
-            by_ext[ext]["files"] += 1
-            if top:
-                top_dirs.setdefault(top, {"name": top, "bytes": 0, "files": 0})
-                top_dirs[top]["bytes"] += size
-                top_dirs[top]["files"] += 1
-
-    return {
-        "bytes": total_bytes,
-        "files": file_count,
-        "folders": folder_count,
-        "byExt": sorted(by_ext.values(), key=lambda x: x["bytes"], reverse=True)[:12],
-        "topDirs": sorted(top_dirs.values(), key=lambda x: x["bytes"], reverse=True)[:8],
-    }
 
 
 def _normalize_search_query(query):
@@ -969,182 +566,13 @@ def _normalize_search_query(query):
     return raw_query.lower()
 
 
-def _parse_search_terms(query):
-    """Parse search input into AND terms, preserving quoted phrases."""
-    include = []
-    exclude = []
-    buf = []
-    in_quote = False
-    quote_char = ""
-    negating = False
-    token_started = False
 
-    def commit_term():
-        nonlocal buf, negating, token_started
-        term = "".join(buf).strip().lower()
-        if term:
-            (exclude if negating else include).append(term)
-        buf = []
-        negating = False
-        token_started = False
-
-    for ch in (query or "").strip():
-        if ch in ("'", '"'):
-            if in_quote and ch == quote_char:
-                commit_term()
-                in_quote = False
-                quote_char = ""
-            elif not in_quote and not token_started:
-                in_quote = True
-                quote_char = ch
-                token_started = True
-            else:
-                buf.append(ch)
-        elif ch.isspace() and not in_quote:
-            commit_term()
-        elif ch == "-" and not in_quote and not token_started:
-            negating = True
-            token_started = True
-        else:
-            buf.append(ch)
-            token_started = True
-    commit_term()
-    return {"include": include, "exclude": exclude}
-
-
-def _search_text_matches(haystack, terms):
-    text = (haystack or "").lower()
-    return (
-        all(term in text for term in terms.get("include", []))
-        and all(term not in text for term in terms.get("exclude", []))
-    )
-
-
-def _search_terms_empty(terms):
-    return not terms.get("include") and not terms.get("exclude")
-
-
-def _parse_node_search_clauses(query):
-    clauses = []
-    out = []
-    i = 0
-    text = query or ""
-    while i < len(text):
-        lower = text[i:].lower()
-        if lower.startswith("type:"):
-            kind = "type"
-            prefix_len = 5
-        elif lower.startswith("title:"):
-            kind = "title"
-            prefix_len = 6
-        else:
-            out.append(text[i])
-            i += 1
-            continue
-        start = i
-        i += prefix_len
-        while i < len(text) and text[i].isspace():
-            i += 1
-        if i >= len(text):
-            out.append(text[start:])
-            break
-        if text[i] in ("'", '"'):
-            quote = text[i]
-            i += 1
-            type_start = i
-            while i < len(text) and text[i] != quote:
-                i += 1
-            node_type = text[type_start:i].strip()
-            if i < len(text) and text[i] == quote:
-                i += 1
-        else:
-            type_start = i
-            if kind == "title":
-                while i < len(text) and text[i] != "[":
-                    i += 1
-            else:
-                while i < len(text) and text[i] != "[" and not text[i].isspace():
-                    i += 1
-            node_type = text[type_start:i].strip()
-        while i < len(text) and text[i].isspace():
-            i += 1
-        if not node_type or i >= len(text) or text[i] != "[":
-            out.append(text[start:i])
-            continue
-        i += 1
-        depth = 1
-        inner = []
-        in_quote = False
-        quote = ""
-        while i < len(text) and depth > 0:
-            ch = text[i]
-            if ch in ("'", '"'):
-                if in_quote and ch == quote:
-                    in_quote = False
-                    quote = ""
-                elif not in_quote:
-                    in_quote = True
-                    quote = ch
-                inner.append(ch)
-            elif ch == "[" and not in_quote:
-                depth += 1
-                inner.append(ch)
-            elif ch == "]" and not in_quote:
-                depth -= 1
-                if depth > 0:
-                    inner.append(ch)
-            else:
-                inner.append(ch)
-            i += 1
-        if depth == 0:
-            clauses.append({
-                "kind": kind,
-                "selector": node_type,
-                "terms": _parse_search_terms("".join(inner)),
-            })
-            out.append(" ")
-        else:
-            out.append(text[start:])
-            break
-    return " ".join("".join(out).split()), clauses
-
-
-def _node_filters_match(nodes_json, node_filters):
-    if not node_filters:
-        return True
-    try:
-        nodes = json.loads(nodes_json or "[]")
-    except (TypeError, json.JSONDecodeError):
-        return False
-    if not isinstance(nodes, list):
-        return False
-    for clause in node_filters:
-        kind = clause.get("kind", "type")
-        selector = str(clause.get("selector", "")).lower()
-        terms = clause["terms"]
-        matched = False
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            if kind == "title":
-                if selector not in str(node.get("title", "")).lower():
-                    continue
-            else:
-                if str(node.get("type", "")).lower() != selector:
-                    continue
-            if _search_terms_empty(terms) or _search_text_matches(node.get("text", ""), terms):
-                matched = True
-                break
-        if not matched:
-            return False
-    return True
-
-
-def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, scope="", include_metadata=False):
+def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, offset=0, scope="", sort="date-desc", include_metadata=False):
     """Search files directly when the SQLite index is unavailable or stale."""
     terms = _parse_search_terms(query)
     if _search_terms_empty(terms):
         return []
+    scopes = _parse_search_scopes(scope)
     search_root = _safe_path(root, subpath) if subpath else root
     if search_root is None or not os.path.isdir(search_root):
         return []
@@ -1161,21 +589,35 @@ def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, scope=""
                 continue
             full = os.path.join(dirpath, fname)
             name_match = _search_text_matches(fname, terms)
-            prompt_match = workflow_match = False
-            if include_metadata and (not name_match or scope in ("prompt", "workflow")):
-                meta = _read_embedded_meta(full)
+            scope_text = {}
+            if include_metadata and (not name_match or any(s != "name" for s in scopes)):
+                meta = _read_media_meta(
+                    full,
+                    root_name=root_name,
+                    root_path=root,
+                    subfolder=rel,
+                    name=fname,
+                )
                 if meta:
-                    parts = _extract_searchable_parts(meta)
-                    prompt_match = _search_text_matches(parts["prompt"], terms)
-                    workflow_match = _search_text_matches(parts["workflow"], terms)
-            if scope == "name":
-                matched = name_match
-            elif scope == "prompt":
-                matched = prompt_match
-            elif scope == "workflow":
-                matched = workflow_match
-            else:
-                matched = name_match or prompt_match or workflow_match
+                    parts = _extract_searchable_parts(meta, {
+                        "path": full,
+                        "root_name": root_name,
+                        "root_path": root,
+                        "subfolder": rel,
+                        "name": fname,
+                        "filename": fname,
+                    })
+                    scope_text = {
+                        "prompt_title": parts["prompt_title"],
+                        "prompt_value": parts["prompt_value"],
+                        "workflow_title": parts["workflow_title"],
+                        "workflow_value": parts["workflow_value"],
+                        "custom": parts["custom"],
+                    }
+            matched = _search_scope_group_matches({
+                "name": fname,
+                **scope_text,
+            }, terms, scopes)
             if not matched:
                 continue
             try:
@@ -1190,849 +632,33 @@ def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, scope=""
                 "created": st.st_mtime,
                 "type": _ftype(ext),
             })
-            if limit > 0 and len(results) >= limit:
-                return results
-    results.sort(key=lambda r: r["created"], reverse=True)
-    return results
+    key, _, direction = str(sort or "date-desc").partition("-")
+    reverse = direction != "asc"
+    if key == "name":
+        results.sort(key=lambda r: (r["name"] or "").lower(), reverse=reverse)
+    elif key == "size":
+        results.sort(key=lambda r: r["size"] or 0, reverse=reverse)
+    else:
+        results.sort(key=lambda r: r["created"] or 0, reverse=reverse)
+    end = offset + limit if limit > 0 else None
+    return results[offset:end]
 
-
-def _resolve_root(request):
-    """Resolve the root parameter from request query to an absolute path.
-    Returns (root_name, root_path) or (None, None) if invalid.
-    Defaults to 'output' if not specified.
-    """
-    root_name = request.query.get("root", "output").strip().lower()
-    getter = _ALLOWED_ROOTS.get(root_name)
-    if getter is None:
-        return None, None
-    return root_name, getter()
-
-
-def _safe_path(root, *parts):
-    """Join paths and verify the result is strictly inside root (prevent traversal)."""
-    joined = os.path.join(root, *parts)
-    real = os.path.realpath(joined)
-    if real != root and not real.startswith(root + os.sep):
-        return None
-    return real
-
-
-def _extract_searchable_parts(meta):
-    """Extract structured searchable parts from ComfyUI metadata.
-    Returns dict with keys: prompt, workflow, nodes.
-    """
-    prompt_parts = []
-    workflow_parts = []
-    nodes = []
-    prompt = meta.get("prompt", {})
-    if isinstance(prompt, dict):
-        for _nid, node in prompt.items():
-            if not isinstance(node, dict):
-                continue
-            node_parts = []
-            ct = node.get("class_type", "")
-            title = ""
-            if ct:
-                prompt_parts.append(ct)
-                node_parts.append(ct)
-            nm = node.get("_meta", {})
-            if isinstance(nm, dict):
-                t = nm.get("title", "")
-                if t:
-                    title = str(t)
-                    prompt_parts.append(t)
-                    node_parts.append(t)
-            node_inputs = node.get("inputs", {})
-            if isinstance(node_inputs, dict):
-                for k, v in node_inputs.items():
-                    node_parts.append(str(k))
-                    if isinstance(v, str) and v:
-                        prompt_parts.append(v)
-                        node_parts.append(v)
-                    elif isinstance(v, (int, float)):
-                        prompt_parts.append(str(v))
-                        node_parts.append(str(v))
-            if ct:
-                nodes.append({"type": str(ct), "title": title, "text": " ".join(node_parts)})
-    workflow = meta.get("workflow", {})
-    if isinstance(workflow, dict):
-        for wn in workflow.get("nodes", []):
-            if isinstance(wn, dict):
-                node_parts = []
-                title = ""
-                t = wn.get("title", "")
-                if t:
-                    title = str(t)
-                    workflow_parts.append(t)
-                    node_parts.append(t)
-                typ = wn.get("type", "")
-                if typ:
-                    workflow_parts.append(typ)
-                    node_parts.append(typ)
-                for key in ("widgets_values", "inputs", "outputs"):
-                    value = wn.get(key)
-                    node_parts.append(key)
-                    if isinstance(value, (list, tuple)):
-                        values = [str(v) for v in value if isinstance(v, (str, int, float))]
-                        workflow_parts.extend(values)
-                        node_parts.extend(values)
-                    elif isinstance(value, dict):
-                        values = [str(v) for v in value.values() if isinstance(v, (str, int, float))]
-                        workflow_parts.extend(values)
-                        node_parts.extend(str(k) for k in value.keys())
-                        node_parts.extend(values)
-                if typ:
-                    nodes.append({"type": str(typ), "title": title, "text": " ".join(node_parts)})
-    return {
-        "prompt": " ".join(prompt_parts),
-        "workflow": " ".join(workflow_parts),
-        "nodes": nodes,
-    }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Search Index — SQLite FTS5 for fast metadata search
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class _SearchIndex:
-    """SQLite FTS5-backed search index for media files.
-
-    - Stores filename + extracted PNG metadata text in a FTS5 table.
-    - Background thread builds/updates on startup.
-    - Incremental updates via mtime comparison.
-    """
-
-    _SCHEMA_VERSION = 7  # v7: add node title data to scoped search
-    _FALLBACK_ESTIMATE_RATE = 25.0  # files/sec; intentionally conservative
-    _ESTIMATE_SAMPLE_LIMIT = 100
-    _ETA_WARMUP_SECONDS = 15
-    _ETA_WARMUP_FILES = 200
-
-    def __init__(self):
-        self._db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
-        self._lock = threading.Lock()
-        self._ready = os.path.isfile(self._db_path)
-        self._building = False
-        self._progress = ""
-        self._indexed_count = 0
-        self._total_count = 0
-        self._total_expected = 0
-        self._cleared = False
-        self._conn = None
-        self._generation = 0
-        self._paused = False
-        self._started_at = 0.0
-        self._last_rate_sample_at = 0.0
-        self._last_rate_sample_count = 0
-        self._ema_rate = 0.0
-
-    def _get_conn(self):
-        """Get or create a thread-safe connection."""
-        if self._conn is None:
-            os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False, timeout=30.0)
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._init_schema()
-        return self._conn
-
-    def _init_schema(self):
-        c = self._conn
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS meta (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        # Check schema version — drop old tables if outdated
-        row = c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        if row is None or int(row[0]) < self._SCHEMA_VERSION:
-            # Full reset: drop everything and recreate
-            c.executescript("""
-                DROP TRIGGER IF EXISTS files_ai;
-                DROP TRIGGER IF EXISTS files_ad;
-                DROP TRIGGER IF EXISTS files_au;
-                DROP TABLE IF EXISTS files_fts;
-                DROP TABLE IF EXISTS files;
-            """)
-            c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)",
-                      (str(self._SCHEMA_VERSION),))
-            c.commit()
-
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                root TEXT NOT NULL,
-                subfolder TEXT NOT NULL,
-                name TEXT NOT NULL,
-                mtime REAL NOT NULL,
-                size INTEGER NOT NULL,
-                ftype TEXT NOT NULL,
-                s_prompt TEXT NOT NULL DEFAULT '',
-                s_workflow TEXT NOT NULL DEFAULT '',
-                s_nodes TEXT NOT NULL DEFAULT '[]'
-            )
-        """)
-        c.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_files_path
-            ON files(root, subfolder, name)
-        """)
-        # FTS5 virtual table — filename + metadata scopes
-        c.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-                name, s_prompt, s_workflow, s_nodes,
-                content='files', content_rowid='id'
-            )
-        """)
-        # Triggers to keep FTS in sync
-        c.executescript("""
-            CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
-                INSERT INTO files_fts(rowid, name, s_prompt, s_workflow, s_nodes)
-                VALUES (new.id, new.name, new.s_prompt, new.s_workflow, new.s_nodes);
-            END;
-            CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, s_prompt, s_workflow, s_nodes)
-                VALUES ('delete', old.id, old.name, old.s_prompt, old.s_workflow, old.s_nodes);
-            END;
-            CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, s_prompt, s_workflow, s_nodes)
-                VALUES ('delete', old.id, old.name, old.s_prompt, old.s_workflow, old.s_nodes);
-                INSERT INTO files_fts(rowid, name, s_prompt, s_workflow, s_nodes)
-                VALUES (new.id, new.name, new.s_prompt, new.s_workflow, new.s_nodes);
-            END;
-        """)
-
-    def start_background_build(self):
-        """Start indexing in a background thread."""
-        with self._lock:
-            if self._building:
-                return
-            self._generation += 1
-            generation = self._generation
-            self._ready = False
-            self._building = True
-            self._progress = "Starting index build..."
-            self._indexed_count = 0
-            self._total_count = 0
-            self._total_expected = 0
-            self._cleared = False
-            self._paused = False
-            self._started_at = time.time()
-            self._last_rate_sample_at = self._started_at
-            self._last_rate_sample_count = 0
-            self._ema_rate = 0.0
-        t = threading.Thread(target=self._build_all, args=(generation,), daemon=True)
-        t.start()
-
-    # Roots to watch for incremental indexing after initial build.
-    _WATCH_ROOTS = {"output", "input"}
-    _WATCH_INTERVAL = 10  # seconds between incremental scans
-    _PURGE_EVERY = 6      # run _purge_stale every N watcher cycles
-
-    def _is_generation_current(self, generation):
-        return generation == self._generation
-
-    def _build_all(self, generation):
-        """Scan all allowed roots and index media files."""
-        with self._lock:
-            if not self._is_generation_current(generation):
-                return
-        try:
-            with self._lock:
-                if not self._is_generation_current(generation):
-                    return
-                conn = self._get_conn()
-
-            roots = []
-            for root_name, getter in _ALLOWED_ROOTS.items():
-                try:
-                    root_path = getter()
-                except Exception:
-                    continue
-                if not os.path.isdir(root_path):
-                    continue
-                roots.append((root_name, root_path))
-
-            self._progress = "Counting index targets..."
-            self._total_expected = sum(self._count_media_files(root_path) for _root_name, root_path in roots)
-
-            for root_name, root_path in roots:
-                if not self._is_generation_current(generation):
-                    return
-                self._index_root(conn, root_name, root_path, generation)
-
-            if self._is_generation_current(generation):
-                self._purge_stale(conn)
-
-            with self._lock:
-                if self._is_generation_current(generation):
-                    self._progress = "Index ready"
-                    self._ready = True
-        except Exception as e:
-            with self._lock:
-                if self._is_generation_current(generation):
-                    self._progress = f"Index error: {e}"
-            logger.error(f"Search index build failed: {e}")
-        finally:
-            with self._lock:
-                if self._is_generation_current(generation):
-                    self._building = False
-
-        # Start incremental watcher for output/input roots
-        if self._is_generation_current(generation):
-            self._start_watcher(generation)
-
-    def _start_watcher(self, generation):
-        """Launch a daemon thread that periodically indexes new files."""
-        t = threading.Thread(target=self._watch_loop, args=(generation,), daemon=True)
-        t.start()
-
-    def _watch_loop(self, generation):
-        """Periodically re-scan watched roots for new/changed files.
-        Uses directory mtime to skip unchanged directories.
-        Prevents overlapping cycles.
-        """
-        import time
-        cycle = 0
-        # Track last-seen mtime per (root_name, rel_dir)
-        dir_mtimes = {}
-        while True:
-            time.sleep(self._WATCH_INTERVAL)
-            if not self._is_generation_current(generation):
-                return
-            cycle += 1
-            try:
-                with self._lock:
-                    if not self._is_generation_current(generation):
-                        return
-                    conn = self._get_conn()
-                for root_name in self._WATCH_ROOTS:
-                    getter = _ALLOWED_ROOTS.get(root_name)
-                    if not getter:
-                        continue
-                    try:
-                        root_path = getter()
-                    except Exception:
-                        continue
-                    if not os.path.isdir(root_path):
-                        continue
-                    self._index_changed_dirs(conn, root_name, root_path, dir_mtimes)
-                # Periodic purge of deleted files
-                if cycle % self._PURGE_EVERY == 0:
-                    self._purge_stale(conn)
-            except Exception as e:
-                logger.debug(f"[Drawer] Watcher cycle error: {e}")
-
-    def _index_changed_dirs(self, conn, root_name, root_path, dir_mtimes):
-        """Walk root but only process directories whose mtime has changed."""
-        for dirpath, dirnames, filenames in os.walk(root_path):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            try:
-                dir_mtime = os.path.getmtime(dirpath)
-            except OSError:
-                continue
-            cache_key = (root_name, dirpath)
-            prev_mtime = dir_mtimes.get(cache_key)
-            if prev_mtime is not None and abs(dir_mtime - prev_mtime) < 0.01:
-                continue  # directory unchanged — skip
-            dir_mtimes[cache_key] = dir_mtime
-            # Index files in this changed directory
-            rel = os.path.relpath(dirpath, root_path).replace("\\", "/")
-            if rel == ".":
-                rel = ""
-            for fname in filenames:
-                ext = os.path.splitext(fname)[1].lower()
-                if ext not in _MEDIA_EXTS:
-                    continue
-                full = os.path.join(dirpath, fname)
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue
-                # Check if already indexed with same mtime
-                row = conn.execute(
-                    "SELECT mtime FROM files WHERE root=? AND subfolder=? AND name=?",
-                    (root_name, rel, fname)
-                ).fetchone()
-                if row and abs(st.st_mtime - row[0]) < 0.01:
-                    continue  # unchanged file
-                # Index or update
-                s_prompt = s_workflow = ""
-                s_nodes = "[]"
-                meta = _read_embedded_meta(full)
-                if meta:
-                    parts = _extract_searchable_parts(meta)
-                    s_prompt = parts["prompt"]
-                    s_workflow = parts["workflow"]
-                    s_nodes = json.dumps(parts["nodes"], ensure_ascii=False)
-                ftype = _ftype(ext)
-                with self._lock:
-                    conn.execute("""
-                        INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                         s_prompt, s_workflow, s_nodes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(root, subfolder, name) DO UPDATE SET
-                            mtime=excluded.mtime, size=excluded.size,
-                            ftype=excluded.ftype,
-                            s_prompt=excluded.s_prompt,
-                            s_workflow=excluded.s_workflow,
-                            s_nodes=excluded.s_nodes
-            """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
-                  s_prompt, s_workflow, s_nodes))
-            conn.commit()
-
-    def _count_media_files(self, root_path):
-        """Count searchable media files for index progress reporting."""
-        count = 0
-        for _dirpath, dirnames, filenames in os.walk(root_path):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            count += sum(
-                1 for fname in filenames
-                if os.path.splitext(fname)[1].lower() in _MEDIA_EXTS
-            )
-        return count
-
-    def _index_root(self, conn, root_name, root_path, generation):
-        """Walk a root directory and index/update media files."""
-        existing = {}
-        for row in conn.execute(
-            "SELECT subfolder, name, mtime FROM files WHERE root=?", (root_name,)
-        ):
-            existing[(row[0], row[1])] = row[2]
-
-        count = 0
-        for dirpath, dirnames, filenames in os.walk(root_path):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            rel = os.path.relpath(dirpath, root_path).replace("\\", "/")
-            if rel == ".":
-                rel = ""
-            media_files = [
-                f for f in filenames
-                if os.path.splitext(f)[1].lower() in _MEDIA_EXTS
-            ]
-            for fname in media_files:
-                if not self._is_generation_current(generation):
-                    conn.commit()
-                    return
-                full = os.path.join(dirpath, fname)
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue
-                key = (rel, fname)
-                old_mtime = existing.pop(key, None)
-                if old_mtime is not None and abs(st.st_mtime - old_mtime) < 0.01:
-                    count += 1
-                    self._record_indexed()
-                    continue  # unchanged
-                # Extract searchable parts from embedded metadata (images & video)
-                s_prompt = s_workflow = ""
-                s_nodes = "[]"
-                meta = _read_embedded_meta(full)
-                if meta:
-                    parts = _extract_searchable_parts(meta)
-                    s_prompt = parts["prompt"]
-                    s_workflow = parts["workflow"]
-                    s_nodes = json.dumps(parts["nodes"], ensure_ascii=False)
-                ext = os.path.splitext(fname)[1].lower()
-                ftype = _ftype(ext)
-                with self._lock:
-                    conn.execute("""
-                        INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                         s_prompt, s_workflow, s_nodes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(root, subfolder, name) DO UPDATE SET
-                            mtime=excluded.mtime, size=excluded.size,
-                            ftype=excluded.ftype,
-                            s_prompt=excluded.s_prompt,
-                            s_workflow=excluded.s_workflow,
-                            s_nodes=excluded.s_nodes
-                    """, (root_name, rel, fname, st.st_mtime, st.st_size, ftype,
-                          s_prompt, s_workflow, s_nodes))
-                count += 1
-                self._record_indexed()
-                if count % 500 == 0:
-                    conn.commit()
-                    self._progress = f"Indexing {root_name}: {count} files..."
-        conn.commit()
-        self._progress = f"Indexed {root_name}: {count} files"
-        self._total_count += count
-
-    def _record_indexed(self, delta=1):
-        """Track progress and a smoothed indexing rate for ETA reporting."""
-        now = time.time()
-        with self._lock:
-            self._indexed_count += delta
-            elapsed = now - self._last_rate_sample_at
-            if elapsed < 1.0:
-                return
-            processed = self._indexed_count - self._last_rate_sample_count
-            instant_rate = processed / elapsed if elapsed > 0 else 0.0
-            if instant_rate > 0:
-                self._ema_rate = instant_rate if self._ema_rate <= 0 else (self._ema_rate * 0.75 + instant_rate * 0.25)
-            self._last_rate_sample_at = now
-            self._last_rate_sample_count = self._indexed_count
-
-    def _purge_stale(self, conn):
-        """Remove index entries for files that no longer exist on disk."""
-        stale_ids = []
-        for row in conn.execute("SELECT id, root, subfolder, name FROM files"):
-            fid, root_name, subfolder, name = row
-            getter = _ALLOWED_ROOTS.get(root_name)
-            if getter is None:
-                stale_ids.append(fid)
-                continue
-            try:
-                root_path = getter()
-            except Exception:
-                continue
-            full = os.path.join(root_path, subfolder, name) if subfolder else \
-                   os.path.join(root_path, name)
-            if not os.path.isfile(full):
-                stale_ids.append(fid)
-        if stale_ids:
-            with self._lock:
-                for fid in stale_ids:
-                    conn.execute("DELETE FROM files WHERE id=?", (fid,))
-                conn.commit()
-            logger.info(f"Purged {len(stale_ids)} stale index entries")
-
-    def search(self, query, root_name, subpath="", limit=200, scope=""):
-        """Search the index. Returns list of file dicts, or None if index not ready.
-        scope: '' (all), 'name', 'prompt', 'workflow'
-        """
-        if not self._ready:
-            return None  # signal caller to fall back
-
-        # Map scope to column names
-        _SCOPE_MAP = {
-            "name": ("name", "f.name"),
-            "prompt": ("s_prompt", "f.s_prompt"),
-            "workflow": ("s_workflow", "f.s_workflow"),
-        }
-
-        with self._lock:
-            conn = self._get_conn()
-
-            base_query, node_filters = _parse_node_search_clauses(query)
-            terms = _parse_search_terms(base_query)
-            if _search_terms_empty(terms) and not node_filters:
-                return []
-            include_patterns = [f"%{term}%" for term in terms["include"]]
-            exclude_patterns = [f"%{term}%" for term in terms["exclude"]]
-            if scope in _SCOPE_MAP:
-                _, sql_col = _SCOPE_MAP[scope]
-                include_conditions = [f"LOWER({sql_col}) LIKE ?"] * len(include_patterns)
-                exclude_conditions = [f"LOWER({sql_col}) NOT LIKE ?"] * len(exclude_patterns)
-                conditions = " AND ".join(include_conditions + exclude_conditions) or "1=1"
-                sql = f"""
-                    SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype, f.s_nodes
-                    FROM files AS f
-                    WHERE f.root = ? AND {conditions}
-                """
-                params = [root_name, *include_patterns, *exclude_patterns]
-            else:
-                include_conditions = [
-                    "(LOWER(f.name) LIKE ? OR LOWER(f.s_prompt) LIKE ? OR LOWER(f.s_workflow) LIKE ?)"
-                    for _term in include_patterns
-                ]
-                exclude_conditions = [
-                    "(LOWER(f.name) NOT LIKE ? AND LOWER(f.s_prompt) NOT LIKE ? AND LOWER(f.s_workflow) NOT LIKE ?)"
-                    for _term in exclude_patterns
-                ]
-                conditions = " AND ".join(include_conditions + exclude_conditions) or "1=1"
-                sql = """
-                    SELECT f.name, f.subfolder, f.size, f.mtime, f.ftype, f.s_nodes
-                    FROM files AS f
-                    WHERE f.root = ?
-                      AND {conditions}
-                """
-                sql = sql.format(conditions=conditions)
-                params = [root_name]
-                for pattern in include_patterns:
-                    params.extend([pattern, pattern, pattern])
-                for pattern in exclude_patterns:
-                    params.extend([pattern, pattern, pattern])
-            if subpath:
-                sql += " AND (f.subfolder = ? OR f.subfolder LIKE ?)"
-                params.extend([subpath, subpath + "/%"])
-            if limit > 0:
-                sql += " ORDER BY f.mtime DESC LIMIT ?"
-                params.append(limit)
-            else:
-                sql += " ORDER BY f.mtime DESC"
-            try:
-                rows = conn.execute(sql, params).fetchall()
-            except sqlite3.OperationalError:
-                return []
-        results = []
-        for name, subfolder, size, mtime, ftype, s_nodes in rows:
-            if not _node_filters_match(s_nodes, node_filters):
-                continue
-            subfolder = subfolder.replace("\\", "/")
-            results.append({
-                "name": name,
-                "path": (subfolder + "/" + name) if subfolder else name,
-                "subfolder": subfolder,
-                "size": size,
-                "created": mtime,
-                "type": ftype,
-            })
-        return results
-
-    def update_searchable(self, root_name, subfolder, name,
-                          searchable_text="",
-                          s_prompt="", s_workflow="", s_nodes="[]", **legacy):
-        """Update searchable fields for an indexed file.
-        Accepts prompt/workflow fields, legacy structured fields, or a single
-        searchable_text (stored as prompt for backward compat).
-        """
-        getter = _ALLOWED_ROOTS.get(root_name)
-        if getter is None:
-            return False
-        try:
-            root_path = getter()
-        except Exception:
-            return False
-        full = os.path.join(root_path, subfolder, name) if subfolder else \
-               os.path.join(root_path, name)
-        if not os.path.isfile(full):
-            return False
-        try:
-            st = os.stat(full)
-        except OSError:
-            return False
-        if not s_prompt:
-            s_prompt = " ".join(
-                legacy.get(key, "")
-                for key in ("s_classes", "s_titles", "s_inputs")
-                if legacy.get(key, "")
-            )
-        if searchable_text and not (s_prompt or s_workflow):
-            s_prompt = searchable_text
-        ext = os.path.splitext(name)[1].lower()
-        ftype = _ftype(ext)
-        with self._lock:
-            conn = self._get_conn()
-            conn.execute("""
-                INSERT INTO files(root, subfolder, name, mtime, size, ftype,
-                                 s_prompt, s_workflow, s_nodes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(root, subfolder, name) DO UPDATE SET
-                    mtime=excluded.mtime, size=excluded.size,
-                    ftype=excluded.ftype,
-                    s_prompt=excluded.s_prompt,
-                    s_workflow=excluded.s_workflow,
-                    s_nodes=excluded.s_nodes
-            """, (root_name, subfolder.replace("\\", "/"), name, st.st_mtime, st.st_size, ftype,
-                  s_prompt, s_workflow, s_nodes))
-            conn.commit()
-        return True
-
-    @property
-    def status(self):
-        percent = 100 if self._ready else 0
-        if self._total_expected > 0:
-            percent = min(100, round((self._indexed_count / self._total_expected) * 100, 1))
-        db_exists = any(os.path.isfile(self._db_path + suffix) for suffix in ("", "-wal", "-shm"))
-        state = "ready" if self._ready else "building" if self._building else "paused" if self._paused else "cleared" if self._cleared else "idle" if db_exists else "missing"
-        elapsed = max(0.0, time.time() - self._started_at) if self._started_at and self._building else 0.0
-        remaining = max(0, self._total_expected - self._indexed_count)
-        fallback_rate = (self._indexed_count / elapsed) if elapsed > 0 and self._indexed_count > 0 else 0.0
-        eta_rate = self._ema_rate if self._ema_rate > 0 else fallback_rate
-        eta_ready = (
-            self._building
-            and eta_rate > 0
-            and self._total_expected > 0
-            and elapsed >= self._ETA_WARMUP_SECONDS
-            and self._indexed_count >= self._ETA_WARMUP_FILES
-        )
-        eta = round(remaining / eta_rate) if eta_ready else None
-        return {
-            "state": state,
-            "ready": self._ready,
-            "building": self._building,
-            "progress": self._progress,
-            "indexed": self._indexed_count if (self._building or self._paused) else self._total_count,
-            "total": self._total_expected,
-            "percent": percent,
-            "cleared": self._cleared,
-            "paused": self._paused,
-            "rate": round(eta_rate, 2),
-            "elapsed": round(elapsed),
-            "eta": eta,
-            "etaReady": eta_ready,
-        }
-
-    def clear_index(self):
-        """Close the DB and reset in-memory state before cache deletion."""
-        with self._lock:
-            self._generation += 1
-            if self._conn is not None:
-                try:
-                    self._conn.close()
-                except Exception:
-                    pass
-                self._conn = None
-            self._ready = False
-            self._building = False
-            self._progress = "Index cleared"
-            self._indexed_count = 0
-            self._total_count = 0
-            self._total_expected = 0
-            self._cleared = True
-            self._paused = False
-            self._started_at = 0.0
-            self._last_rate_sample_at = 0.0
-            self._last_rate_sample_count = 0
-            self._ema_rate = 0.0
-
-    def pause(self):
-        """Stop the current build/watch generation and keep the partial DB."""
-        with self._lock:
-            self._generation += 1
-            self._building = False
-            self._ready = False
-            self._paused = True
-            self._cleared = False
-            self._progress = "Index paused"
-
-    def estimate(self):
-        """Estimate index build size and duration before starting."""
-        by_ext = {}
-        for _root_name, getter in _ALLOWED_ROOTS.items():
-            try:
-                root_path = getter()
-            except Exception:
-                continue
-            if not os.path.isdir(root_path):
-                continue
-            for dirpath, dirnames, filenames in os.walk(root_path):
-                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-                for fname in filenames:
-                    ext = os.path.splitext(fname)[1].lower()
-                    if ext in _MEDIA_EXTS:
-                        by_ext.setdefault(ext, []).append(os.path.join(dirpath, fname))
-        total = sum(len(paths) for paths in by_ext.values())
-        sampled = 0
-        sample_seconds = 0.0
-        sample_rate = 0.0
-        method = "empty" if total == 0 else "small" if total < self._ESTIMATE_SAMPLE_LIMIT else "sample"
-        if total >= self._ESTIMATE_SAMPLE_LIMIT:
-            sample = self._sample_by_extension(by_ext, self._ESTIMATE_SAMPLE_LIMIT)
-            started = time.time()
-            for full in sample:
-                if not os.path.isfile(full):
-                    continue
-                sampled += 1
-                try:
-                    meta = _read_embedded_meta(full)
-                    if meta:
-                        _extract_searchable_parts(meta)
-                except Exception:
-                    pass
-            sample_seconds = max(0.001, time.time() - started)
-            sample_rate = sampled / sample_seconds if sampled else 0.0
-        rate = sample_rate or self._ema_rate or self._FALLBACK_ESTIMATE_RATE
-        if sample_rate:
-            rate = max(2.0, min(80.0, sample_rate))
-        seconds = round(total / rate) if total > 0 and rate > 0 else 0
-        return {
-            "total": total,
-            "sampled": sampled,
-            "sampleSeconds": round(sample_seconds, 2),
-            "estimatedSeconds": seconds,
-            "rate": round(rate, 2),
-            "method": method,
-            "requiresConfirm": total >= self._ESTIMATE_SAMPLE_LIMIT,
-            "estimated": not sample_rate and self._ema_rate <= 0,
-        }
-
-    def _sample_by_extension(self, by_ext, limit):
-        """Choose a stratified random sample that roughly preserves extension mix."""
-        total = sum(len(paths) for paths in by_ext.values())
-        if total <= limit:
-            return [path for paths in by_ext.values() for path in paths]
-        samples = []
-        remainders = []
-        for ext, paths in by_ext.items():
-            exact = (len(paths) / total) * limit
-            take = int(exact)
-            if take == 0 and paths:
-                take = 1
-            take = min(take, len(paths))
-            samples.extend(random.sample(paths, take))
-            remainders.append((exact - int(exact), ext))
-        if len(samples) > limit:
-            return random.sample(samples, limit)
-        used = set(samples)
-        for _fraction, ext in sorted(remainders, reverse=True):
-            if len(samples) >= limit:
-                break
-            candidates = [path for path in by_ext[ext] if path not in used]
-            if not candidates:
-                continue
-            picked = random.choice(candidates)
-            samples.append(picked)
-            used.add(picked)
-        return samples
-
-
 # Global search index instance. Builds are user-started because large
 # galleries can take minutes to index.
-_search_index = _SearchIndex()
+_search_index = SearchIndex(
+    allowed_roots=_ALLOWED_ROOTS,
+    media_exts=_MEDIA_EXTS,
+    ftype=_ftype,
+    format_storage_rel=_format_storage_rel,
+    safe_path=_safe_path,
+)
 
-
-def _read_png_text_chunks(filepath):
-    """Read tEXt/iTXt chunks from a PNG file without PIL.
-    Returns dict of {keyword: text_value}.
-    ComfyUI stores 'prompt' and 'workflow' as JSON strings in tEXt chunks.
-    """
-    result = {}
-    try:
-        with open(filepath, "rb") as f:
-            sig = f.read(8)
-            if sig != b'\x89PNG\r\n\x1a\n':
-                return result
-            while True:
-                header = f.read(8)
-                if len(header) < 8:
-                    break
-                length, chunk_type = struct.unpack(">I4s", header)
-                chunk_type = chunk_type.decode("ascii", errors="ignore")
-                if chunk_type == "IEND":
-                    break
-                data = f.read(length)
-                f.read(4)  # CRC
-                if chunk_type == "tEXt" and len(data) > 0:
-                    sep = data.find(b'\x00')
-                    if sep >= 0:
-                        keyword = data[:sep].decode("latin-1", errors="ignore")
-                        text = data[sep + 1:].decode("latin-1", errors="ignore")
-                        result[keyword] = text
-                elif chunk_type == "iTXt" and len(data) > 0:
-                    sep = data.find(b'\x00')
-                    if sep >= 0:
-                        keyword = data[:sep].decode("utf-8", errors="ignore")
-                        rest = data[sep + 1:]
-                        if len(rest) >= 2:
-                            comp_flag = rest[0]
-                            rest = rest[2:]
-                            sep2 = rest.find(b'\x00')
-                            if sep2 >= 0:
-                                rest = rest[sep2 + 1:]
-                                sep3 = rest.find(b'\x00')
-                                if sep3 >= 0:
-                                    text_data = rest[sep3 + 1:]
-                                    if comp_flag:
-                                        try:
-                                            text_data = zlib.decompress(text_data)
-                                        except zlib.error:
-                                            continue
-                                    result[keyword] = text_data.decode("utf-8", errors="ignore")
-    except (OSError, struct.error):
-        pass
-    return result
 
 
 
@@ -2054,265 +680,6 @@ def _sanitize_json_floats(obj):
     return obj
 
 
-def _read_webp_riff_meta(filepath):
-    """Read ComfyUI metadata from a WEBP file by parsing raw RIFF chunks.
-
-    Handles both static and animated WEBP files. PIL's getexif() can fail for
-    animated WEBP (VP8X format) because the EXIF chunk appears after animation
-    frames.  This function walks the RIFF chunk list directly.
-
-    Looks for:
-      - EXIF chunk  -> reads EXIF tags 0x010F/0x0110 used by ComfyUI SaveImage
-      - XMP  chunk  -> scans for JSON workflow embedded by third-party tools
-    """
-    try:
-        with open(filepath, "rb") as f:
-            header = f.read(12)
-            if len(header) < 12:
-                return None
-            if header[:4] != b"RIFF" or header[8:12] != b"WEBP":
-                return None  # not a WEBP file
-
-            exif_bytes = None
-            xmp_bytes  = None
-            while True:
-                ch = f.read(8)
-                if len(ch) < 8:
-                    break
-                chunk_id   = ch[:4]
-                chunk_size = struct.unpack_from("<I", ch, 4)[0]
-                chunk_data = f.read(chunk_size)
-                if chunk_size % 2:          # RIFF chunks are padded to even size
-                    f.read(1)
-                if chunk_id == b"EXIF":
-                    exif_bytes = chunk_data
-                elif chunk_id in (b"XMP ", b"XMP\x00"):
-                    xmp_bytes = chunk_data
-
-        # Try EXIF chunk first
-        if exif_bytes:
-            meta = _parse_exif_bytes_for_workflow(exif_bytes)
-            if meta:
-                return meta
-
-        # Try XMP chunk as fallback
-        if xmp_bytes:
-            meta = _parse_xmp_bytes_for_workflow(xmp_bytes)
-            if meta:
-                return meta
-
-    except Exception:
-        pass
-    return None
-
-
-def _parse_exif_bytes_for_workflow(exif_bytes):
-    """Parse raw EXIF bytes and extract ComfyUI workflow/prompt tags."""
-    try:
-        from PIL import Image
-        exif = Image.Exif()
-        exif.load(exif_bytes)
-        meta = {}
-        for tag_id in (0x010F, 0x0110, 0x010E, 0x010D):
-            val = exif.get(tag_id)
-            if isinstance(val, str) and ":" in val:
-                key, _, json_str = val.partition(":")
-                if key in ("prompt", "workflow"):
-                    try:
-                        meta[key] = json.loads(json_str)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-        return meta if meta else None
-    except Exception:
-        return None
-
-
-def _parse_xmp_bytes_for_workflow(xmp_bytes):
-    """Scan XMP bytes for embedded ComfyUI workflow JSON."""
-    try:
-        import re
-        text = xmp_bytes.decode("utf-8", errors="ignore")
-        # Look for JSON blocks that look like ComfyUI prompt/workflow
-        for m in re.finditer(r'(\{[^<]{20,}\})', text, re.DOTALL):
-            candidate = m.group(1).strip()
-            try:
-                obj = json.loads(candidate)
-                if isinstance(obj, dict):
-                    result = {}
-                    for key in ("prompt", "workflow"):
-                        if key in obj:
-                            result[key] = obj[key]
-                    if result:
-                        return result
-                    # The whole JSON might be the workflow itself
-                    if "nodes" in obj and "links" in obj:
-                        return {"workflow": obj}
-            except (json.JSONDecodeError, ValueError):
-                pass
-    except Exception:
-        pass
-    return None
-
-
-def _read_embedded_meta(filepath):
-
-    """Read ComfyUI metadata embedded in an image, video, or audio file.
-
-    Supports:
-      - PNG: tEXt/iTXt chunks (ComfyUI standard SaveImage format)
-      - JPEG/WebP: EXIF UserComment or PIL info dict (custom nodes)
-      - MP4/MOV/MKV/WebM: FFmpeg metadata atoms (VideoHelperSuite)
-      - FLAC/MP3/Opus/WAV/OGG: FFmpeg metadata tags (ComfyUI SaveAudio)
-    Returns a dict with 'prompt' and/or 'workflow' keys, or None.
-    """
-    ext = os.path.splitext(filepath)[1].lower()
-
-    # PNG — use our fast custom parser (no PIL needed)
-    if ext == ".png":
-        chunks = _read_png_text_chunks(filepath)
-        if not chunks:
-            return None
-        meta = {}
-        for key in ("prompt", "workflow"):
-            if key in chunks:
-                try:
-                    meta[key] = json.loads(chunks[key])
-                except (json.JSONDecodeError, ValueError):
-                    pass
-        return meta if meta else None
-
-    # JPEG / WebP — use PIL EXIF
-    if ext in (".jpg", ".jpeg", ".webp"):
-        return _read_exif_meta(filepath)
-
-    # Video / Audio — use ffprobe
-    if ext in _VIDEO_EXTS or ext in _AUDIO_EXTS:
-        return _read_video_meta(filepath)
-
-    return None
-
-
-def _read_video_meta(filepath):
-    """Read ComfyUI metadata from video files using ffprobe.
-
-    VideoHelperSuite and similar nodes embed prompt/workflow JSON via
-    FFmpeg's -metadata flag, stored in the container's metadata atoms
-    (e.g. moov/udta for MP4).
-    """
-    import subprocess
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet",
-                "-print_format", "json",
-                "-show_format",
-                filepath,
-            ],
-            capture_output=True, text=True, timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        if result.returncode != 0:
-            return None
-        data = json.loads(result.stdout)
-        tags = data.get("format", {}).get("tags", {})
-        if not tags:
-            return None
-        meta = {}
-        for key in ("prompt", "workflow"):
-            raw = tags.get(key)
-            if raw:
-                try:
-                    meta[key] = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    pass
-        return meta if meta else None
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return None
-
-
-def _read_exif_meta(filepath):
-    """Read ComfyUI metadata from JPEG/WebP EXIF tags.
-
-    ComfyUI stores metadata in EXIF tags:
-      - 0x010F (Make) = "workflow:JSON"  or other "key:JSON"
-      - 0x0110 (Model) = "prompt:JSON"
-    Also checks PIL info dict and EXIF UserComment as fallbacks.
-    """
-    try:
-        from PIL import Image
-
-        with Image.open(filepath) as img:
-            # 1. Check PIL info dict (some nodes store metadata here)
-            info = img.info or {}
-            meta = {}
-            for key in ("prompt", "workflow"):
-                if key in info:
-                    try:
-                        val = info[key]
-                        if isinstance(val, bytes):
-                            val = val.decode("utf-8", errors="ignore")
-                        if isinstance(val, str):
-                            meta[key] = json.loads(val)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            if meta:
-                return meta
-
-            # 2. Read EXIF tags (ComfyUI native format for WebP)
-            exif = img.getexif()
-            if exif:
-                meta = {}
-                # Check Make (0x010F), Model (0x0110), and nearby tags
-                for tag_id in (0x010F, 0x0110, 0x010E, 0x010D):
-                    val = exif.get(tag_id)
-                    if isinstance(val, str) and ":" in val:
-                        key, _, json_str = val.partition(":")
-                        if key in ("prompt", "workflow"):
-                            try:
-                                meta[key] = json.loads(json_str)
-                            except (json.JSONDecodeError, ValueError):
-                                pass
-                if meta:
-                    return meta
-
-                # 3. Fallback: EXIF UserComment (legacy/third-party nodes)
-                exif_ifd = exif.get_ifd(0x8769)
-                if exif_ifd:
-                    user_comment = exif_ifd.get(0x9286)
-                    if user_comment:
-                        text = user_comment
-                        if isinstance(text, bytes):
-                            if text.startswith(b"UNICODE\x00"):
-                                text = text[8:].decode("utf-16le", errors="ignore")
-                            elif text.startswith(b"ASCII\x00\x00\x00"):
-                                text = text[8:].decode("ascii", errors="ignore")
-                            else:
-                                text = text.decode("utf-8", errors="ignore")
-                        if isinstance(text, str) and text.strip():
-                            try:
-                                data = json.loads(text)
-                                if isinstance(data, dict):
-                                    result = {}
-                                    for key in ("prompt", "workflow"):
-                                        if key in data:
-                                            result[key] = data[key]
-                                    if result:
-                                        return result
-                            except (json.JSONDecodeError, ValueError):
-                                pass
-
-    except Exception:
-        pass
-
-    # Final fallback: for WEBP files, try raw RIFF chunk parser.
-    # This handles animated WEBP where PIL's getexif() may miss the EXIF
-    # chunk because it appears after the animation frame chunks.
-    if filepath.lower().endswith(".webp"):
-        return _read_webp_riff_meta(filepath)
-
-    return None
-
-
 
 # -- Browse --
 
@@ -2323,36 +690,60 @@ async def fs_browse(request):
     if root is None:
         return web.json_response({"error": "Unknown root"}, status=400)
     subpath = request.query.get("path", "").strip().replace("\\", "/")
+    limit = max(0, int(request.query.get("limit", "0")))
+    offset = max(0, int(request.query.get("offset", "0")))
+    fetch_limit = limit + 1 if limit > 0 else 0
+    sort = request.query.get("sort", "name-asc").strip()
     target = _safe_path(root, subpath) if subpath else root
     if target is None:
         return web.json_response({"error": "Invalid path"}, status=400)
     if not os.path.isdir(target):
         return web.json_response({"error": "Not found"}, status=404)
-    folders, files = [], []
-    try:
+
+    def scan():
+        folders, files = [], []
         entries = os.listdir(target)
+        for entry in sorted(entries):
+            if entry.startswith("."):
+                continue
+            full = os.path.join(target, entry)
+            rel = (subpath + "/" + entry) if subpath else entry
+            rel = rel.replace("\\", "/")
+            if os.path.isdir(full):
+                folders.append({"name": entry, "path": rel})
+            elif os.path.isfile(full):
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in _MEDIA_EXTS:
+                    try:
+                        st = os.stat(full)
+                    except OSError:
+                        continue
+                    files.append({
+                        "name": entry, "path": rel, "subfolder": subpath,
+                        "size": st.st_size, "created": st.st_ctime,
+                        "type": _ftype(ext),
+                    })
+        sort_key, _sep, sort_dir = str(sort or "name-asc").partition("-")
+        reverse = sort_dir == "desc"
+        if sort_key == "date":
+            files.sort(key=lambda item: item.get("created", 0), reverse=reverse)
+        elif sort_key == "size":
+            files.sort(key=lambda item: item.get("size", 0), reverse=reverse)
+        else:
+            files.sort(key=lambda item: str(item.get("name", "")).lower(), reverse=reverse)
+        has_more = False
+        page = files
+        if fetch_limit > 0:
+            page = files[offset:offset + fetch_limit]
+            has_more = len(page) > limit
+            if has_more:
+                page = page[:limit]
+        return folders, page, len(files), has_more
+
+    try:
+        folders, files, total_files, has_more = await asyncio.to_thread(scan)
     except OSError:
         return web.json_response({"error": "Cannot read"}, status=500)
-    for entry in sorted(entries):
-        if entry.startswith("."):
-            continue
-        full = os.path.join(target, entry)
-        rel = (subpath + "/" + entry) if subpath else entry
-        rel = rel.replace("\\", "/")
-        if os.path.isdir(full):
-            folders.append({"name": entry, "path": rel})
-        elif os.path.isfile(full):
-            ext = os.path.splitext(entry)[1].lower()
-            if ext in _MEDIA_EXTS:
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue
-                files.append({
-                    "name": entry, "path": rel, "subfolder": subpath,
-                    "size": st.st_size, "created": st.st_ctime,
-                    "type": _ftype(ext),
-                })
     parts = [p for p in subpath.replace("\\", "/").split("/") if p]
     label = _ROOT_LABELS.get(root_name, root_name.title())
     crumbs = [{"name": label, "path": ""}]
@@ -2363,6 +754,7 @@ async def fs_browse(request):
     return web.json_response({
         "root": root_name, "path": subpath, "breadcrumb": crumbs,
         "folders": folders, "files": files,
+        "totalFiles": total_files, "hasMore": has_more,
     })
 
 
@@ -2527,8 +919,6 @@ async def fs_thumb(request):
     Cache is stored under <root>/.thumbs/<subfolder>/<filename>.webp
     Regenerates if original mtime > cached mtime.
     """
-    from PIL import Image as _PILImage
-
     root_name, root = _resolve_root(request)
     if root is None:
         return web.json_response({"error": "Unknown root"}, status=400)
@@ -2538,57 +928,16 @@ async def fs_thumb(request):
         return web.json_response({"error": "filename required"}, status=400)
 
     max_size = int(request.query.get("size", "200"))
-    max_size = max(32, min(max_size, 512))  # clamp
-
-    # Resolve original file
-    if subfolder:
-        orig = _safe_path(root, subfolder, filename)
-    else:
-        orig = _safe_path(root, filename)
-    if orig is None or not os.path.isfile(orig):
-        return web.Response(status=404, text="Not found")
-
-    # Only generate thumbnails for images
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in _IMAGE_EXTS:
-        # Fall through to full-size view for non-image types
-        return web.FileResponse(orig)
-
-    # Determine cache path
-    thumb_base = os.path.join(root, ".thumbs")
-    thumb_name = os.path.splitext(filename)[0] + ".webp"
-    if subfolder:
-        thumb_path = _safe_path(thumb_base, subfolder, thumb_name)
-    else:
-        thumb_path = _safe_path(thumb_base, thumb_name)
+    try:
+        thumb_path, kind = await asyncio.to_thread(_ensure_gallery_thumbnail, root, subfolder, filename, max_size)
+    except Exception as e:
+        logger.warning(f"Thumbnail generation failed for {filename}: {e}")
+        orig = _safe_path(root, subfolder, filename) if subfolder else _safe_path(root, filename)
+        return web.FileResponse(orig) if orig and os.path.isfile(orig) else web.Response(status=404, text="Not found")
     if thumb_path is None:
-        return web.Response(status=400, text="Invalid path")
-
-    # Check if cache is fresh
-    need_generate = True
-    if os.path.isfile(thumb_path):
-        try:
-            orig_mtime = os.path.getmtime(orig)
-            thumb_mtime = os.path.getmtime(thumb_path)
-            if thumb_mtime >= orig_mtime:
-                need_generate = False
-        except OSError:
-            pass
-
-    if need_generate:
-        try:
-            os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-            with _PILImage.open(orig) as img:
-                img.thumbnail((max_size, max_size), _PILImage.LANCZOS)
-                if img.mode in ("RGBA", "P"):
-                    img = img.convert("RGBA")
-                else:
-                    img = img.convert("RGB")
-                img.save(thumb_path, "WEBP", quality=75)
-        except Exception as e:
-            logger.warning(f"Thumbnail generation failed for {orig}: {e}")
-            # Fallback to original file
-            return web.FileResponse(orig)
+        return web.Response(status=404 if kind == "not-found" else 400, text="Not found" if kind == "not-found" else "Invalid path")
+    if kind == "original":
+        return web.FileResponse(thumb_path)
 
     # Serve the thumbnail with aggressive caching
     resp = web.FileResponse(thumb_path)
@@ -2603,6 +952,47 @@ async def fs_thumb(request):
     except OSError:
         pass
     return resp
+
+
+@_routes.post("/drawer/fs/thumb-warm")
+async def fs_thumb_warm(request):
+    """POST /drawer/fs/thumb-warm — best-effort thumbnail cache warming."""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    files = body.get("files", [])
+    if not isinstance(files, list):
+        return web.json_response({"error": "files must be a list"}, status=400)
+    size = body.get("size", 512)
+
+    def warm():
+        warmed = skipped = 0
+        for entry in files[:20]:
+            root_name = str(entry.get("root", "output")).strip().lower()
+            getter = _ALLOWED_ROOTS.get(root_name)
+            if getter is None:
+                skipped += 1
+                continue
+            try:
+                root = getter()
+                subfolder = str(entry.get("subfolder", "")).strip().replace("\\", "/").strip("/")
+                name = str(entry.get("name", entry.get("filename", ""))).strip()
+                if not _is_plain_name(name) or os.path.splitext(name)[1].lower() not in _THUMB_WARM_EXTS:
+                    skipped += 1
+                    continue
+                path, kind = _ensure_gallery_thumbnail(root, subfolder, name, size)
+                if path and kind == "thumbnail":
+                    warmed += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                logger.debug(f"Thumbnail warm skipped: {e}")
+                skipped += 1
+        return warmed, skipped
+
+    warmed, skipped = await asyncio.to_thread(warm)
+    return web.json_response({"ok": True, "warmed": warmed, "skipped": skipped})
 
 
 # -- Search --
@@ -2624,26 +1014,35 @@ async def fs_search(request):
     if not query:
         return web.json_response({"files": [], "total": 0, "query": ""})
     subpath = request.query.get("path", "").strip().replace("\\", "/")
-    limit = int(request.query.get("limit", "0"))
+    limit = max(0, int(request.query.get("limit", "0")))
+    offset = max(0, int(request.query.get("offset", "0")))
+    fetch_limit = limit + 1 if limit > 0 else 0
     scope = request.query.get("scope", "").strip()
+    sort = request.query.get("sort", "date-desc").strip()
 
     # Try indexed search first
-    results = _search_index.search(query, root_name, subpath, limit=limit, scope=scope)
-    if results is not None and len(results) > 0:
-        return web.json_response({"files": results, "total": len(results), "query": query})
-    if results is not None:
-        # Once the index is ready, trust it. Metadata fallback can require
-        # reading many media files and can block ComfyUI's HTTP server.
-        return web.json_response({"files": [], "total": 0, "query": query})
+    indexed = await asyncio.to_thread(
+        _search_index.search, query, root_name, subpath, limit=fetch_limit, offset=offset, scope=scope, sort=sort
+    )
+    if indexed is not None:
+        results = indexed.get("files", []) if isinstance(indexed, dict) else indexed
+        total_count = int(indexed.get("total", len(results))) if isinstance(indexed, dict) else len(results)
+        files = results[:limit] if limit > 0 else results
+        has_more = bool(limit > 0 and (offset + len(files)) < total_count)
+        return web.json_response({"files": files, "total": total_count, "query": query, "hasMore": has_more, "totalExact": True})
 
     # Fallback while the index is still rebuilding: filename-only raw substring
     # search. Metadata scopes need the index to avoid blocking the server.
-    if scope in ("prompt", "workflow"):
+    if any(s != "name" for s in _parse_search_scopes(scope)):
         return web.json_response({"files": [], "total": 0, "query": query})
-    results = _search_filesystem_raw(
-        root_name, root, query, subpath, limit=limit, scope=scope, include_metadata=False
+    results = await asyncio.to_thread(
+        _search_filesystem_raw,
+        root_name, root, query, subpath,
+        limit=fetch_limit, offset=offset, scope=scope, sort=sort, include_metadata=False,
     )
-    return web.json_response({"files": results, "total": len(results), "query": query})
+    has_more = bool(limit > 0 and len(results) > limit)
+    files = results[:limit] if has_more else results
+    return web.json_response({"files": files, "total": offset + len(files), "query": query, "hasMore": has_more, "totalExact": False})
 
 
 @_routes.get("/drawer/fs/index-status")
@@ -2652,23 +1051,29 @@ async def fs_index_status(request):
     return web.json_response(_search_index.status)
 
 
+@_routes.get("/drawer/fs/index-diagnostics")
+async def fs_index_diagnostics(request):
+    """GET /drawer/fs/index-diagnostics — read-only index troubleshooting."""
+    return web.json_response(_search_index.diagnostics())
+
+
 @_routes.get("/drawer/fs/index-estimate")
 async def fs_index_estimate(request):
     """GET /drawer/fs/index-estimate — estimate index build size/duration."""
-    return web.json_response(_search_index.estimate())
+    return web.json_response(await _search_index.estimate_async())
 
 
 @_routes.post("/drawer/fs/index-start")
 async def fs_index_start(request):
-    """POST /drawer/fs/index-start — start or resume the search index build."""
-    _search_index.start_background_build()
+    """POST /drawer/fs/index-start — start a fresh search index build."""
+    _search_index.start_background_build(reset=True)
     return web.json_response(_search_index.status)
 
 
 @_routes.post("/drawer/fs/index-resume")
 async def fs_index_resume(request):
     """POST /drawer/fs/index-resume — resume the search index build."""
-    _search_index.start_background_build()
+    _search_index.start_background_build(reset=False)
     return web.json_response(_search_index.status)
 
 
@@ -2679,12 +1084,42 @@ async def fs_index_pause(request):
     return web.json_response(_search_index.status)
 
 
+@_routes.post("/drawer/fs/index-sync")
+async def fs_index_sync(request):
+    """POST /drawer/fs/index-sync — reconcile file changes without rebuilding metadata."""
+    started = _search_index.start_background_sync()
+    return web.json_response({"ok": True, "started": started, **_search_index.status})
+
+
+@_routes.post("/drawer/fs/index-refresh-metadata")
+async def fs_index_refresh_metadata(request):
+    """POST /drawer/fs/index-refresh-metadata — reread metadata and reapply contributors.
+
+    Use after installing or changing metadata providers/index contributors when
+    the existing DB rows should be reinterpreted without dropping the index DB.
+    """
+    started = _search_index.start_background_metadata_refresh()
+    return web.json_response({"ok": True, "started": started, **_search_index.status})
+
+
+@_routes.put("/drawer/fs/index-auto-sync")
+async def fs_index_auto_sync(request):
+    """PUT /drawer/fs/index-auto-sync — enable/disable periodic file reconciliation."""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    enabled = _search_index.set_auto_sync_enabled(bool(body.get("enabled", False)))
+    return web.json_response({"ok": True, "enabled": enabled, **_search_index.status})
+
+
 @_routes.post("/drawer/fs/index-update")
 async def fs_index_update(request):
     """POST /drawer/fs/index-update
     Single: {"root": "output", "subfolder": "...", "name": "...", "searchable": "..."}
     Batch:  {"entries": [{"root":..., "subfolder":..., "name":..., "searchable":...}, ...]}
-    Allows external metadata providers to enrich the search index.
+    Allows external metadata providers to enrich empty search index rows.
+    Existing metadata is preserved unless replace=true is supplied.
     """
     try:
         body = await request.json()
@@ -2696,57 +1131,102 @@ async def fs_index_update(request):
         # Batch mode
         ok_count = 0
         for entry in entries:
-            root_name = entry.get("root", "output").strip().lower()
-            subfolder = entry.get("subfolder", "").strip()
-            name = entry.get("name", "").strip()
-            searchable = entry.get("searchable", "").strip()
-            s_prompt = entry.get("s_prompt", entry.get("prompt", "")).strip()
-            s_workflow = entry.get("s_workflow", entry.get("workflow", "")).strip()
+            if not isinstance(entry, dict):
+                continue
+            root_name = _body_str(entry, "root", "output").lower()
+            subfolder = _body_str(entry, "subfolder")
+            name = _body_str(entry, "name")
+            searchable = _body_str(entry, "searchable")
+            s_prompt = _body_str(entry, "s_prompt", _body_str(entry, "prompt"))
+            s_value = _body_str(entry, "s_value", _body_str(entry, "value"))
+            s_workflow = _body_str(entry, "s_workflow", _body_str(entry, "workflow"))
+            s_prompt_title = _body_str(entry, "s_prompt_title", _body_str(entry, "prompt_title"))
+            s_prompt_value = _body_str(entry, "s_prompt_value", _body_str(entry, "prompt_value"))
+            s_workflow_title = _body_str(entry, "s_workflow_title", _body_str(entry, "workflow_title"))
+            s_workflow_value = _body_str(entry, "s_workflow_value", _body_str(entry, "workflow_value"))
+            s_custom = _body_str(entry, "s_custom", _body_str(entry, "custom"))
             s_nodes = entry.get("s_nodes", "[]")
+            replace = _truthy(entry.get("replace", entry.get("overwrite", False)))
             legacy = {
-                "s_classes": entry.get("s_classes", "").strip(),
-                "s_titles": entry.get("s_titles", "").strip(),
-                "s_inputs": entry.get("s_inputs", "").strip(),
+                "s_classes": _body_str(entry, "s_classes"),
+                "s_titles": _body_str(entry, "s_titles"),
+                "s_inputs": _body_str(entry, "s_inputs"),
             }
-            if name and (searchable or s_prompt or s_workflow or any(legacy.values())):
+            if name and (searchable or s_prompt or s_value or s_workflow
+                         or s_prompt_title or s_prompt_value
+                         or s_workflow_title or s_workflow_value
+                         or s_custom
+                         or any(legacy.values())):
                 if _search_index.update_searchable(
                     root_name, subfolder, name,
                     searchable_text=searchable,
-                    s_prompt=s_prompt, s_workflow=s_workflow, s_nodes=s_nodes, **legacy,
+                    s_prompt=s_prompt, s_value=s_value,
+                    s_prompt_title=s_prompt_title, s_prompt_value=s_prompt_value,
+                    s_workflow_title=s_workflow_title, s_workflow_value=s_workflow_value,
+                    s_custom=s_custom,
+                    s_workflow=s_workflow, s_nodes=s_nodes, replace=replace, **legacy,
                 ):
                     ok_count += 1
         return web.json_response({"ok": True, "updated": ok_count})
 
     # Single mode
-    root_name = body.get("root", "output").strip().lower()
-    subfolder = body.get("subfolder", "").strip()
-    name = body.get("name", "").strip()
-    searchable = body.get("searchable", "").strip()
-    s_prompt = body.get("s_prompt", body.get("prompt", "")).strip()
-    s_workflow = body.get("s_workflow", body.get("workflow", "")).strip()
+    root_name = _body_str(body, "root", "output").lower()
+    subfolder = _body_str(body, "subfolder")
+    name = _body_str(body, "name")
+    searchable = _body_str(body, "searchable")
+    s_prompt = _body_str(body, "s_prompt", _body_str(body, "prompt"))
+    s_value = _body_str(body, "s_value", _body_str(body, "value"))
+    s_workflow = _body_str(body, "s_workflow", _body_str(body, "workflow"))
+    s_prompt_title = _body_str(body, "s_prompt_title", _body_str(body, "prompt_title"))
+    s_prompt_value = _body_str(body, "s_prompt_value", _body_str(body, "prompt_value"))
+    s_workflow_title = _body_str(body, "s_workflow_title", _body_str(body, "workflow_title"))
+    s_workflow_value = _body_str(body, "s_workflow_value", _body_str(body, "workflow_value"))
+    s_custom = _body_str(body, "s_custom", _body_str(body, "custom"))
     s_nodes = body.get("s_nodes", "[]")
+    replace = _truthy(body.get("replace", body.get("overwrite", False)))
     legacy = {
-        "s_classes": body.get("s_classes", "").strip(),
-        "s_titles": body.get("s_titles", "").strip(),
-        "s_inputs": body.get("s_inputs", "").strip(),
+        "s_classes": _body_str(body, "s_classes"),
+        "s_titles": _body_str(body, "s_titles"),
+        "s_inputs": _body_str(body, "s_inputs"),
     }
     if not name:
         return web.json_response({"error": "name required"}, status=400)
     ok = _search_index.update_searchable(
         root_name, subfolder, name,
         searchable_text=searchable,
-        s_prompt=s_prompt, s_workflow=s_workflow, s_nodes=s_nodes, **legacy,
+        s_prompt=s_prompt, s_value=s_value,
+        s_prompt_title=s_prompt_title, s_prompt_value=s_prompt_value,
+        s_workflow_title=s_workflow_title, s_workflow_value=s_workflow_value,
+        s_custom=s_custom,
+        s_workflow=s_workflow, s_nodes=s_nodes, replace=replace, **legacy,
     )
     if not ok:
         return web.json_response({"error": "File not found or invalid root"}, status=404)
     return web.json_response({"ok": True})
+
+
+@_routes.post("/drawer/fs/index-generated")
+async def fs_index_generated(request):
+    """POST /drawer/fs/index-generated
+    Add newly generated files to an already-ready search snapshot.
+    Body: {"files": [{"root": "output", "subfolder": "...", "name": "..."}]}
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    files = body.get("files", [])
+    if not isinstance(files, list):
+        return web.json_response({"error": "files must be a list"}, status=400)
+    result = _search_index.index_files_from_disk(files[:200])
+    return web.json_response({"ok": True, **result})
 
 # -- Meta --
 
 @_routes.get("/drawer/fs/meta")
 async def fs_meta(request):
     """GET /drawer/fs/meta?root=output&subfolder=<rel>&name=<filename>
-    Returns metadata embedded in the image file (PNG tEXt chunks).
+    Returns provider metadata when available, otherwise embedded media metadata.
     """
     root_name, root = _resolve_root(request)
     if root is None:
@@ -2758,7 +1238,13 @@ async def fs_meta(request):
 
     media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
     if media_path and os.path.isfile(media_path):
-        meta = _read_embedded_meta(media_path)
+        meta = _read_media_meta(
+            media_path,
+            root_name=root_name,
+            root_path=root,
+            subfolder=subfolder,
+            name=name,
+        )
         if meta:
             # Sanitize NaN/Infinity: Python's JSON encoder emits non-standard
             # NaN/Infinity literals that browsers refuse to parse.
@@ -2766,6 +1252,36 @@ async def fs_meta(request):
             return web.json_response(meta)
 
     return web.json_response({"error": "Meta not found"}, status=404)
+
+
+@_routes.get("/drawer/fs/meta-panels")
+async def fs_meta_panels(request):
+    """GET /drawer/fs/meta-panels?root=output&subfolder=<rel>&name=<filename>
+    Returns third-party metadata display sections for the media file.
+    """
+    root_name, root = _resolve_root(request)
+    if root is None:
+        return web.json_response({"error": "Unknown root"}, status=400)
+    subfolder = request.query.get("subfolder", "").strip()
+    name = request.query.get("name", "").strip()
+    if not name:
+        return web.json_response({"error": "Invalid"}, status=400)
+
+    media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
+    if not media_path or not os.path.isfile(media_path):
+        return web.json_response({"error": "File not found"}, status=404)
+    ctx = _provider_context(media_path, root_name, root, subfolder, name)
+    meta = _read_media_meta(
+        media_path,
+        root_name=root_name,
+        root_path=root,
+        subfolder=subfolder,
+        name=name,
+    )
+    if not meta:
+        return web.json_response({"sections": []})
+    sections = _apply_metadata_panel_contributors(meta, ctx)
+    return web.json_response({"sections": _sanitize_json_floats(sections)})
 
 
 
@@ -2818,10 +1334,11 @@ async def fs_delete(request):
     deleted_folders = 0
     deleted_files = []
     deleted_folder_items = []
+    index_updated = 0
     for item in files:
         subfolder = item.get("subfolder", "")
         name = item.get("name", "")
-        if not name:
+        if not _is_plain_name(name):
             continue
         media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
         if media_path is None:
@@ -2830,16 +1347,19 @@ async def fs_delete(request):
             if _trash_file(media_path):
                 deleted += 1
                 deleted_files.append({"subfolder": subfolder, "name": name})
+                index_updated += _search_index.note_path_deleted(root_name, subfolder, name)
         elif os.path.isdir(media_path):
             # Folder deletion — send entire folder (with contents) to trash
             if _trash_file(media_path):
                 deleted_folders += 1
                 deleted_folder_items.append({"subfolder": subfolder, "name": name})
+                index_updated += _search_index.note_path_deleted(root_name, subfolder, name, is_dir=True)
     return web.json_response({
         "deleted": deleted,
         "deleted_folders": deleted_folders,
         "deleted_files": deleted_files,
         "deleted_folder_items": deleted_folder_items,
+        "indexUpdated": index_updated,
     })
 
 
@@ -2855,7 +1375,7 @@ def _auto_rename(dest_dir, name):
             return new_name
         counter += 1
 
-def _merge_dirs(src_dir, dst_dir):
+def _merge_dirs(src_dir, dst_dir, rel_dir=""):
     """Recursively merge src_dir into dst_dir.
     - Files: if conflict, auto-rename the incoming file.
     - Folders: recurse into matching subfolders.
@@ -2871,7 +1391,8 @@ def _merge_dirs(src_dir, dst_dir):
         if os.path.exists(item_dst):
             # Both are directories → recurse
             if os.path.isdir(item_src) and os.path.isdir(item_dst):
-                m, r, e = _merge_dirs(item_src, item_dst)
+                child_rel = _format_storage_rel("/".join(p for p in (rel_dir, item_name) if p))
+                m, r, e = _merge_dirs(item_src, item_dst, child_rel)
                 moved += m
                 renamed.extend(r)
                 errors.extend(e)
@@ -2879,7 +1400,14 @@ def _merge_dirs(src_dir, dst_dir):
             # Conflict (file↔file, file↔dir, dir↔file) → rename
             new_name = _auto_rename(dst_dir, item_name)
             item_dst = os.path.join(dst_dir, new_name)
-            renamed.append({"original": item_name, "renamed": new_name})
+            renamed.append({
+                "original": item_name,
+                "renamed": new_name,
+                "originalPath": _format_storage_rel("/".join(p for p in (rel_dir, item_name) if p)),
+                "renamedPath": _format_storage_rel("/".join(p for p in (rel_dir, new_name) if p)),
+                "subfolder": _format_storage_rel(rel_dir),
+                "isFolder": os.path.isdir(item_src),
+            })
         try:
             shutil.move(item_src, item_dst)
             moved += 1
@@ -2939,16 +1467,21 @@ async def fs_move(request):
     skipped = 0
     renamed = []
     errors = []
+    index_updated = 0
     for item in files:
         subfolder = item.get("subfolder", "")
         name = item.get("name", "")
-        if not name:
+        if not _is_plain_name(name):
             continue
         src_path = _safe_path(src_root, subfolder, name) if subfolder else _safe_path(src_root, name)
         if src_path is None or not os.path.exists(src_path):
             errors.append(f"Not found: {name}")
             continue
-        dst_path = os.path.join(dest_dir, name)
+        is_dir = os.path.isdir(src_path)
+        dst_path = _safe_path(dest_root, dest_subfolder, name) if dest_subfolder else _safe_path(dest_root, name)
+        if dst_path is None:
+            errors.append(f"Invalid destination: {name}")
+            continue
         try:
             if os.path.normcase(os.path.abspath(src_path)) == os.path.normcase(os.path.abspath(dst_path)):
                 skipped += 1
@@ -2961,7 +1494,10 @@ async def fs_move(request):
                 continue
             elif conflict == "rename":
                 new_name = _auto_rename(dest_dir, name)
-                dst_path = os.path.join(dest_dir, new_name)
+                dst_path = _safe_path(dest_root, dest_subfolder, new_name) if dest_subfolder else _safe_path(dest_root, new_name)
+                if dst_path is None:
+                    errors.append(f"Invalid destination: {new_name}")
+                    continue
                 renamed.append({"original": name, "renamed": new_name})
             elif conflict == "overwrite":
                 # Folder + Folder → recursive merge (non-destructive)
@@ -2969,6 +1505,37 @@ async def fs_move(request):
                     m, r, e = _merge_dirs(src_path, dst_path)
                     if m > 0:
                         moved += 1
+                        dest_name = os.path.basename(dst_path)
+                        index_updated += _search_index.note_path_moved(
+                            src_root_name,
+                            subfolder,
+                            name,
+                            root_name,
+                            dest_subfolder,
+                            dest_name,
+                            is_dir=True,
+                        )
+                        dest_prefix = _format_storage_rel("/".join(p for p in (dest_subfolder, dest_name) if p))
+                        for renamed_item in r:
+                            rename_rel_dir = _format_storage_rel(renamed_item.get("subfolder", ""))
+                            rename_subfolder = _format_storage_rel("/".join(
+                                p for p in (dest_prefix, rename_rel_dir) if p
+                            ))
+                            renamed_path = _safe_path(
+                                dest_root,
+                                rename_subfolder,
+                                renamed_item.get("renamed", ""),
+                            )
+                            index_updated += _search_index.note_path_moved(
+                                root_name,
+                                rename_subfolder,
+                                renamed_item.get("original", ""),
+                                root_name,
+                                rename_subfolder,
+                                renamed_item.get("renamed", ""),
+                                is_dir=bool(renamed_item.get("isFolder")),
+                                dest_path=None if renamed_item.get("isFolder") else renamed_path,
+                            )
                     renamed.extend(r)
                     errors.extend(e)
                     continue
@@ -2981,11 +1548,21 @@ async def fs_move(request):
         try:
             shutil.move(src_path, dst_path)
             moved += 1
+            index_updated += _search_index.note_path_moved(
+                src_root_name,
+                subfolder,
+                name,
+                root_name,
+                dest_subfolder,
+                os.path.basename(dst_path),
+                is_dir=is_dir,
+                dest_path=None if is_dir else dst_path,
+            )
         except Exception as e:
             errors.append(f"Error moving {name}: {e}")
     return web.json_response({
         "moved": moved, "skipped": skipped,
-        "renamed": renamed, "errors": errors,
+        "renamed": renamed, "errors": errors, "indexUpdated": index_updated,
     })
 
 
@@ -3054,7 +1631,7 @@ async def fs_rename(request):
     new_name = body.get("newName", "").strip()
     if not old_name or not new_name:
         return web.json_response({"error": "Both oldName and newName required"}, status=400)
-    if "/" in new_name or "\\" in new_name or new_name in (".", ".."):
+    if not _is_plain_name(old_name) or not _is_plain_name(new_name):
         return web.json_response({"error": "Invalid name"}, status=400)
     if old_name == new_name:
         return web.json_response({"ok": True, "renamed": False})
@@ -3074,8 +1651,19 @@ async def fs_rename(request):
     if os.path.exists(dst):
         return web.json_response({"error": "Name already exists"}, status=409)
     try:
+        is_dir = os.path.isdir(src)
         os.rename(src, dst)
-        return web.json_response({"ok": True, "renamed": True})
+        index_updated = _search_index.note_path_moved(
+            root_name,
+            subfolder,
+            old_name,
+            root_name,
+            subfolder,
+            new_name,
+            is_dir=is_dir,
+            dest_path=None if is_dir else dst,
+        )
+        return web.json_response({"ok": True, "renamed": True, "indexUpdated": index_updated})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -3095,6 +1683,67 @@ try:
     _HAS_PIL = True
 except ImportError:
     _HAS_PIL = False
+
+_MAX_GRID_UPLOAD_BYTES = 64 * 1024 * 1024
+_MAX_MODEL_PREVIEW_BYTES = 32 * 1024 * 1024
+_MODEL_SIDECAR_LOCK = threading.Lock()
+
+
+async def _read_limited_stream(stream, limit):
+    chunks = []
+    total = 0
+    while True:
+        if hasattr(stream, "readany"):
+            chunk = await stream.readany()
+        elif hasattr(stream, "read_chunk"):
+            chunk = await stream.read_chunk()
+        else:
+            chunk = await stream.read()
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise ValueError("request too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _atomic_write_text(path, writer, *, newline=None):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(path),
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
+            writer(f)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _read_json_file(path, default=None):
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else (default if default is not None else {})
+    except Exception:
+        pass
+    return default if default is not None else {}
+
+
+def _write_json_file_atomic(path, data):
+    _atomic_write_text(
+        path,
+        lambda f: json.dump(data, f, ensure_ascii=False, indent=2),
+    )
 
 
 def _expand_date_format(text: str) -> str:
@@ -3139,11 +1788,15 @@ async def _save_grid(request):
     """
     if not _HAS_PIL:
         return web.json_response({"error": "PIL/Pillow not installed"}, status=500)
+    if request.content_length and request.content_length > _MAX_GRID_UPLOAD_BYTES:
+        return web.json_response({"error": "request too large"}, status=413)
 
     try:
         # Read body manually to avoid aiohttp's default client_max_size (1MB)
-        raw = await request.content.read()
+        raw = await _read_limited_stream(request.content, _MAX_GRID_UPLOAD_BYTES)
         data = json.loads(raw)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=413)
     except Exception as e:
         logger.warning(f"save_grid: JSON parse error: {e}")
         return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
@@ -3240,7 +1893,7 @@ async def _save_grid(request):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  ModelViewer API — Model thumbnails + extra_model_paths.yaml management
+#  ModelViewer API — Model thumbnails + custom_model_paths.yaml management
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import yaml as _yaml
@@ -3292,7 +1945,7 @@ async def model_thumbnail(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    # Resolve model to absolute path via folder_paths (covers extra paths)
+    # Resolve model to absolute path via folder_paths (covers custom paths)
     model_path = folder_paths.get_full_path(category, filename)
     if not model_path:
         return web.Response(status=404)
@@ -3408,21 +2061,11 @@ async def save_trigger_words(request):
     drawer_path = model_path + ".drawer.json"
 
     # Read existing .drawer.json or start fresh
-    drawer_data = {}
-    if os.path.isfile(drawer_path):
-        try:
-            with open(drawer_path, "r", encoding="utf-8") as f:
-                drawer_data = json.load(f)
-        except Exception:
-            pass
-
-    # Update trigger words
-    drawer_data["triggerWords"] = [w for w in trigger_words if isinstance(w, str) and w.strip()]
-
-    # Write back
     try:
-        with open(drawer_path, "w", encoding="utf-8") as f:
-            json.dump(drawer_data, f, ensure_ascii=False, indent=2)
+        with _MODEL_SIDECAR_LOCK:
+            drawer_data = _read_json_file(drawer_path, {})
+            drawer_data["triggerWords"] = [w for w in trigger_words if isinstance(w, str) and w.strip()]
+            _write_json_file_atomic(drawer_path, drawer_data)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -3454,24 +2097,15 @@ async def save_model_comment(request):
     drawer_path = model_path + ".drawer.json"
 
     # Read existing .drawer.json or start fresh
-    drawer_data = {}
-    if os.path.isfile(drawer_path):
-        try:
-            with open(drawer_path, "r", encoding="utf-8") as f:
-                drawer_data = json.load(f)
-        except Exception:
-            pass
-
-    # Update comment (empty string = remove)
-    if comment.strip():
-        drawer_data["comment"] = comment.strip()
-    else:
-        drawer_data.pop("comment", None)
-
-    # Write back
     try:
-        with open(drawer_path, "w", encoding="utf-8") as f:
-            json.dump(drawer_data, f, ensure_ascii=False, indent=2)
+        with _MODEL_SIDECAR_LOCK:
+            drawer_data = _read_json_file(drawer_path, {})
+            comment = str(comment or "").strip()
+            if comment:
+                drawer_data["comment"] = comment
+            else:
+                drawer_data.pop("comment", None)
+            _write_json_file_atomic(drawer_path, drawer_data)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -3497,10 +2131,8 @@ async def delete_model_preview(request):
     if not preview:
         return web.json_response({"error": "no preview"}, status=404)
 
-    try:
-        os.remove(preview)
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+    if not _trash_file(preview):
+        return web.json_response({"error": "failed to move preview to trash"}, status=500)
 
     return web.json_response({"ok": True})
 
@@ -3513,6 +2145,10 @@ async def upload_model_preview(request):
     Saves as {model_base}.preview.{ext}
     """
     category = request.match_info["category"]
+    if not _HAS_PIL:
+        return web.json_response({"error": "PIL/Pillow not installed"}, status=500)
+    if request.content_length and request.content_length > _MAX_MODEL_PREVIEW_BYTES:
+        return web.json_response({"error": "request too large"}, status=413)
 
     reader = await request.multipart()
     filename = None
@@ -3523,7 +2159,10 @@ async def upload_model_preview(request):
         if part.name == 'filename':
             filename = (await part.text()).strip()
         elif part.name == 'image':
-            image_data = await part.read()
+            try:
+                image_data = await _read_limited_stream(part, _MAX_MODEL_PREVIEW_BYTES)
+            except ValueError as e:
+                return web.json_response({"error": str(e)}, status=413)
             ct = part.headers.get('Content-Type', '')
             if 'jpeg' in ct or 'jpg' in ct:
                 image_ext = '.jpeg'
@@ -3534,6 +2173,21 @@ async def upload_model_preview(request):
 
     if not filename or not image_data:
         return web.json_response({"error": "filename and image required"}, status=400)
+
+    try:
+        img = Image.open(BytesIO(image_data))
+        img.verify()
+        fmt = str(img.format or "").lower()
+    except Exception as e:
+        return web.json_response({"error": f"invalid image: {e}"}, status=400)
+    if fmt == "jpeg":
+        image_ext = ".jpeg"
+    elif fmt == "webp":
+        image_ext = ".webp"
+    elif fmt == "png":
+        image_ext = ".png"
+    else:
+        return web.json_response({"error": "unsupported image format"}, status=400)
 
     model_path = folder_paths.get_full_path(category, filename)
     if not model_path:
@@ -3563,6 +2217,11 @@ async def delete_model(request):
     filename = request.query.get("filename", "")
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
+    if _send2trash is None:
+        return web.json_response(
+            {"error": "Delete unavailable: send2trash is not installed (pip install send2trash)"},
+            status=503,
+        )
 
     model_path = folder_paths.get_full_path(category, filename)
     if not model_path or not os.path.isfile(model_path):
@@ -3572,11 +2231,10 @@ async def delete_model(request):
     errors = []
 
     # Delete the model file itself
-    try:
-        os.remove(model_path)
+    if _trash_file(model_path):
         deleted.append(os.path.basename(model_path))
-    except Exception as e:
-        return web.json_response({"error": f"Failed to delete model: {e}"}, status=500)
+    else:
+        return web.json_response({"error": "Failed to move model to trash"}, status=500)
 
     # Delete sidecar files
     base_no_ext = os.path.splitext(model_path)[0]
@@ -3605,11 +2263,10 @@ async def delete_model(request):
         if path in seen or not os.path.isfile(path):
             continue
         seen.add(path)
-        try:
-            os.remove(path)
+        if _trash_file(path):
             deleted.append(os.path.basename(path))
-        except Exception as e:
-            errors.append(f"{os.path.basename(path)}: {e}")
+        else:
+            errors.append(f"{os.path.basename(path)}: failed to move to trash")
 
     # Invalidate folder_paths cache so ComfyUI picks up the change
     try:
@@ -3648,9 +2305,10 @@ async def set_preview_from_output(request):
         return web.json_response({"error": "model not found"}, status=404)
 
     # Resolve image path in output directory
-    output_dir = folder_paths.get_output_directory()
-    image_path = os.path.join(output_dir, image_value.replace("/", os.sep))
-    if not os.path.isfile(image_path):
+    output_dir = os.path.realpath(folder_paths.get_output_directory())
+    image_value = str(image_value).replace("\\", "/").strip("/")
+    image_path = _safe_path(output_dir, image_value)
+    if image_path is None or not os.path.isfile(image_path):
         return web.json_response({"error": "image not found"}, status=404)
 
     # Determine extension
@@ -3851,10 +2509,11 @@ async def civitai_sync(request):
                 return web.json_response({"error": f"hash error: {e}"}, status=500)
 
         # Cache the hash in .drawer.json for future use
-        drawer_data["sha256"] = sha256_hash
         try:
-            with open(drawer_path, "w", encoding="utf-8") as f:
-                json.dump(drawer_data, f, ensure_ascii=False, indent=2)
+            with _MODEL_SIDECAR_LOCK:
+                drawer_data = _read_json_file(drawer_path, drawer_data)
+                drawer_data["sha256"] = sha256_hash
+                _write_json_file_atomic(drawer_path, drawer_data)
         except Exception:
             pass
 
@@ -4097,10 +2756,12 @@ async def civitai_batch_sync(request):
 
                 # Cache hash
                 if "sha256" not in drawer_data:
-                    drawer_data["sha256"] = sha256_hash
                     try:
-                        with open(drawer_path, "w", encoding="utf-8") as f:
-                            json.dump(drawer_data, f, ensure_ascii=False, indent=2)
+                        with _MODEL_SIDECAR_LOCK:
+                            drawer_data = _read_json_file(drawer_path, drawer_data)
+                            if "sha256" not in drawer_data:
+                                drawer_data["sha256"] = sha256_hash
+                                _write_json_file_atomic(drawer_path, drawer_data)
                     except Exception:
                         pass
 
@@ -4193,17 +2854,17 @@ async def civitai_batch_sync(request):
     return response
 
 
-def _extra_model_paths_yaml():
-    """Locate extra_model_paths.yaml (same logic as main.py)."""
+def _custom_model_paths_yaml():
+    """Locate custom_model_paths.yaml (same logic as main.py)."""
     comfy_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))  # up from custom_nodes/ComfyUI-Drawer/
-    return os.path.join(comfy_root, "extra_model_paths.yaml")
+    return os.path.join(comfy_root, "custom_model_paths.yaml")
 
 
-@_routes.get("/drawer/extra-paths")
-async def get_extra_paths(request):
-    """Read extra_model_paths.yaml and return as JSON."""
-    yaml_path = _extra_model_paths_yaml()
+@_routes.get("/drawer/custom-paths")
+async def get_custom_paths(request):
+    """Read custom_model_paths.yaml and return as JSON."""
+    yaml_path = _custom_model_paths_yaml()
     if not os.path.isfile(yaml_path):
         return web.json_response({
             "yamlPath": yaml_path,
@@ -4247,16 +2908,16 @@ async def get_extra_paths(request):
     })
 
 
-@_routes.post("/drawer/extra-paths")
-async def save_extra_paths(request):
-    """Save extra_model_paths.yaml from JSON.
+@_routes.post("/drawer/custom-paths")
+async def save_custom_paths(request):
+    """Save custom_model_paths.yaml from JSON.
     Creates a .yaml.bak backup before overwriting.
     Body: { "profiles": [...] }
     """
     data = await request.json()
     profiles = data.get("profiles", [])
 
-    yaml_path = _extra_model_paths_yaml()
+    yaml_path = _custom_model_paths_yaml()
 
     # Build YAML-compatible dict
     config = {}
@@ -4296,7 +2957,7 @@ async def save_extra_paths(request):
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
-    logger.info(f"[ModelViewer] Saved extra_model_paths.yaml ({len(profiles)} profiles)")
+    logger.info(f"[ModelViewer] Saved custom_model_paths.yaml ({len(profiles)} profiles)")
     return web.json_response({"ok": True})
 
 
@@ -4308,44 +2969,56 @@ async def clear_drawer_cache(request):
 
     Returns: { "ok": true, "deleted": <count>, "freedBytes": <bytes> }
     """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    clear_thumbnails = bool(body.get("thumbnails", True))
+    clear_index = bool(body.get("index", True))
+    if not clear_thumbnails and not clear_index:
+        return web.json_response({"error": "No cache targets selected"}, status=400)
+
     deleted = 0
     freed_bytes = 0
     errors = []
 
-    # Close SQLite before deleting files. On Windows, deleting an open DB can
-    # silently fail or leave WAL/SHM files out of the accounting path.
-    _search_index.clear_index()
+    if clear_index:
+        # Close SQLite before deleting files. On Windows, deleting an open DB can
+        # silently fail or leave WAL/SHM files out of the accounting path.
+        _search_index.clear_index()
 
     # 1. Remove .thumbs/ cache directories from each FS root
-    for root_name, root_fn in _ALLOWED_ROOTS.items():
-        try:
-            root_dir = root_fn()
-            thumb_dir = os.path.join(root_dir, ".thumbs")
-            if os.path.isdir(thumb_dir):
-                for dirpath, _dirnames, filenames in os.walk(thumb_dir):
-                    for f in filenames:
-                        fp = os.path.join(dirpath, f)
-                        try:
-                            freed_bytes += os.path.getsize(fp)
-                            deleted += 1
-                        except OSError:
-                            pass
-                _shutil.rmtree(thumb_dir, ignore_errors=True)
-        except Exception as e:
-            errors.append(f"{root_name}/.thumbs: {e}")
+    if clear_thumbnails:
+        for root_name, root_fn in _ALLOWED_ROOTS.items():
+            try:
+                root_dir = root_fn()
+                thumb_dir = os.path.join(root_dir, ".thumbs")
+                if os.path.isdir(thumb_dir):
+                    for dirpath, _dirnames, filenames in os.walk(thumb_dir):
+                        for f in filenames:
+                            fp = os.path.join(dirpath, f)
+                            try:
+                                freed_bytes += os.path.getsize(fp)
+                                deleted += 1
+                            except OSError:
+                                pass
+                    _shutil.rmtree(thumb_dir, ignore_errors=True)
+            except Exception as e:
+                errors.append(f"{root_name}/.thumbs: {e}")
 
     # 2. Remove search index DB
-    db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
-    for suffix in ("", "-wal", "-shm"):
-        p = db_path + suffix
-        if os.path.isfile(p):
-            try:
-                sz = os.path.getsize(p)
-                os.unlink(p)
-                freed_bytes += sz
-                deleted += 1
-            except Exception as e:
-                errors.append(f"index{suffix}: {e}")
+    if clear_index:
+        db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
+        for suffix in ("", "-wal", "-shm"):
+            p = db_path + suffix
+            if os.path.isfile(p):
+                try:
+                    sz = os.path.getsize(p)
+                    os.unlink(p)
+                    freed_bytes += sz
+                    deleted += 1
+                except Exception as e:
+                    errors.append(f"index{suffix}: {e}")
 
     if errors:
         logger.warning(f"[Drawer] clear-cache partial errors: {errors[:3]}")
@@ -4354,6 +3027,8 @@ async def clear_drawer_cache(request):
         "ok": True,
         "deleted": deleted,
         "freedBytes": freed_bytes,
+        "thumbnailsCleared": clear_thumbnails,
+        "indexCleared": clear_index,
         "errors": errors,
     })
 
@@ -4361,6 +3036,8 @@ async def clear_drawer_cache(request):
 @_routes.post("/drawer/reboot")
 def drawer_reboot(request):
     """Restart the ComfyUI server process in-place."""
+    if request.headers.get("X-Comfy-Drawer-Action") != "reboot":
+        return web.json_response({"error": "Forbidden"}, status=403)
 
     def build_restart_argv():
         argv = list(sys.argv)
@@ -4372,8 +3049,6 @@ def drawer_reboot(request):
         if entry.endswith("__main__.py"):
             module = os.path.basename(os.path.dirname(entry))
             return [sys.executable, "-m", module, *argv[1:]]
-        if sys.platform.startswith("win32"):
-            return [f'"{sys.executable}"', f'"{entry}"', *argv[1:]]
         return [sys.executable, *argv]
 
     # Some launch wrappers replace stdout with an object that must be detached

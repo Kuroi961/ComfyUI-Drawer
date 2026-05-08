@@ -90,12 +90,19 @@ export class GadgetBase {
         // Auto-inject CSS if cssUrl was provided
         if (this.cssUrl) {
             const cssId = `${this.id}-gadget-css`;
-            if (!document.getElementById(cssId)) {
+            const existing = document.getElementById(cssId);
+            if (!existing) {
+                container.style.visibility = 'hidden';
                 const link = document.createElement('link');
                 link.id = cssId;
                 link.rel = 'stylesheet';
                 link.href = this.cssUrl;
+                const reveal = () => requestAnimationFrame(() => { container.style.visibility = ''; });
+                link.addEventListener('load', reveal, { once: true });
+                link.addEventListener('error', reveal, { once: true });
                 document.head.appendChild(link);
+            } else {
+                container.style.visibility = '';
             }
         }
         this.onMount(container, bus, bridge);

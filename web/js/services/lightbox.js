@@ -184,11 +184,11 @@ function ensureDOM() {
   // Context menu trigger on media
   const ctxMenu = window.ComfyDrawer?.contextMenu;
   if (ctxMenu) {
-    ContextMenuService.attachTrigger(el.media, (e) => {
+    ContextMenuService.attachTrigger(el.media, async (e) => {
       const item = items[index];
       if (!item) return;
       const type = opts.contextMenuType || DEFAULT_CTX_TYPE;
-      let data = opts.contextMenuData ? opts.contextMenuData(item) : { ...item };
+      let data = opts.contextMenuData ? await opts.contextMenuData(item) : { ...item };
       // URL-parse fallback: extract name/subfolder/source from src URL
       // when the caller didn't provide them.
       if (data && !data.name && data.src) {
@@ -230,8 +230,12 @@ function showItem(i) {
 
   if (item.type === 'video') {
     el.video.style.display = 'block';
+    el.video.preload = 'metadata';
+    el.video.playsInline = true;
     el.video.onloadedmetadata = () => updateMediaMeta(token, item, el.video);
+    el.video.onerror = () => renderInfo(item, '');
     el.video.src = item.src;
+    el.video.load?.();
     if (autoplay) el.video.play().catch(() => {});
   } else if (item.type === 'audio') {
     el.audio.style.display = 'block';
@@ -343,6 +347,7 @@ export function closeLightbox() {
   root.style.pointerEvents = 'none';
   el.video.pause();
   el.video.onloadedmetadata = null;
+  el.video.onerror = null;
   el.video.src = '';
   el.audio.pause();
   el.audio.src = '';

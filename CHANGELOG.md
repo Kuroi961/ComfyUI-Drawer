@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.1.0 - 2026-05-08
+
+- Add third-party metadata provider and contributor hooks for Gallery search indexing
+- Add custom metadata search syntax with `namespace[value]` and `namespace:key[value]`
+- Add third-party metadata panel and dictionary provider hooks for custom metadata display and autocomplete
+- Refresh existing Gallery search indexes when provider/contributor registrations change
+- Improve Gallery search target popover layout on desktop, portrait mobile, and landscape mobile
+- Improve search index creation flow with visible estimation progress and cancellable estimation dialogs
+- Harden filesystem and model-preview operations against unsafe paths and oversized uploads
+- Split Drawer route internals into focused modules for settings, prompt processing, dictionaries, search, filesystem helpers, and thumbnails
+
 ## v2.0.0 - 2026-05-07
 
 - Change the project implementation license to GPL-3.0-or-later, with CC0 public API/specification docs and an MIT gadget template

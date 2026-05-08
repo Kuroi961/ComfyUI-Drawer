@@ -12,6 +12,8 @@ export class DrawerShell {
     #gadgets = new Map();
     /** @type {Map<string, HTMLElement>} Shell-owned container references */
     #containers = new Map();
+    /** @type {Set<string>} Gadget IDs whose DOM has been mounted */
+    #mounted = new Set();
     /** @type {string|null} Currently active gadget ID */
     #activeId = null;
     /** @type {HTMLElement} */
@@ -56,6 +58,8 @@ export class DrawerShell {
     #tabBarSuffix = [];
     /** @type {Set<string>} Gadget IDs hidden from the tab bar */
     #hiddenGadgets = new Set();
+    /** @type {boolean} True until the first gadget is available */
+    #loading = true;
 
     static PANEL_MIN = 50;
     static PANEL_DEFAULT = 460;
@@ -75,6 +79,11 @@ export class DrawerShell {
         return !!target.closest('input, textarea, select, [contenteditable="true"]');
     }
 
+    static #isDrawerOwnedLayer(target) {
+        if (!target || target.nodeType !== 1) return false;
+        return !!target.closest('.comfy-drawer, .cd-dialog-backdrop, .cd-dialog, .cd-lightbox-root, .cd-ctxmenu, .cd-ctxmenu-backdrop');
+    }
+
     constructor(bus, bridge) {
         this.#bus = bus;
         this.#bridge = bridge;
@@ -92,6 +101,7 @@ export class DrawerShell {
         this.#buildDOM();
         this.#watchGraphChanges();
         this.#watchWindowResize();
+        this.#renderTabs();
 
         // Inner layers (lightbox, etc.) emit 'drawer:back-handled' to prevent
         // the drawer from closing when they consume the mobile back button.
@@ -186,27 +196,50 @@ export class DrawerShell {
      * Register a gadget and add its tab.
      * @param {import('./gadget-base.js').GadgetBase} gadget
      */
-    registerGadget(gadget) {
+    registerGadget(gadget, options = {}) {
         if (this.#gadgets.has(gadget.id)) {
             console.warn(`[ComfyDrawer] Gadget "${gadget.id}" already registered`);
             return;
         }
+        this.#loading = false;
 
         // Create panel container for this gadget (Shell-owned)
         const container = document.createElement('div');
         container.className = `comfy-drawer-gadget gadget-${gadget.id}`;
         container.style.display = 'none';
+        if (options.lazyMount) {
+            container.classList.add('comfy-drawer-gadget-mounting');
+            container.innerHTML = `<div class="comfy-drawer-gadget-placeholder">${window.ComfyDrawer?.t?.('common.loading') ?? 'Loading...'}</div>`;
+        }
         this.#panelBody.appendChild(container);
         this.#containers.set(gadget.id, container);
 
-        // Mount the gadget
-        gadget.mount(container, this.#bus, this.#bridge);
         this.#gadgets.set(gadget.id, gadget);
+        if (!options.lazyMount) {
+            this.#mountGadget(gadget.id);
+        }
 
         // Rebuild tabs (sorted by order)
         this.#renderTabs();
 
         this.#bus.emit('drawer:gadget-registered', { id: gadget.id });
+    }
+
+    #mountGadget(id) {
+        if (this.#mounted.has(id)) return true;
+        const gadget = this.#gadgets.get(id);
+        const container = this.#containers.get(id);
+        if (!gadget || !container) return false;
+        container.classList.add('comfy-drawer-gadget-mounting');
+        try {
+            gadget.mount(container, this.#bus, this.#bridge);
+            this.#mounted.add(id);
+            return true;
+        } finally {
+            requestAnimationFrame(() => {
+                container.classList.remove('comfy-drawer-gadget-mounting');
+            });
+        }
     }
 
     /**
@@ -234,6 +267,7 @@ export class DrawerShell {
         this.#containers.get(id)?.remove();
         this.#containers.delete(id);
         this.#gadgets.delete(id);
+        this.#mounted.delete(id);
 
         // Rebuild tabs
         this.#renderTabs();
@@ -264,6 +298,10 @@ export class DrawerShell {
         this.#tabBar.innerHTML = '';
         const gadgets = [...this.#gadgets.values()];
         const customOrder = this.#getTabOrder();
+
+        const isEmptyLoading = this.#loading && gadgets.length === 0;
+        this.#root.classList.toggle('loading', isEmptyLoading);
+        if (isEmptyLoading) return;
 
         if (customOrder) {
             // Sort by saved order; unknown gadgets go to the end by their default order
@@ -389,7 +427,10 @@ export class DrawerShell {
 
         this.#activeId = gadgetId;
         container.style.display = '';
-        gadget.onActivate();
+        const wasMounted = this.#mounted.has(gadgetId);
+        if (!wasMounted) {
+            container.classList.add('comfy-drawer-gadget-mounting');
+        }
 
         // Show panel (clamp height to viewport, then set for CSS transition)
         this.#isOpen = true;
@@ -403,6 +444,17 @@ export class DrawerShell {
         this.#bus.emit('drawer:opened', { gadgetId });
         this.#bus.emit('drawer:tab-changed', { tab: gadgetId });
         this.#applyLayout();
+
+        const activate = () => {
+            if (this.#activeId !== gadgetId) return;
+            this.#mountGadget(gadgetId);
+            gadget.onActivate();
+        };
+        if (wasMounted) {
+            activate();
+        } else {
+            requestAnimationFrame(() => setTimeout(activate, 0));
+        }
     }
 
     close() {
@@ -610,9 +662,10 @@ export class DrawerShell {
         // Click outside drawer → focus ComfyUI
         document.addEventListener('pointerdown', (e) => {
             if (!this.#isOpen) return;
-            if (e.target.closest?.('.comfy-drawer')) return;
-            if (e.target.closest?.('.cd-ctxmenu')) return;
-            if (e.target.closest?.('.cd-ctxmenu-backdrop')) return;
+            if (DrawerShell.#isDrawerOwnedLayer(e.target)) {
+                this.#setFocus(true);
+                return;
+            }
             this.#setFocus(false);
         }, { signal, capture: true });
 
@@ -623,8 +676,10 @@ export class DrawerShell {
         document.addEventListener('keydown', (e) => {
             if (!this.#isOpen || !this.#hasFocus) return;
 
-            // Always allow events targeting elements inside the drawer
-            if (e.target.closest?.('.comfy-drawer-panel')) return;
+            // Always allow events targeting Drawer-owned UI layers. Some shared
+            // overlays are appended to document.body rather than inside the
+            // drawer root, but they still own their own keyboard behavior.
+            if (DrawerShell.#isDrawerOwnedLayer(e.target)) return;
 
             // Allow browser-level shortcuts through
             if (this.#isBrowserShortcut(e)) return;
@@ -647,7 +702,7 @@ export class DrawerShell {
 
         document.addEventListener('keyup', (e) => {
             if (!this.#isOpen || !this.#hasFocus) return;
-            if (e.target.closest?.('.comfy-drawer-panel')) return;
+            if (DrawerShell.#isDrawerOwnedLayer(e.target)) return;
             if (this.#isBrowserShortcut(e)) return;
             e.stopPropagation();
             e.preventDefault();

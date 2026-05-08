@@ -94,6 +94,10 @@ const DIALOG_ICONS = {
  * @param {boolean}  [options.danger]         - Use danger style for confirm button
  * @param {function} [options.onValidate]     - (data) => errorMsg|null; called before confirm
  * @param {boolean}  [options.dismissOnBackdrop] - Close on backdrop click (default: true)
+ * @param {boolean}  [options.dismissOnEscape]   - Close on Escape (default: true)
+ * @param {boolean}  [options.showClose]         - Show header close button (default: true)
+ * @param {function} [options.onOpen]            - Called with ({ close, backdrop, dialog, body })
+ * @param {function} [options.onDismiss]         - Called immediately when dismissal starts
  *
  * @returns {Promise<*>} Resolves with:
  *   - Custom dialog: return value of getData(), or null if cancelled
@@ -115,7 +119,11 @@ export function showDialog(options = {}) {
             variant = null,
             onValidate = null,
             dismissOnBackdrop = true,
+            dismissOnEscape = true,
+            showClose = true,
             autoFocus = true,
+            onOpen = null,
+            onDismiss = null,
         } = options;
         const requestedTone = variant || (danger ? 'danger' : 'info');
         const tone = ['info', 'warning', 'danger', 'prompt'].includes(requestedTone) ? requestedTone : 'info';
@@ -145,12 +153,15 @@ export function showDialog(options = {}) {
         titleEl.textContent = title || (dialogIcon ? '' : ' ');
         header.appendChild(titleEl);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'cd-dialog-close';
-        closeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-        closeBtn.type = 'button';
-        closeBtn.setAttribute('aria-label', (window.ComfyDrawer?.t?.('common.close')) || 'Close');
-        header.appendChild(closeBtn);
+        let closeBtn = null;
+        if (showClose) {
+            closeBtn = document.createElement('button');
+            closeBtn.className = 'cd-dialog-close';
+            closeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+            closeBtn.type = 'button';
+            closeBtn.setAttribute('aria-label', (window.ComfyDrawer?.t?.('common.close')) || 'Close');
+            header.appendChild(closeBtn);
+        }
 
         dialog.appendChild(header);
 
@@ -214,7 +225,7 @@ export function showDialog(options = {}) {
             footer.appendChild(confirmBtn);
         }
 
-        dialog.appendChild(footer);
+        if (footer.childElementCount) dialog.appendChild(footer);
         backdrop.appendChild(dialog);
         document.body.appendChild(backdrop);
         activeDialogs.add(backdrop);
@@ -231,7 +242,7 @@ export function showDialog(options = {}) {
             // Only handle for the topmost dialog
             if (getTopmostDialog() !== backdrop) return;
 
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && dismissOnEscape) {
                 e.stopPropagation();
                 e.preventDefault();
                 e._escapeClaimed = true;
@@ -255,16 +266,28 @@ export function showDialog(options = {}) {
         });
 
         // ── Close button ──
-        closeBtn.addEventListener('click', () => dismiss(null));
+        closeBtn?.addEventListener('click', () => dismiss(null));
+
+        if (typeof onOpen === 'function') {
+            onOpen({
+                close: (value = null) => dismiss(value),
+                backdrop,
+                dialog,
+                body,
+            });
+        }
 
         // ── Animate in ──
         requestAnimationFrame(() => {
             backdrop.classList.add('visible');
             // Auto-focus first input (unless autoFocus is false — e.g. settings panel on mobile)
             const focusTarget = autoFocus
-                ? (body.querySelector('input, textarea, select') || confirmBtn || closeBtn)
-                : (confirmBtn || closeBtn);
-            focusTarget?.focus();
+                ? (body.querySelector('input, textarea, select') || confirmBtn || closeBtn || dialog)
+                : (confirmBtn || closeBtn || dialog);
+            focusTarget?.focus?.({ preventScroll: true });
+            if (focusTarget?.matches?.('[data-autoselect]')) {
+                focusTarget.select?.();
+            }
         });
 
         // ── History API — back button closes dialog, not drawer ──
@@ -292,6 +315,9 @@ export function showDialog(options = {}) {
         function dismiss(value, fromPopState = false) {
             if (dismissed) return;
             dismissed = true;
+            if (typeof onDismiss === 'function') {
+                onDismiss(value);
+            }
             abortCtrl.abort();
             backdrop.classList.remove('visible');
             activeDialogs.delete(backdrop);

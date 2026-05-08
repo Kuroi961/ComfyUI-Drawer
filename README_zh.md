@@ -168,8 +168,9 @@ https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
 - 搜索支持带引号的短语、空格分隔的 AND 条件，以及 `-word` / `-"quoted phrase"` 形式的 NOT 条件
 - 可用 `type:CLIPTextEncode[white hair -night]` 等语法搜索指定节点类型中的值。`[...]` 部分相当于只搜索该节点类型内部值的虚拟搜索框，并使用与主搜索框相同的短语 / AND / NOT 规则
 - 也可用 `title:My Prompt Node[school uniform]` 或 `title:"Prompt A"[blue sky]` 按节点标题限定搜索。标题部分匹配节点标题，`[...]` 部分搜索匹配标题的节点内部值
+- 当自定义节点注册 Drawer 索引 contributor 后，也可以搜索第三方自定义元数据。自定义字段使用 `namespace[value]` 或 `namespace:key[value]`，例如 `myPlugin:tags[black hair]`
 - 支持搜索范围、日期区间、文件大小过滤，并提供适合移动端的两行搜索工具栏
-- Gallery 搜索框中也可使用节点类型、用户词典和 Danbooru 词典自动补全
+- Gallery 搜索框中也可使用节点类型、用户词典、Danbooru 词典以及已注册的自定义元数据键自动补全
 - 新建文件夹、移动文件夹、删除文件夹
 
 ---
@@ -334,11 +335,13 @@ app.registerExtension({
 - 可通过 `window.ComfyDrawer` 使用 `GadgetBase`、`bus`、`bridge`、`settings`、`dict` 等服务
 - CSS 可通过 `<style>` 标签注入，推荐使用 `@layer gadget-<id>` 限定作用域
 - 唯一需要的外部 import 是 `app.js`，不需要依赖 Drawer 内部模块
+- Python 扩展可以注册 Gallery 元数据 provider、搜索索引 contributor、元数据面板 contributor 和词典 provider。这样既有的自定义元数据无需改成 Drawer 专用存储格式，也可以接入搜索、显示和自动补全
 
 完整 API 参考请参阅 [GADGET_API.md](GADGET_API.md)。
 
 | 文档 | 说明 |
 |------|------|
+| [docs/USER_GUIDE_zh.md](docs/USER_GUIDE_zh.md) | 比 README 更详细的中文用户指南 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 平台架构、模块职责、设计决策 |
 | [CONVENTIONS.md](CONVENTIONS.md) | 代码风格、CSS 作用域、命名约定 |
 | [GADGET_API.md](GADGET_API.md) | 小工具开发 API 参考 |

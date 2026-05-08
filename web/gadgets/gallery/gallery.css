@@ -408,15 +408,13 @@
     }
 
     .gadget-gallery .gg-scope-menu {
-        position: absolute;
-        bottom: calc(100% + 6px);
-        right: 0;
+        position: fixed;
         background: var(--cd-shell, #111016);
         border: 1px solid color-mix(in srgb, var(--gg-border) 78%, var(--gg-text-2));
         border-radius: var(--gg-r-m);
-        padding: 12px;
-        width: min(224px, calc(100vw - 56px));
-        max-height: min(78vh, 620px);
+        padding: 10px;
+        width: min(300px, calc(100vw - 16px));
+        max-height: calc(100dvh - 16px);
         overflow-y: auto;
         box-shadow: 0 12px 34px rgba(0, 0, 0, 0.68);
         z-index: 500;
@@ -424,8 +422,8 @@
     }
 
     .gadget-gallery .gg-filter-section + .gg-filter-section {
-        margin-top: 10px;
-        padding-top: 10px;
+        margin-top: 8px;
+        padding-top: 8px;
         border-top: 1px solid var(--gg-border);
     }
 
@@ -451,11 +449,15 @@
         display: none;
     }
 
+    .gadget-gallery .gg-scope-option[hidden] {
+        display: none;
+    }
+
     .gadget-gallery .gg-scope-option {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 7px 12px;
+        gap: 7px;
+        padding: 5px 8px;
         font-size: 12px;
         font-family: var(--gg-font);
         color: var(--gg-text-2);
@@ -465,14 +467,16 @@
         white-space: nowrap;
     }
 
-    .gadget-gallery .gg-scope-option::before {
-        content: '';
+    .gadget-gallery .gg-scope-option input {
+        position: relative;
+        appearance: none;
         width: 14px;
         height: 14px;
-        border-radius: 50%;
+        margin: 0;
+        border-radius: 4px;
         border: 2px solid var(--gg-text-3);
         flex-shrink: 0;
-        transition: border-color 0.12s, background 0.12s;
+        transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
     }
 
     .gadget-gallery .gg-scope-option:hover {
@@ -484,10 +488,43 @@
         color: var(--gg-text-1);
     }
 
-    .gadget-gallery .gg-scope-option.active::before {
+    .gadget-gallery .gg-scope-option.active input {
         border-color: var(--gg-accent);
         background: var(--gg-accent);
         box-shadow: inset 0 0 0 2px var(--cd-shell, #111016);
+    }
+
+    .gadget-gallery .gg-scope-option.active input::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        top: 1px;
+        width: 4px;
+        height: 7px;
+        border: solid var(--gg-text-1);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+    }
+
+    .gadget-gallery .gg-scope-option input:indeterminate {
+        border-color: var(--gg-accent);
+        background: linear-gradient(
+            to bottom,
+            transparent 0 38%,
+            var(--gg-accent) 38% 62%,
+            transparent 62% 100%
+        );
+    }
+
+    .gadget-gallery .gg-scope-group {
+        display: grid;
+        gap: 1px;
+    }
+
+    .gadget-gallery .gg-scope-children {
+        margin-left: 16px;
+        display: grid;
+        gap: 1px;
     }
 
     .gadget-gallery .gg-date-range label,
@@ -513,7 +550,8 @@
 
     .gadget-gallery .gg-date-range {
         display: grid;
-        gap: 9px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
     }
 
     .gadget-gallery .gg-date-range input {
@@ -533,7 +571,7 @@
     .gadget-gallery .gg-size-filter {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 10px;
+        gap: 8px;
     }
 
     .gadget-gallery .gg-size-filter input {
@@ -543,7 +581,7 @@
 
     .gadget-gallery .gg-filter-clear {
         flex: 0 0 auto;
-        height: 24px;
+        height: 22px;
         padding: 0 8px;
         border: 1px solid var(--gg-border);
         border-radius: var(--gg-r-s);
@@ -558,6 +596,12 @@
         background: var(--gg-bg-hover);
         border-color: var(--gg-text-3);
         color: var(--gg-text-1);
+    }
+
+    @media (max-width: 700px), (pointer: coarse) {
+        .gadget-gallery .gg-scope-menu {
+            width: min(280px, calc(100dvw - 32px));
+        }
     }
 
     /* ── Autoplay toggle button ── */
@@ -622,6 +666,23 @@
     .gadget-gallery .gg-card.selected {
         border-color: var(--gg-accent);
         box-shadow: 0 0 0 2px var(--gg-accent-glow);
+    }
+
+    .gadget-gallery .gg-load-more {
+        grid-column: 1 / -1;
+        min-height: 44px;
+        border: 1px solid var(--gg-border);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--cd-panel) 88%, #fff);
+        color: var(--gg-text);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .gadget-gallery .gg-load-more:disabled {
+        opacity: 0.65;
+        cursor: default;
     }
 
 
@@ -868,6 +929,28 @@
         overflow-x: hidden;
         padding: 12px;
         scroll-behavior: smooth;
+        position: relative;
+    }
+
+    .gadget-gallery.gg-initial-loading .gg-grid,
+    .gadget-gallery.gg-initial-loading .gg-breadcrumb,
+    .gadget-gallery.gg-initial-loading .gg-index-strip {
+        visibility: hidden;
+    }
+
+    .gadget-gallery.gg-initial-loading .gg-content {
+        display: block;
+    }
+
+    .gadget-gallery.gg-initial-loading .gg-status {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: var(--gg-bg);
     }
 
     /* ── Grid ── */
@@ -1044,6 +1127,10 @@
     }
 
     .gadget-gallery .gg-status.hidden {
+        display: none;
+    }
+
+    .gadget-gallery .gg-status:empty {
         display: none;
     }
 

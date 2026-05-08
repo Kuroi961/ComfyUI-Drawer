@@ -299,6 +299,7 @@ function createAction(row, def, settings) {
         </div>
     `;
 
+    const desc = row.querySelector('.cd-settings-desc');
     const btn = document.createElement('button');
     btn.className = 'cd-settings-action-btn';
     if (def.dangerous) btn.classList.add('cd-settings-action-danger');
@@ -308,6 +309,9 @@ function createAction(row, def, settings) {
             : {};
         btn.textContent = state.label || def.buttonLabel || _t('common.execute');
         btn.disabled = !!state.disabled;
+        if (desc && typeof state.description === 'string') {
+            desc.textContent = state.description;
+        }
     };
     applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
     const refreshEvents = Array.isArray(def.refreshEvents) ? def.refreshEvents : [];
@@ -316,10 +320,24 @@ function createAction(row, def, settings) {
             applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
         }))
         .filter(Boolean);
+    let refreshTimer = null;
+    if (Number(def.refreshInterval) > 0) {
+        refreshTimer = setInterval(() => {
+            applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
+        }, Number(def.refreshInterval));
+    }
     if (cleanups.length) {
         const observer = new MutationObserver(() => {
             if (document.body.contains(row)) return;
             for (const cleanup of cleanups) cleanup();
+            if (refreshTimer) clearInterval(refreshTimer);
+            observer.disconnect();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    } else if (refreshTimer) {
+        const observer = new MutationObserver(() => {
+            if (document.body.contains(row)) return;
+            clearInterval(refreshTimer);
             observer.disconnect();
         });
         observer.observe(document.body, { childList: true, subtree: true });

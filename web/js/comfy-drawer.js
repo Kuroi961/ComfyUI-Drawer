@@ -53,7 +53,7 @@ import { ContextMenuService } from "./services/context-menu.js";
 import { GadgetBase } from "./core/gadget-base.js";
 import { openLightbox, closeLightbox, isLightboxOpen, removeLightboxItem } from "./services/lightbox.js";
 import { createMediaCard, createMediaGrid } from "./components/media-card.js";
-import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, createNodeTypeLoader, attachDictAutocomplete } from "./services/dict-service.js";
+import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, createNodeTypeLoader, createThirdPartyDictLoader, attachDictAutocomplete } from "./services/dict-service.js";
 import { escapeHTML, truncate, getLinkedInputNames, CollapseStore, sanitizeComfyDrawerWorkflowExtra } from "./utils.js";
 import { showDialog, showAlert, showConfirm, showPrompt } from "./services/dialog.js";
 import { openImagePicker } from "./services/image-picker.js";
@@ -64,12 +64,13 @@ import { t, setLocale, getLocale, addMessages, initLocale } from "./services/loc
 import { DRAWER_VERSION } from "./version.js";
 import { enumerateLoadImageTargets } from "./utils/widget-targets.js";
 
-// ── Built-in Gadgets ──
-import { HomeGadget } from "../gadgets/home/home-gadget.js";
-import { DeckGadget } from "../gadgets/deck/deck-gadget.js";
-import { GalleryGadget } from "../gadgets/gallery/gallery-gadget.js";
-import { XYZPlotGadget } from "../gadgets/xyzplot/xyzplot-gadget.js";
-import { ModelViewerGadget } from "../gadgets/modelviewer/modelviewer-gadget.js";
+const BUILT_IN_ICONS = {
+    home: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+    xyzplot: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 10.5 15 9"/><path d="M4 4v15a1 1 0 0 0 1 1h15"/><path d="M4.293 19.707 6 18"/><path d="m9 15 1.5-1.5"/></svg>`,
+    deck: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z"/><path d="M21 11V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/></svg>`,
+    modelviewer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+    gallery: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></svg>`,
+};
 
 const DYNAMIC_INPUT_NODES = {
     DrawerConcat: {
@@ -225,21 +226,82 @@ app.registerExtension({
             console.warn('[ComfyDrawer] Failed to hook LGraph:', e);
         }
 
-        // ── Inject CSS ──
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = new URL('../css/drawer.css', import.meta.url).href;
-        document.head.appendChild(link);
+        const loadStylesheetOnce = (id, href) => new Promise((resolve) => {
+            const existing = document.getElementById(id);
+            if (existing) {
+                resolve();
+                return;
+            }
+            const link = document.createElement('link');
+            link.id = id;
+            link.rel = 'stylesheet';
+            link.href = href;
+            const done = () => resolve();
+            link.addEventListener('load', done, { once: true });
+            link.addEventListener('error', done, { once: true });
+            document.head.appendChild(link);
+            setTimeout(done, 1200);
+        });
 
-        const mcLink = document.createElement('link');
-        mcLink.rel = 'stylesheet';
-        mcLink.href = new URL('../css/media-card.css', import.meta.url).href;
-        document.head.appendChild(mcLink);
+        const createDrawerBootPlaceholder = () => {
+            const root = document.createElement('div');
+            root.id = 'comfy-drawer-boot';
+            root.style.cssText = [
+                'position:fixed',
+                'left:50%',
+                'bottom:14px',
+                'transform:translateX(-50%)',
+                'z-index:9999',
+                'display:flex',
+                'align-items:center',
+                'gap:10px',
+                'height:46px',
+                'padding:0 16px',
+                'border-radius:14px',
+                'border:1px solid rgba(255,255,255,0.10)',
+                'background:rgba(10,10,10,0.88)',
+                'color:rgba(255,255,255,0.72)',
+                'font:600 13px system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif',
+                'box-shadow:0 10px 30px rgba(0,0,0,0.35)',
+                'pointer-events:none',
+            ].join(';');
+            const dot = document.createElement('span');
+            dot.style.cssText = [
+                'width:12px',
+                'height:12px',
+                'border:2px solid currentColor',
+                'border-right-color:transparent',
+                'border-radius:50%',
+                'display:inline-block',
+                'animation:comfy-drawer-boot-spin 0.8s linear infinite',
+            ].join(';');
+            if (!document.getElementById('comfy-drawer-boot-style')) {
+                const style = document.createElement('style');
+                style.id = 'comfy-drawer-boot-style';
+                style.textContent = '@keyframes comfy-drawer-boot-spin{to{transform:rotate(360deg)}}';
+                document.head.appendChild(style);
+            }
+            const label = document.createElement('span');
+            label.textContent = 'Loading';
+            root.append(dot, label);
+            document.body.appendChild(root);
+            return root;
+        };
+
+        const bootPlaceholder = createDrawerBootPlaceholder();
+
+        const initializeDrawerPlatform = async () => {
+        // ── Inject CSS ──
+        await loadStylesheetOnce('comfy-drawer-css', new URL('../css/drawer.css', import.meta.url).href);
+        await loadStylesheetOnce('comfy-drawer-media-card-css', new URL('../css/media-card.css', import.meta.url).href);
+        await loadStylesheetOnce('comfy-drawer-dialog-css', new URL('../css/dialog.css', import.meta.url).href);
+        await loadStylesheetOnce('comfy-drawer-settings-css', new URL('../css/settings.css', import.meta.url).href);
 
         // ── Initialize platform components ──
         const bus = new MessageBus();
         const bridge = new ComfyBridge(app, api);
         const shell = new DrawerShell(bus, bridge);
+
         const homeWidgets = new Map();
         const contextMenu = new ContextMenuService();
         const settings = new SettingsService();
@@ -417,12 +479,6 @@ app.registerExtension({
         // ── Initialize i18n (must come before any t() call) ──
         await initLocale(bridge);
 
-        // ── Inject settings CSS ──
-        const settingsLink = document.createElement('link');
-        settingsLink.rel = 'stylesheet';
-        settingsLink.href = new URL('../css/settings.css', import.meta.url).href;
-        document.head.appendChild(settingsLink);
-
         // ── Initialize shared services ──
         const dict = new DictService(settings);
         dict.register('danbooru', {
@@ -455,6 +511,23 @@ app.registerExtension({
             priority: 6,
             defaultEnabled: true,
         });
+        let hasThirdPartyDictProviders = false;
+        try {
+            const resp = await fetch('/drawer/dict/third-party/status');
+            if (resp.ok) {
+                const payload = await resp.json();
+                hasThirdPartyDictProviders = Boolean(payload?.hasProviders);
+            }
+        } catch { /* optional third-party dictionary providers */ }
+        if (hasThirdPartyDictProviders) {
+            dict.register('thirdParty', {
+                label: t('dict.customMetadataKeys') || 'Custom metadata keys',
+                load: createThirdPartyDictLoader(),
+                context: 'search',
+                priority: 7,
+                defaultEnabled: true,
+            });
+        }
         dict.registerOnBus(bus);
 
         // ── Core metadata & workflow API ──
@@ -571,6 +644,18 @@ app.registerExtension({
             const prompt = meta.prompt && typeof meta.prompt === 'object' ? meta.prompt : null;
             const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
             const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
+            let thirdPartySections = [];
+            try {
+                const validRoots = ['output', 'temp', 'input'];
+                const root = validRoots.includes(source) ? source : 'output';
+                const r = await fetch(
+                    `/drawer/fs/meta-panels?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(name)}`
+                );
+                if (r.ok) {
+                    const payload = await r.json();
+                    thirdPartySections = Array.isArray(payload?.sections) ? payload.sections : [];
+                }
+            } catch { /* optional third-party display sections */ }
             const visibleTypesKey = 'comfy-drawer-meta-visible-types';
             const showLabelsKey = 'comfy-drawer-meta-show-labels';
             const getAllowedTypes = () => {
@@ -844,6 +929,22 @@ app.registerExtension({
                         renderTypeButtons();
                     }
 
+                    for (const contributed of thirdPartySections) {
+                        const section = document.createElement('section');
+                        section.className = 'cd-meta-section';
+                        const title = document.createElement('h3');
+                        title.textContent = contributed.title || 'Third-party Metadata';
+                        section.appendChild(title);
+                        const rows = Array.isArray(contributed.rows) ? contributed.rows : [];
+                        for (const row of rows) {
+                            addRow(section, row.label || '', row.value || '');
+                        }
+                        if (contributed.text) {
+                            addTextarea(section, contributed.text);
+                        }
+                        wrap.appendChild(section);
+                    }
+
                     const raw = document.createElement('details');
                     raw.className = 'cd-meta-section cd-meta-raw';
                     const rawSummary = document.createElement('summary');
@@ -1111,12 +1212,100 @@ app.registerExtension({
             action:  (c) => MaskService.open({ url: c.src, filename: c.name, bridge }),
         }]);
 
-        // ── Register built-in gadgets ──
-        shell.registerGadget(new HomeGadget());
-        shell.registerGadget(new XYZPlotGadget());
-        shell.registerGadget(new DeckGadget());
-        shell.registerGadget(new ModelViewerGadget());
-        shell.registerGadget(new GalleryGadget());
+        // ── Register built-in gadgets ─────────────────────────────────────────
+        // Tabs are cheap metadata. The actual gadget modules are imported only
+        // when opened, so ComfyUI panels are not competing with Drawer startup.
+        class LazyBuiltInGadget extends GadgetBase {
+            #spec;
+            #real = null;
+            #loading = null;
+
+            constructor(spec) {
+                super(spec.id, {
+                    label: spec.label,
+                    icon: spec.icon,
+                    order: spec.order,
+                    cssUrl: null,
+                });
+                this.#spec = spec;
+            }
+
+            onMount(container) {
+                container.innerHTML = `<div class="comfy-drawer-gadget-placeholder">${t('common.loading')}</div>`;
+            }
+
+            async #ensureLoaded() {
+                if (this.#real) return this.#real;
+                if (this.#loading) return this.#loading;
+                this.container?.classList.add('comfy-drawer-gadget-mounting');
+                this.#loading = (async () => {
+                    const mod = await import(this.#spec.path);
+                    const Gadget = mod[this.#spec.exportName];
+                    if (!Gadget) throw new Error(`Missing export ${this.#spec.exportName}`);
+                    const real = new Gadget();
+                    if (real.cssUrl) {
+                        await loadStylesheetOnce(`${real.id}-gadget-css`, real.cssUrl);
+                    }
+                    real.mount(this.container, this.bus, this.bridge);
+                    this.#real = real;
+                    this.container?.classList.remove('comfy-drawer-gadget-mounting');
+                    return real;
+                })().catch((e) => {
+                    this.container?.classList.remove('comfy-drawer-gadget-mounting');
+                    this.container.innerHTML = `<div class="comfy-drawer-gadget-placeholder">Failed to load</div>`;
+                    throw e;
+                });
+                return this.#loading;
+            }
+
+            onActivate() {
+                this.#ensureLoaded()
+                    .then(real => real.onActivate?.())
+                    .catch(e => console.error(`[ComfyDrawer] Failed to load ${this.#spec.exportName}:`, e));
+            }
+
+            onDeactivate() {
+                this.#real?.onDeactivate?.();
+            }
+
+            onGraphChanged() {
+                this.#real?.onGraphChanged?.();
+            }
+
+            onResize(height) {
+                this.#real?.onResize?.(height);
+            }
+
+            onDestroy() {
+                this.#real?.destroy?.();
+            }
+        }
+
+        const registerBuiltInGadgets = () => {
+            const specs = [
+                { id: 'home', label: 'Home', icon: BUILT_IN_ICONS.home, order: -10, path: '../gadgets/home/home-gadget.js', exportName: 'HomeGadget' },
+                { id: 'xyzplot', label: 'XYZ Plot', icon: BUILT_IN_ICONS.xyzplot, order: 1, path: '../gadgets/xyzplot/xyzplot-gadget.js', exportName: 'XYZPlotGadget' },
+                { id: 'deck', label: 'Deck', icon: BUILT_IN_ICONS.deck, order: 2, path: '../gadgets/deck/deck-gadget.js', exportName: 'DeckGadget' },
+                { id: 'gallery', label: 'Gallery', icon: BUILT_IN_ICONS.gallery, order: 3, path: '../gadgets/gallery/gallery-gadget.js', exportName: 'GalleryGadget' },
+                { id: 'modelviewer', label: 'Models', icon: BUILT_IN_ICONS.modelviewer, order: 4, path: '../gadgets/modelviewer/modelviewer-gadget.js', exportName: 'ModelViewerGadget' },
+            ];
+            for (const spec of specs) {
+                try {
+                    shell.registerGadget(new LazyBuiltInGadget(spec), { lazyMount: true });
+                } catch (e) {
+                    console.error(`[ComfyDrawer] Failed to load ${spec.exportName}:`, e);
+                }
+            }
+            bootPlaceholder?.remove();
+        };
+        const scheduleBuiltInGadgets = () => {
+            if ('requestIdleCallback' in window) {
+                window.requestIdleCallback(() => registerBuiltInGadgets(), { timeout: 3000 });
+            } else {
+                setTimeout(registerBuiltInGadgets, 2000);
+            }
+        };
+        setTimeout(scheduleBuiltInGadgets, 1000);
 
         const formatBytes = (bytes) => {
             const n = Number(bytes) || 0;
@@ -1247,7 +1436,10 @@ app.registerExtension({
                 const ok = await showConfirm(t('home.serverRestartConfirm'));
                 if (!ok) return;
                 try {
-                    await fetch('/drawer/reboot', { method: 'POST' });
+                    await fetch('/drawer/reboot', {
+                        method: 'POST',
+                        headers: { 'X-Comfy-Drawer-Action': 'reboot' },
+                    });
                 } catch {
                     // os.execv closes the HTTP connection; treat that as restart in progress.
                 }
@@ -1265,10 +1457,16 @@ app.registerExtension({
             },
         });
 
-        // ── Relay ComfyUI 'executed' event to bus ──
-        // Allows any gadget to react to generation completions via bus.
-        bridge.onApiEvent('executed', () => {
-            bus.emit('comfy:executed');
+        // ── Relay ComfyUI generation events to bus ──
+        // 'executed' fires per node; 'execution_success' fires once per successful queue item.
+        bridge.onApiEvent('executed', (event) => {
+            bus.emit('comfy:executed', event?.detail ?? event);
+        });
+        bridge.onApiEvent('execution_success', (event) => {
+            bus.emit('comfy:execution-success', event?.detail ?? event);
+        });
+        bridge.onApiEvent('execution_error', (event) => {
+            bus.emit('comfy:execution-error', event?.detail ?? event);
         });
 
         // ── Register utility settings ──
@@ -1314,22 +1512,158 @@ app.registerExtension({
             if (hours <= 0) return `${mins}m ${secs}s`;
             return `${hours}h ${remMins}m`;
         };
+        const formatIndexProgress = (status) => {
+            const indexed = Number(status?.indexed || 0);
+            const total = Number(status?.total || 0);
+            if (!total) return status?.progress || status?.syncProgress || '';
+            const percent = Number.isFinite(Number(status?.percent))
+                ? ` (${Number(status.percent).toFixed(Number(status.percent) % 1 ? 1 : 0)}%)`
+                : '';
+            return `${indexed.toLocaleString()} / ${total.toLocaleString()}${percent}`;
+        };
+        const describeSearchIndexStatus = (status) => {
+            const state = status?.state || (status?.building ? 'building' : status?.paused ? 'paused' : status?.ready ? 'ready' : 'missing');
+            if (status?.building) {
+                const progress = formatIndexProgress(status);
+                return progress
+                    ? t('settings.searchIndexStatusBuilding', { progress })
+                    : t('settings.searchIndexStatusPreparing');
+            }
+            if (status?.paused) {
+                const progress = formatIndexProgress(status);
+                return progress
+                    ? t('settings.searchIndexStatusPaused', { progress })
+                    : t('settings.searchIndexStatusPausedSimple');
+            }
+            if (status?.ready) {
+                if (status?.syncing) {
+                    const progress = status.syncProgress || '';
+                    return progress
+                        ? t('settings.searchIndexStatusChecking', { progress })
+                        : t('settings.searchIndexStatusCheckingSimple');
+                }
+                return status?.autoSyncEnabled
+                    ? t('settings.searchIndexStatusIdle')
+                    : t('settings.searchIndexStatusReady');
+            }
+            if (state === 'cleared') return t('settings.searchIndexStatusCleared');
+            return t('settings.searchIndexStatusMissing');
+        };
+        const SEARCH_INDEX_CREATE_CANCELLED = Symbol('searchIndexCreateCancelled');
+        const showSearchIndexEstimatingDialog = (onCancel) => {
+            let closeDialog = null;
+            const promise = showDialog({
+                title: t('settings.searchIndex'),
+                message: t('settings.searchIndexEstimating'),
+                variant: 'info',
+                showCancel: true,
+                confirmLabel: '',
+                cancelLabel: t('common.cancel'),
+                showClose: true,
+                dismissOnBackdrop: false,
+                autoFocus: false,
+                content: (body) => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'cd-index-estimating';
+                    const spinner = document.createElement('span');
+                    spinner.className = 'cd-index-estimating-spinner';
+                    spinner.setAttribute('aria-hidden', 'true');
+                    wrap.appendChild(spinner);
+                    body.appendChild(wrap);
+                },
+                onOpen: ({ close }) => {
+                    closeDialog = close;
+                },
+                onDismiss: (value) => {
+                    if (value === null) onCancel?.();
+                },
+            });
+            return {
+                close: () => {
+                    closeDialog?.('done');
+                },
+                promise,
+            };
+        };
         const getSearchIndexCreateConfirmMessage = async () => {
+            const ctrl = new AbortController();
+            let cancelled = false;
+            const measuring = showSearchIndexEstimatingDialog(() => {
+                cancelled = true;
+                ctrl.abort();
+            });
             try {
-                const resp = await fetch('/drawer/fs/index-estimate');
+                const resp = await fetch('/drawer/fs/index-estimate', { signal: ctrl.signal });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const estimate = await resp.json();
+                measuring.close();
+                await measuring.promise;
+                if (cancelled) return SEARCH_INDEX_CREATE_CANCELLED;
                 if (!estimate.requiresConfirm) return null;
                 return t('settings.createSearchIndexConfirmWithEstimate', {
                     count: Number(estimate.total || 0).toLocaleString(),
                     time: formatDuration(estimate.estimatedSeconds || 0),
                 });
-            } catch {
+            } catch (e) {
+                measuring.close();
+                await measuring.promise;
+                if (cancelled || e?.name === 'AbortError') return SEARCH_INDEX_CREATE_CANCELLED;
                 return t('settings.createSearchIndexConfirm');
             }
         };
-
+        const createSearchIndex = async () => {
+            const message = await getSearchIndexCreateConfirmMessage();
+            if (message === SEARCH_INDEX_CREATE_CANCELLED) return null;
+            if (message) {
+                const ok = await showConfirm(message, { variant: 'warning' });
+                if (!ok) return null;
+            }
+            const resp = await fetch('/drawer/fs/index-start', { method: 'POST' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            bus.emit('drawer:index-build-started', data);
+            return data;
+        };
+        drawerAPI.createSearchIndex = createSearchIndex;
         // 2. Clear Drawer cache action
+        const getClearCacheTargets = async () => showDialog({
+            title: t('settings.clearCache'),
+            message: t('settings.clearCacheConfirm'),
+            variant: 'danger',
+            danger: true,
+            confirmLabel: t('settings.clear'),
+            content: (body) => {
+                const wrap = document.createElement('div');
+                wrap.className = 'cd-cache-clear-options';
+                const options = [
+                    ['thumbnails', t('settings.clearCacheThumbnails')],
+                    ['index', t('settings.clearCacheIndex')],
+                ];
+                const inputs = {};
+                for (const [key, labelText] of options) {
+                    const label = document.createElement('label');
+                    label.className = 'cd-cache-clear-option';
+                    const input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.checked = true;
+                    inputs[key] = input;
+                    const span = document.createElement('span');
+                    span.textContent = labelText;
+                    label.append(input, span);
+                    wrap.appendChild(label);
+                }
+                body.appendChild(wrap);
+                return () => ({
+                    thumbnails: inputs.thumbnails.checked,
+                    index: inputs.index.checked,
+                });
+            },
+            onValidate: (data) => (
+                data?.thumbnails || data?.index
+                    ? null
+                    : t('settings.clearCacheSelectOne')
+            ),
+        });
         settings.define('util.clearCache', {
             type: 'action',
             label: t('settings.clearCache'),
@@ -1340,9 +1674,13 @@ app.registerExtension({
             dangerous: true,
             order: 90,
             action: async () => {
-                const ok = await showConfirm(t('settings.clearCacheConfirm'), { variant: 'danger', danger: true });
-                if (!ok) return;
-                const resp = await fetch('/drawer/clear-cache', { method: 'POST' });
+                const targets = await getClearCacheTargets();
+                if (!targets) return;
+                const resp = await fetch('/drawer/clear-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(targets),
+                });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const mb = (data.freedBytes / 1024 / 1024).toFixed(1);
@@ -1353,33 +1691,74 @@ app.registerExtension({
 
         settings.define('util.createSearchIndex', {
             type: 'action',
-            label: t('settings.createSearchIndex'),
-            description: t('settings.createSearchIndexDesc'),
+            label: t('settings.searchIndex'),
+            description: t('settings.searchIndexDesc'),
             section: t('settings.utility'),
             sectionOrder: 0,
             buttonLabel: t('settings.create'),
             order: 80,
-            refreshEvents: ['drawer:cache-cleared', 'drawer:index-build-started'],
+            refreshEvents: ['drawer:cache-cleared', 'drawer:index-build-started', 'drawer:index-sync-started', 'drawer:index-auto-sync-changed'],
+            refreshInterval: 3000,
             getButtonState: async () => {
                 const resp = await fetch('/drawer/fs/index-status');
-                if (!resp.ok) return { label: t('settings.create'), disabled: true };
+                if (!resp.ok) return { label: t('settings.create'), disabled: true, description: t('settings.searchIndexStatusUnavailable') };
                 const status = await resp.json();
-                if (status.ready && status.state !== 'missing' && status.state !== 'cleared') return { label: t('settings.created'), disabled: true };
-                if (status.building) return { label: t('settings.creating'), disabled: true };
-                return { label: t('settings.create'), disabled: false };
+                const description = describeSearchIndexStatus(status);
+                if (status.ready && status.syncing) return { label: t('settings.checking'), disabled: true, description };
+                if (status.ready && status.state !== 'missing' && status.state !== 'cleared') return { label: t('settings.syncNow'), disabled: false, description };
+                if (status.building) return { label: t('settings.creating'), disabled: true, description };
+                if (status.paused) return { label: t('settings.creating'), disabled: true, description };
+                return { label: t('settings.create'), disabled: false, description };
             },
             action: async () => {
-                const message = await getSearchIndexCreateConfirmMessage();
-                if (message) {
-                    const ok = await showConfirm(message, { variant: 'warning' });
-                    if (!ok) return;
+                const statusResp = await fetch('/drawer/fs/index-status');
+                if (!statusResp.ok) throw new Error(`HTTP ${statusResp.status}`);
+                const status = await statusResp.json();
+                if (status.ready && !status.building && !status.paused && !status.syncing) {
+                    const resp = await fetch('/drawer/fs/index-sync', { method: 'POST' });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    bus.emit('drawer:index-sync-started', data);
+                    showAlert(data.started ? t('settings.searchIndexSyncStarted') : t('settings.searchIndexSyncSkipped'));
+                    return;
                 }
-                const resp = await fetch('/drawer/fs/index-start', { method: 'POST' });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
-                bus.emit('drawer:index-build-started', data);
-                showAlert(t('settings.searchIndexStarted'));
+                await createSearchIndex();
             },
+        });
+
+        const AUTO_SYNC_KEY = 'util.searchIndex.autoSync';
+        let syncingAutoSyncSetting = false;
+        settings.define(AUTO_SYNC_KEY, {
+            type: 'toggle',
+            label: t('settings.searchIndexAutoSync'),
+            description: t('settings.searchIndexAutoSyncDesc'),
+            section: t('settings.utility'),
+            sectionOrder: 0,
+            defaultValue: false,
+            order: 81,
+        });
+        fetch('/drawer/fs/index-status')
+            .then(r => r.ok ? r.json() : null)
+            .then(status => {
+                if (status && typeof status.autoSyncEnabled === 'boolean') {
+                    syncingAutoSyncSetting = true;
+                    settings.set(AUTO_SYNC_KEY, status.autoSyncEnabled);
+                    syncingAutoSyncSetting = false;
+                }
+            })
+            .catch(() => { syncingAutoSyncSetting = false; });
+        settings.onChange(AUTO_SYNC_KEY, (_key, enabled) => {
+            if (syncingAutoSyncSetting) return;
+            fetch('/drawer/fs/index-auto-sync', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: !!enabled }),
+            })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data) bus.emit('drawer:index-auto-sync-changed', data);
+                })
+                .catch(() => {});
         });
 
         // 3. Theme color constants (declared early — referenced by preset onSelect)
@@ -1509,6 +1888,21 @@ app.registerExtension({
             }
         });
         dialogObserver.observe(document.body, { childList: true, subtree: true });
+        };
+
+        const scheduleDrawerPlatform = () => {
+            const start = () => {
+                initializeDrawerPlatform().catch((e) => {
+                    console.error('[ComfyDrawer] Failed to initialize platform:', e);
+                });
+            };
+            if ('requestIdleCallback' in window) {
+                window.requestIdleCallback(start, { timeout: 5000 });
+            } else {
+                setTimeout(start, 2500);
+            }
+        };
+        setTimeout(scheduleDrawerPlatform, 2500);
 
     },
 });

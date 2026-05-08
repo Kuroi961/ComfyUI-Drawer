@@ -21,6 +21,29 @@ const VIDEO_ICON_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden
 const X_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 const DEBUG_INDEX_STATUS_KEY = 'gallery-debug-index-status';
 const INDEX_NOTICE_DISMISSED_KEY = 'gallery-index-notice-dismissed';
+const SEARCH_SCOPES_KEY = 'gallery-search-scopes';
+const SEARCH_SCOPE_VALUES = ['name', 'prompt_title', 'prompt_value', 'workflow_title', 'workflow_value', 'custom'];
+const DEFAULT_SEARCH_SCOPES = ['name', 'prompt_value', 'workflow_value', 'custom'];
+const INDEX_SEARCH_SCOPES = ['prompt_title', 'prompt_value', 'workflow_title', 'workflow_value', 'custom'];
+const SEARCH_PAGE_SIZE = window.matchMedia?.('(max-width: 700px), (pointer: coarse)')?.matches ? 60 : 160;
+const BROWSE_PAGE_SIZE = SEARCH_PAGE_SIZE;
+const THUMB_WARM_BATCH_SIZE = window.matchMedia?.('(max-width: 700px), (pointer: coarse)')?.matches ? 3 : 5;
+
+function loadSearchScopes() {
+    const raw = localStorage.getItem(SEARCH_SCOPES_KEY);
+    const scopes = (raw || DEFAULT_SEARCH_SCOPES.join(','))
+        .split(',')
+        .map(s => s.trim())
+        .map(s => {
+            if (s === 'prompt') return 'prompt_title';
+            if (s === 'value' || s === 'workflow') return 'prompt_value';
+            if (s === 'metadata') return 'custom';
+            return s;
+        })
+        .filter(s => SEARCH_SCOPE_VALUES.includes(s));
+    if (raw === 'name,prompt_value' || raw === 'name,prompt_value,workflow_value') return [...DEFAULT_SEARCH_SCOPES];
+    return scopes.length ? scopes : [...DEFAULT_SEARCH_SCOPES];
+}
 
 function isEditableTarget(target) {
     if (!target || target.nodeType !== 1) return false;
@@ -46,12 +69,20 @@ export class GalleryGadget extends GadgetBase {
         moveSrcPath: '',       // Phase 3: original path before move browse
         moveSrcRoot: '',       // Phase 3: original root before move browse
         autoplay: localStorage.getItem('gallery-autoplay') === 'true',
-        searchScope: '',
+        searchScopes: loadSearchScopes(),
         dateFrom: '',
         dateTo: '',
         minSizeMB: '',
         maxSizeMB: '',
         indexStatus: null,
+        hasCustomMetadata: false,
+        searchHasMore: false,
+        searchOffset: 0,
+        searchLoadingMore: false,
+        browseHasMore: false,
+        browseOffset: 0,
+        browseLoadingMore: false,
+        browseVisibleCount: BROWSE_PAGE_SIZE,
     };
 
     /* ── DOM refs (set in onMount) ── */
@@ -71,6 +102,14 @@ export class GalleryGadget extends GadgetBase {
     #indexUiTimer = null;
     #indexEtaText = '';
     #indexEtaTextUpdatedAt = 0;
+    #requestSeq = 0;
+    #initialized = false;
+    #generatedFiles = new Map();
+    #generationRefreshTimer = null;
+    #thumbWarmTimer = null;
+    #thumbWarmToken = 0;
+    #initialBrowseTimer = null;
+    #initialLoadComplete = false;
 
     constructor() {
         super('gallery', {
@@ -85,6 +124,7 @@ export class GalleryGadget extends GadgetBase {
 
     onMount(container, bus, bridge) {
         this.#buildDOM();
+        this.#setInitialLoading(true);
         this.#bindEvents();
 
         // Attach dictionary autocomplete to search input (space-separated for search)
@@ -94,25 +134,30 @@ export class GalleryGadget extends GadgetBase {
         this.#contextMenu = window.ComfyDrawer?.contextMenu ?? null;
         this.#registerContextActions();
 
-        this.#browse('');
-        this.#refreshIndexStatus();
         this.#attachSwipe();
 
-        // Auto-refresh when a generation completes (debounced — executed fires per node)
-        let execTimer = null;
-        this.addDisposable(bus.on('comfy:executed', () => {
-            // Force stale so next activation refreshes
-            this.#lastFetchTime = 0;
-            // Debounce: only refresh after 2s of silence (avoids N refreshes for N nodes)
-            clearTimeout(execTimer);
-            execTimer = setTimeout(() => {
-                if (this.container?.style.display !== 'none' && this.#state.mode === 'browse') {
-                    this.#browse(this.#state.path);
-                }
-            }, 2000);
+        // Track generated outputs per node, then update Gallery once the queue item succeeds.
+        this.addDisposable(bus.on('comfy:executed', (detail) => {
+            for (const file of this.#extractGeneratedFiles(detail)) {
+                const key = `${file.root}\n${file.subfolder}\n${file.name}`;
+                this.#generatedFiles.set(key, file);
+            }
         }));
-        this.addDisposable(() => clearTimeout(execTimer));
-        this.addDisposable(bus.on('drawer:cache-cleared', () => {
+        this.addDisposable(bus.on('comfy:execution-success', () => {
+            this.#scheduleGeneratedFilesUpdate();
+        }));
+        this.addDisposable(bus.on('comfy:execution-error', () => {
+            this.#generatedFiles.clear();
+        }));
+        this.addDisposable(() => {
+            clearTimeout(this.#generationRefreshTimer);
+            this.#generationRefreshTimer = null;
+            clearTimeout(this.#initialBrowseTimer);
+            this.#initialBrowseTimer = null;
+            this.#cancelThumbWarm();
+        });
+        this.addDisposable(bus.on('drawer:cache-cleared', (data) => {
+            if (!data?.indexCleared) return;
             localStorage.removeItem(INDEX_NOTICE_DISMISSED_KEY);
             this.#state.indexStatus = { state: 'cleared', ready: false, building: false, cleared: true };
             this.#renderIndexStatus(this.#state.indexStatus);
@@ -126,6 +171,12 @@ export class GalleryGadget extends GadgetBase {
     }
 
     onActivate() {
+        if (!this.#initialized) {
+            this.#initialized = true;
+            this.#setInitialLoading(true);
+            this.#browse('');
+            return;
+        }
         // Refresh on tab switch — but only if data is stale (>5s since last fetch)
         const STALE_MS = 5000;
         if (this.#state.mode === 'browse' && (Date.now() - this.#lastFetchTime > STALE_MS)) {
@@ -133,7 +184,13 @@ export class GalleryGadget extends GadgetBase {
         }
     }
 
+    onDeactivate() {
+        if (this.#el.scopeMenu) this.#el.scopeMenu.hidden = true;
+        this.#el.scopeTrigger?.classList.remove('active');
+    }
+
     onGraphChanged() {
+        if (!this.#initialized) return;
         // Always re-fetch on explicit reload / graph switch (no staleness check)
         if (this.#state.mode === 'browse') {
             this.#browse(this.#state.path);
@@ -153,6 +210,8 @@ export class GalleryGadget extends GadgetBase {
             this.#indexPollTimer = null;
         }
         this.#stopIndexUiTicker();
+        clearTimeout(this.#initialBrowseTimer);
+        this.#initialBrowseTimer = null;
         for (const fn of this.#gridCleanups) fn();
         this.#gridCleanups = [];
         this.#swipeDetach?.();
@@ -172,7 +231,7 @@ export class GalleryGadget extends GadgetBase {
                         </svg>
                     </button>
                     <div class="gg-search-box">
-                        <input type="search" class="gg-search-input" placeholder="${_t('gallery.search')}" enterkeyhint="search" autocomplete="off" spellcheck="false"/>
+                        <input type="search" class="gg-search-input" placeholder="${_t('gallery.search')}" title="${_t('gallery.searchHelp')}" enterkeyhint="search" autocomplete="off" spellcheck="false"/>
                         <span class="gg-result-count"></span>
                         <button class="gg-clear-btn" hidden>${X_ICON_SVG}</button>
                         <button class="gg-search-submit" title="${_t('gallery.search')}">
@@ -213,10 +272,46 @@ export class GalleryGadget extends GadgetBase {
                                         <div class="gg-filter-heading">${_t('gallery.searchScope')}</div>
                                         <button class="gg-filter-clear" type="button">${_t('common.clear')}</button>
                                     </div>
-                                    <label class="gg-scope-option active" data-value="">${_t('gallery.scopeAll')}</label>
-                                    <label class="gg-scope-option" data-value="name">${_t('gallery.scopeFilename')}</label>
-                                    <label class="gg-scope-option" data-value="prompt">${_t('gallery.scopePrompt')}</label>
-                                    <label class="gg-scope-option" data-value="workflow">${_t('gallery.scopeWorkflow')}</label>
+                                    <label class="gg-scope-option" data-value="name">
+                                        <input type="checkbox" value="name" />
+                                        <span>${_t('gallery.scopeFilename')}</span>
+                                    </label>
+                                    <div class="gg-scope-group">
+                                        <label class="gg-scope-option gg-scope-parent" data-group="prompt">
+                                            <input type="checkbox" value="prompt" />
+                                            <span>${_t('gallery.scopePrompt')}</span>
+                                        </label>
+                                        <div class="gg-scope-children">
+                                            <label class="gg-scope-option" data-value="prompt_title">
+                                                <input type="checkbox" value="prompt_title" />
+                                                <span>${_t('gallery.scopeTitle')}</span>
+                                            </label>
+                                            <label class="gg-scope-option" data-value="prompt_value">
+                                                <input type="checkbox" value="prompt_value" />
+                                                <span>${_t('gallery.scopeValue')}</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="gg-scope-group">
+                                        <label class="gg-scope-option gg-scope-parent" data-group="workflow">
+                                            <input type="checkbox" value="workflow" />
+                                            <span>${_t('gallery.scopeWorkflow')}</span>
+                                        </label>
+                                        <div class="gg-scope-children">
+                                            <label class="gg-scope-option" data-value="workflow_title">
+                                                <input type="checkbox" value="workflow_title" />
+                                                <span>${_t('gallery.scopeTitle')}</span>
+                                            </label>
+                                            <label class="gg-scope-option" data-value="workflow_value">
+                                                <input type="checkbox" value="workflow_value" />
+                                                <span>${_t('gallery.scopeValue')}</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <label class="gg-scope-option gg-scope-custom" data-value="custom" hidden>
+                                        <input type="checkbox" value="custom" />
+                                        <span>${_t('gallery.scopeCustomMetadata')}</span>
+                                    </label>
                                 </div>
                                 <div class="gg-filter-section">
                                     <div class="gg-filter-heading">${_t('gallery.filterDate')}</div>
@@ -279,7 +374,7 @@ export class GalleryGadget extends GadgetBase {
 
             <div class="gg-content">
                 <div class="gg-grid"></div>
-                <div class="gg-status"></div>
+                <div class="gg-status hidden"></div>
             </div>
         `;
 
@@ -332,6 +427,7 @@ export class GalleryGadget extends GadgetBase {
         this.#el.sortSelect.value = this.#state.sort;
         this.#el.searchSortSelect.value = this.#state.sort;
         if (this.#state.autoplay) this.#el.autoplayToggle.classList.add('active');
+        this.#syncSearchScopeChecks();
     }
 
     /* ═══ Event Binding ═══ */
@@ -344,15 +440,15 @@ export class GalleryGadget extends GadgetBase {
             this.#state.sort = el.sortSelect.value;
             el.searchSortSelect.value = this.#state.sort;
             localStorage.setItem('gallery-sort', this.#state.sort);
-            this.#sortFiles();
-            this.#renderGrid();
+            if (this.#state.mode === 'search' && this.#state.query) this.#search(this.#state.query);
+            else this.#browse(this.#state.path);
         });
         el.searchSortSelect.addEventListener('change', () => {
             this.#state.sort = el.searchSortSelect.value;
             el.sortSelect.value = this.#state.sort;
             localStorage.setItem('gallery-sort', this.#state.sort);
-            this.#sortFiles();
-            this.#renderGrid();
+            if (this.#state.mode === 'search' && this.#state.query) this.#search(this.#state.query);
+            else this.#browse(this.#state.path);
         });
 
         // Search — explicit Enter key / search button trigger
@@ -383,7 +479,7 @@ export class GalleryGadget extends GadgetBase {
                 el.clearBtn.hidden = true;
                 el.resultCount.textContent = '';
                 this.#renderSearchSummary('');
-                this.#closeSearch();
+                this.#closeSearch({ cancel: true });
                 this.#browse(this.#state.path);
             }
         });
@@ -410,7 +506,7 @@ export class GalleryGadget extends GadgetBase {
             el.clearBtn.hidden = true;
             el.resultCount.textContent = '';
             this.#renderSearchSummary('');
-            this.#closeSearch();
+            this.#closeSearch({ cancel: true });
             if (this.#state.mode === 'search') this.#browse(this.#state.path);
         });
 
@@ -420,15 +516,28 @@ export class GalleryGadget extends GadgetBase {
             const isOpen = !el.scopeMenu.hidden;
             el.scopeMenu.hidden = isOpen;
             el.scopeTrigger.classList.toggle('active', !isOpen);
+            if (!isOpen) {
+                el.scopeMenu.scrollTop = 0;
+                requestAnimationFrame(() => this.#positionScopeMenu());
+            }
         });
         el.scopeMenu.addEventListener('click', (e) => {
             e.stopPropagation();
             const option = e.target.closest('.gg-scope-option');
             if (!option) return;
-            el.scopeMenu.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
-            option.classList.add('active');
-            this.#state.searchScope = option.dataset.value;
-            // Highlight funnel when non-default scope is selected
+            e.preventDefault();
+            const set = new Set(this.#state.searchScopes || []);
+            const values = this.#scopeOptionValues(option);
+            const allSelected = values.every(value => set.has(value));
+            if (allSelected) {
+                values.forEach(value => set.delete(value));
+            } else {
+                values.forEach(value => set.add(value));
+            }
+            this.#state.searchScopes = SEARCH_SCOPE_VALUES.filter(v => set.has(v));
+            if (!this.#state.searchScopes.length) this.#state.searchScopes = ['name'];
+            localStorage.setItem(SEARCH_SCOPES_KEY, this.#state.searchScopes.join(','));
+            this.#syncSearchScopeChecks();
             this.#syncFilterState();
             const q = el.searchInput.value.trim();
             if (this.#state.mode === 'search' && q.length >= 2) {
@@ -436,6 +545,11 @@ export class GalleryGadget extends GadgetBase {
             }
         });
         el.scopeMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+        const onResize = () => {
+            if (!el.scopeMenu.hidden) this.#positionScopeMenu();
+        };
+        window.addEventListener('resize', onResize);
+        this.addDisposable(() => window.removeEventListener('resize', onResize));
         const applyClientFilters = () => {
             this.#state.dateFrom = el.dateFrom.value;
             this.#state.dateTo = el.dateTo.value;
@@ -449,13 +563,13 @@ export class GalleryGadget extends GadgetBase {
         el.minSize.addEventListener('input', this.#debounce(applyClientFilters, 250));
         el.maxSize.addEventListener('input', this.#debounce(applyClientFilters, 250));
         el.filterClear.addEventListener('click', () => {
-            el.scopeMenu.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
-            el.scopeMenu.querySelector('.gg-scope-option[data-value=""]')?.classList.add('active');
             el.dateFrom.value = '';
             el.dateTo.value = '';
             el.minSize.value = '';
             el.maxSize.value = '';
-            this.#state.searchScope = '';
+            this.#state.searchScopes = [...DEFAULT_SEARCH_SCOPES];
+            localStorage.setItem(SEARCH_SCOPES_KEY, this.#state.searchScopes.join(','));
+            this.#syncSearchScopeChecks();
             applyClientFilters();
             const q = el.searchInput.value.trim();
             if (this.#state.mode === 'search' && q.length >= 2) {
@@ -504,7 +618,8 @@ export class GalleryGadget extends GadgetBase {
         this.#el.searchInput.focus();
     }
 
-    #closeSearch() {
+    #closeSearch({ cancel = false } = {}) {
+        if (cancel) this.#cancelInFlight();
         this.#el.toolbarBrowse.classList.remove('search-open');
         this.#el.breadcrumb.classList.remove('search-open');
         this.#renderSearchSummary('');
@@ -543,6 +658,7 @@ export class GalleryGadget extends GadgetBase {
                 percent: 4.2,
             };
         }
+        this.#state.hasCustomMetadata = Boolean(status?.hasCustomMetadata);
         if (this.#state.root === 'temp' || !status || status.ready) {
             this.#syncIndexDependentControls(true);
             for (const el of els) {
@@ -564,7 +680,7 @@ export class GalleryGadget extends GadgetBase {
         }
         const state = status.state || (status.building ? 'building' : status.paused ? 'paused' : status.cleared ? 'cleared' : 'missing');
         this.#syncIndexDependentControls(false);
-        if (['missing', 'cleared'].includes(state) && localStorage.getItem(INDEX_NOTICE_DISMISSED_KEY) === '1') {
+        if (['missing', 'cleared', 'idle'].includes(state) && localStorage.getItem(INDEX_NOTICE_DISMISSED_KEY) === '1') {
             if (strip) {
                 strip.hidden = true;
                 strip.replaceChildren();
@@ -573,7 +689,7 @@ export class GalleryGadget extends GadgetBase {
             this.#setSearchReady(true);
             return;
         }
-        const needsBuild = ['missing', 'cleared'].includes(state);
+        const needsBuild = ['missing', 'cleared', 'idle'].includes(state);
         const percent = Number.isFinite(Number(status.percent)) ? Math.max(0, Math.min(100, Number(status.percent))) : 0;
         const indexed = Number(status.indexed || 0).toLocaleString();
         const total = Number(status.total || 0).toLocaleString();
@@ -608,12 +724,6 @@ export class GalleryGadget extends GadgetBase {
             } else {
                 count.textContent = label;
             }
-            const track = document.createElement('span');
-            track.className = 'gg-index-progress';
-            const fill = document.createElement('span');
-            fill.className = 'gg-index-progress-fill';
-            fill.style.width = `${percent}%`;
-            track.appendChild(fill);
             const action = document.createElement('button');
             action.className = 'gg-index-action';
             action.type = 'button';
@@ -644,6 +754,12 @@ export class GalleryGadget extends GadgetBase {
                 actions.append(action, dismiss);
                 strip.replaceChildren(count, actions);
             } else {
+                const track = document.createElement('span');
+                track.className = 'gg-index-progress';
+                const fill = document.createElement('span');
+                fill.className = 'gg-index-progress-fill';
+                fill.style.width = `${percent}%`;
+                track.appendChild(fill);
                 strip.replaceChildren(count, track, action);
             }
         }
@@ -736,12 +852,95 @@ export class GalleryGadget extends GadgetBase {
         if (this.#el.scopeSection) {
             this.#el.scopeSection.hidden = !indexReady;
         }
-        if (!indexReady && ['prompt', 'workflow'].includes(this.#state.searchScope || '')) {
-            this.#state.searchScope = '';
-            this.#el.scopeMenu?.querySelectorAll('.gg-scope-option').forEach(o => o.classList.remove('active'));
-            this.#el.scopeMenu?.querySelector('.gg-scope-option[data-value=""]')?.classList.add('active');
-            this.#syncFilterState();
+        this.#syncSearchScopeChecks();
+        this.#syncFilterState();
+    }
+
+    #syncSearchScopeChecks() {
+        const customOption = this.#el.scopeMenu?.querySelector('.gg-scope-custom');
+        if (customOption) {
+            customOption.hidden = !this.#state.hasCustomMetadata;
         }
+        if (!this.#state.hasCustomMetadata && this.#state.searchScopes?.includes('custom')) {
+            this.#state.searchScopes = this.#state.searchScopes.filter(scope => scope !== 'custom');
+        }
+        const selected = new Set(this.#state.searchScopes || []);
+        this.#el.scopeMenu?.querySelectorAll('.gg-scope-option').forEach(option => {
+            const values = this.#scopeOptionValues(option);
+            const checked = values.length > 0 && values.every(value => selected.has(value));
+            option.classList.toggle('active', checked);
+            const input = option.querySelector('input[type="checkbox"]');
+            if (input) {
+                input.checked = checked;
+                input.indeterminate = values.some(value => selected.has(value)) && !checked;
+            }
+        });
+    }
+
+    #positionScopeMenu() {
+        const menu = this.#el.scopeMenu;
+        const trigger = this.#el.scopeTrigger;
+        if (!menu || !trigger || menu.hidden) return;
+        const margin = 8;
+        const gap = 6;
+        const rect = trigger.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const vw = viewport?.width || window.innerWidth || document.documentElement.clientWidth || 0;
+        const vh = viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0;
+        const vx = viewport?.offsetLeft || 0;
+        const vy = viewport?.offsetTop || 0;
+        const isCompact = window.matchMedia?.('(max-width: 700px), (pointer: coarse)')?.matches;
+        if (isCompact) {
+            const compactMargin = 16;
+            const width = Math.min(280, Math.max(220, vw - compactMargin * 2));
+            const searchRect = this.#el.searchBox?.getBoundingClientRect?.();
+            const anchorTop = searchRect?.top || rect.top;
+            const fitsAboveSearch = anchorTop - vy >= 260;
+            menu.style.width = `${width}px`;
+            menu.style.left = `${vx + Math.max(compactMargin, (vw - width) / 2)}px`;
+            menu.style.right = 'auto';
+            if (fitsAboveSearch) {
+                menu.style.top = 'auto';
+                menu.style.bottom = `${Math.max(compactMargin, (window.innerHeight || vh) - anchorTop + gap)}px`;
+                menu.style.maxHeight = `${Math.max(180, anchorTop - vy - compactMargin - gap)}px`;
+            } else {
+                menu.style.top = `${vy + compactMargin}px`;
+                menu.style.bottom = 'auto';
+                menu.style.maxHeight = `${Math.max(180, vh - compactMargin * 2)}px`;
+            }
+            return;
+        }
+        const width = Math.min(300, Math.max(224, vw - margin * 2));
+        const left = vx + Math.max(margin, Math.min(rect.right - width - vx, vw - width - margin));
+        const availableAbove = rect.top - margin - gap;
+        const availableBelow = vh - rect.bottom - margin - gap;
+        menu.style.width = `${width}px`;
+        menu.style.left = `${left}px`;
+        menu.style.right = 'auto';
+        if (availableAbove >= 260 || availableAbove >= availableBelow) {
+            menu.style.top = 'auto';
+            menu.style.bottom = `${Math.max(margin, vh - rect.top + gap)}px`;
+            menu.style.maxHeight = `${Math.max(180, availableAbove)}px`;
+        } else {
+            menu.style.top = `${Math.min(vh - margin - 180, rect.bottom + gap)}px`;
+            menu.style.bottom = 'auto';
+            menu.style.maxHeight = `${Math.max(180, availableBelow)}px`;
+        }
+    }
+
+    #scopeOptionValues(option) {
+        const value = option.dataset.value;
+        if (value) return [value];
+        if (option.dataset.group === 'prompt') return ['prompt_title', 'prompt_value'];
+        if (option.dataset.group === 'workflow') return ['workflow_title', 'workflow_value'];
+        return [];
+    }
+
+    #getEffectiveSearchScopes() {
+        const scopes = this.#state.searchScopes || DEFAULT_SEARCH_SCOPES;
+        if (!this.#state.indexStatus?.ready) return ['name'];
+        const filtered = this.#state.hasCustomMetadata ? scopes : scopes.filter(scope => scope !== 'custom');
+        return filtered.length ? filtered : DEFAULT_SEARCH_SCOPES.filter(scope => scope !== 'custom');
     }
 
     #formatDuration(seconds) {
@@ -764,30 +963,13 @@ export class GalleryGadget extends GadgetBase {
         return _t('gallery.searchIndexApproxMinutes', { count: rounded });
     }
 
-    async #getIndexCreateConfirmMessage(scope) {
-        try {
-            const r = await fetch('/drawer/fs/index-estimate');
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const estimate = await r.json();
-            if (!estimate.requiresConfirm) return null;
-            const count = Number(estimate.total || 0).toLocaleString();
-            const time = this.#formatDuration(estimate.estimatedSeconds || 0);
-            return _t(`${scope}.searchIndexCreateConfirmWithEstimate`, { count, time });
-        } catch {
-            return _t(`${scope}.searchIndexCreateConfirm`);
-        }
-    }
-
     async #startIndexBuild(isResume = false) {
-        const showConfirm = window.ComfyDrawer?.showConfirm;
-        if (!isResume && showConfirm) {
-            const message = await this.#getIndexCreateConfirmMessage('gallery');
-            if (message) {
-                const ok = await showConfirm(message, { variant: 'warning' });
-                if (!ok) return;
-            }
-        }
         try {
+            if (!isResume && window.ComfyDrawer?.createSearchIndex) {
+                await window.ComfyDrawer.createSearchIndex();
+                await this.#refreshIndexStatus();
+                return;
+            }
             const endpoint = isResume ? '/drawer/fs/index-resume' : '/drawer/fs/index-start';
             const r = await fetch(endpoint, { method: 'POST' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -860,7 +1042,10 @@ export class GalleryGadget extends GadgetBase {
 
     #hasActiveFilters() {
         const s = this.#state;
-        return !!(s.searchScope || s.dateFrom || s.dateTo || s.minSizeMB || s.maxSizeMB);
+        const scopes = s.searchScopes || [];
+        const scopeChanged = scopes.length !== DEFAULT_SEARCH_SCOPES.length
+            || DEFAULT_SEARCH_SCOPES.some(scope => !scopes.includes(scope));
+        return !!(scopeChanged || s.dateFrom || s.dateTo || s.minSizeMB || s.maxSizeMB);
     }
 
     #syncFilterState() {
@@ -886,7 +1071,7 @@ export class GalleryGadget extends GadgetBase {
 
     #applyFiltersSortRender() {
         this.#state.files = this.#applyClientFilters(this.#state.rawFiles);
-        this.#sortFiles();
+        if (this.#state.mode !== 'search') this.#sortFiles();
         this.#renderGrid();
     }
 
@@ -907,6 +1092,12 @@ export class GalleryGadget extends GadgetBase {
         const root = this.#getRoot();
         const subfolder = file.subfolder || '';
         return `/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}`;
+    }
+    #thumbUrl(file) {
+        if (file.type !== 'image' && file.type !== 'video') return this.#imgUrl(file);
+        const root = this.#getRoot();
+        const subfolder = file.subfolder || '';
+        return `/drawer/fs/thumb?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}&size=512`;
     }
 
     #sortFiles() {
@@ -933,6 +1124,19 @@ export class GalleryGadget extends GadgetBase {
         this.#el.status.querySelector('span').textContent = msg;
         this.#el.status.classList.remove('hidden');
     }
+    #hideStatus() {
+        this.#el.status.replaceChildren();
+        this.#el.status.classList.add('hidden');
+    }
+
+    #setInitialLoading(loading) {
+        this.container.classList.toggle('gg-initial-loading', !!loading);
+        if (loading) {
+            this.#setStatus(_t('common.loading'));
+        } else if (this.#el.status.textContent === _t('common.loading')) {
+            this.#hideStatus();
+        }
+    }
 
     #showToast(msg) {
         const el = document.createElement('div');
@@ -947,6 +1151,22 @@ export class GalleryGadget extends GadgetBase {
         if (this.#fetchController) this.#fetchController.abort();
         this.#fetchController = new AbortController();
         return this.#fetchController.signal;
+    }
+
+    #abortCurrentFetch() {
+        if (this.#fetchController) {
+            this.#fetchController.abort();
+            this.#fetchController = null;
+        }
+    }
+
+    #cancelInFlight() {
+        this.#requestSeq += 1;
+        this.#abortCurrentFetch();
+    }
+
+    #isCurrentRequest(seq) {
+        return seq === this.#requestSeq;
     }
 
     /* ═══ Swipe Navigation ═══ */
@@ -1005,6 +1225,133 @@ export class GalleryGadget extends GadgetBase {
         if (!handled) return;
         e.preventDefault();
         e.stopPropagation();
+    }
+
+    #extractGeneratedFiles(detail) {
+        const output = detail?.output;
+        if (!output || typeof output !== 'object') return [];
+        const files = [];
+        const visit = (value) => {
+            if (Array.isArray(value)) {
+                for (const item of value) visit(item);
+                return;
+            }
+            if (!value || typeof value !== 'object') return;
+            const name = String(value.filename || value.name || '').trim();
+            if (name) {
+                const root = String(value.type || value.root || 'output').trim().toLowerCase();
+                files.push({
+                    root: ['output', 'input', 'temp'].includes(root) ? root : 'output',
+                    subfolder: String(value.subfolder || '').trim().replaceAll('\\', '/').replace(/^\/+|\/+$/g, ''),
+                    name,
+                });
+                return;
+            }
+            for (const child of Object.values(value)) visit(child);
+        };
+        for (const key of ['images', 'gifs', 'videos', 'audio', 'animated']) {
+            visit(output[key]);
+        }
+        return files;
+    }
+
+    #scheduleGeneratedFilesUpdate() {
+        clearTimeout(this.#generationRefreshTimer);
+        this.#generationRefreshTimer = setTimeout(() => {
+            this.#generationRefreshTimer = null;
+            this.#indexGeneratedFiles();
+        }, 1500);
+    }
+
+    async #indexGeneratedFiles() {
+        const files = [...this.#generatedFiles.values()];
+        this.#generatedFiles.clear();
+        this.#lastFetchTime = 0;
+        if (files.length) {
+            try {
+                await fetch('/drawer/fs/index-generated', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files }),
+                });
+                this.#refreshIndexStatus();
+            } catch (e) {
+                console.warn('[Gallery] Generated file indexing failed:', e);
+            }
+        }
+        if (this.container?.style.display !== 'none' && this.#state.mode === 'browse') {
+            this.#browse(this.#state.path);
+        }
+    }
+
+    #cancelThumbWarm() {
+        this.#thumbWarmToken += 1;
+        clearTimeout(this.#thumbWarmTimer);
+        this.#thumbWarmTimer = null;
+    }
+
+    #scheduleThumbWarm(files) {
+        this.#cancelThumbWarm();
+        const queue = (files || [])
+            .filter(file => file?.type === 'image' || file?.type === 'video')
+            .slice(8, 40)
+            .map(file => ({
+                root: this.#getRoot(),
+                subfolder: file.subfolder ?? this.#state.path ?? '',
+                name: file.name,
+            }));
+        if (!queue.length) return;
+        const token = this.#thumbWarmToken;
+        const runBatch = async () => {
+            if (token !== this.#thumbWarmToken || !queue.length) return;
+            const files = queue.splice(0, THUMB_WARM_BATCH_SIZE);
+            try {
+                await fetch('/drawer/fs/thumb-warm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files, size: 512 }),
+                });
+            } catch { /* best effort */ }
+            if (token === this.#thumbWarmToken && queue.length) {
+                this.#thumbWarmTimer = setTimeout(runBatch, 1200);
+            }
+        };
+        this.#thumbWarmTimer = setTimeout(runBatch, 800);
+    }
+
+    async #prepareMediaContextMenu(file, src, hasWorkflow = undefined) {
+        const root = this.#getRoot();
+        const base = {
+            ...file,
+            src,
+            source: 'gallery',
+            root,
+        };
+        const indexBody = {
+            files: [{
+                root,
+                subfolder: file.subfolder ?? this.#state.path ?? '',
+                name: file.name,
+            }],
+        };
+        const metaItem = {
+            ...base,
+            source: root,
+        };
+        const [workflowAvailable] = await Promise.all([
+            hasWorkflow === undefined
+                ? window.ComfyDrawer?.checkWorkflowAvailable?.(metaItem).catch(() => false)
+                : Promise.resolve(hasWorkflow),
+            fetch('/drawer/fs/index-generated', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(indexBody),
+            }).catch(() => null),
+        ]);
+        return {
+            ...base,
+            hasWorkflow: !!workflowAvailable,
+        };
     }
 
     #navigateGalleryParent() {
@@ -1070,20 +1417,22 @@ export class GalleryGadget extends GadgetBase {
 
     /* ═══ API ═══ */
 
-    async #apiBrowse(path) {
+    async #apiBrowse(path, offset = 0) {
         const signal = this.#newFetchSignal();
         const root = this.#state.root || 'output';
-        const r = await fetch(`/drawer/fs/browse?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, { signal });
+        const sort = this.#state.sort || 'name-asc';
+        const r = await fetch(`/drawer/fs/browse?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&limit=${BROWSE_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&sort=${encodeURIComponent(sort)}`, { signal });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
         this.#lastFetchTime = Date.now();
         return r.json();
     }
 
-    async #apiSearch(q, path) {
+    async #apiSearch(q, path, offset = 0) {
         const signal = this.#newFetchSignal();
         const root = this.#state.root || 'output';
-        const scope = this.#state.searchScope || '';
-        const r = await fetch(`/drawer/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&path=${encodeURIComponent(path || '')}&limit=0&scope=${encodeURIComponent(scope)}`, { signal });
+        const scope = this.#getEffectiveSearchScopes().join(',');
+        const sort = this.#state.sort || 'date-desc';
+        const r = await fetch(`/drawer/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&path=${encodeURIComponent(path || '')}&limit=${SEARCH_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&scope=${encodeURIComponent(scope)}&sort=${encodeURIComponent(sort)}`, { signal });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
         this.#lastFetchTime = Date.now();
         return r.json();
@@ -1092,7 +1441,10 @@ export class GalleryGadget extends GadgetBase {
     /* ═══ Browse / Search ═══ */
 
     async #browse(path) {
+        const seq = ++this.#requestSeq;
+        this.#abortCurrentFetch();
         const s = this.#state;
+        if (!this.#initialLoadComplete) this.#setInitialLoading(true);
         // Exit selection mode if navigating to a different folder (e.g. via breadcrumb)
         // but NOT in move mode — move mode needs folder navigation to pick destination
         if (s.selectMode && !s.moveMode) {
@@ -1101,35 +1453,54 @@ export class GalleryGadget extends GadgetBase {
             this.#showToolbar('browse');
         }
         s.mode = 'browse'; s.path = path; s.query = '';
+        s.searchHasMore = false;
+        s.searchOffset = 0;
+        s.searchLoadingMore = false;
+        s.browseHasMore = false;
+        s.browseOffset = 0;
+        s.browseLoadingMore = false;
+        s.browseVisibleCount = BROWSE_PAGE_SIZE;
         this.#el.searchInput.value = '';
         this.#el.clearBtn.hidden = true;
         this.#el.resultCount.textContent = '';
         this.#renderSearchSummary('');
-        this.#renderIndexStatus(null);
+        this.#renderIndexStatus(this.#state.indexStatus);
         this.#el.breadcrumb.classList.remove('hidden');
         // Disable search on temp root
         const isTemp = s.root === 'temp';
         this.#el.searchTrigger.disabled = isTemp;
         if (isTemp) this.#closeSearch();
-        this.#setStatus(_t('common.loading'));
-        this.#el.grid.innerHTML = '';
         try {
             const data = await this.#apiBrowse(path);
+            if (!this.#isCurrentRequest(seq)) return;
             s.folders = data.folders || [];
             s.rawFiles = data.files || [];
             s.files = this.#applyClientFilters(s.rawFiles);
+            s.browseOffset = s.rawFiles.length;
+            s.browseHasMore = !!data.hasMore;
             s.breadcrumb = data.breadcrumb || [];
             this.#sortFiles();
             this.#renderBreadcrumb();
             this.#renderGrid();
+            if (!this.#initialLoadComplete) {
+                this.#initialLoadComplete = true;
+                this.#setInitialLoading(false);
+            }
             this.#refreshIndexStatus();
         } catch (e) {
             if (e.name === 'AbortError') return; // intentional cancellation
+            if (!this.#isCurrentRequest(seq)) return;
+            if (!this.#initialLoadComplete) {
+                this.#initialLoadComplete = true;
+                this.container.classList.remove('gg-initial-loading');
+            }
             this.#setStatus(_t('common.error') + ': ' + e.message);
         }
     }
 
     async #search(query) {
+        const seq = ++this.#requestSeq;
+        this.#abortCurrentFetch();
         // Temp root is not searchable
         if (this.#state.root === 'temp') {
             this.#el.resultCount.textContent = '';
@@ -1151,6 +1522,7 @@ export class GalleryGadget extends GadgetBase {
         this.#el.resultCount.textContent = '';
         this.#renderSearchSummary('');
         const indexStatus = await this.#refreshIndexStatus();
+        if (!this.#isCurrentRequest(seq)) return;
         if (indexStatus && !indexStatus.ready && this.#isIndexRequiredForCurrentSearch()) {
             this.#renderSearchSummary(_t('gallery.searchIndexWaiting'));
             this.#setStatus(_t('gallery.searchIndexWaiting'));
@@ -1158,19 +1530,94 @@ export class GalleryGadget extends GadgetBase {
         }
         try {
             const data = await this.#apiSearch(query, s.path);
+            if (!this.#isCurrentRequest(seq)) return;
             if (query !== this.#el.searchInput.value.trim()) return; // stale
             s.rawFiles = data.files || [];
             s.files = this.#applyClientFilters(s.rawFiles);
             s.folders = [];
-            s.total = s.files.length;
-            this.#sortFiles();
-            const summary = _t('gallery.searchResults', { count: s.total.toLocaleString() });
+            s.total = Number(data.total || s.files.length);
+            s.searchOffset = s.rawFiles.length;
+            s.searchHasMore = !!data.hasMore;
+            s.searchLoadingMore = false;
+            const countText = `${s.total.toLocaleString()}${data.totalExact === false && s.searchHasMore ? '+' : ''}`;
+            const summary = _t('gallery.searchResultsShowing', {
+                count: countText,
+                shown: s.files.length.toLocaleString(),
+            });
             this.#el.resultCount.textContent = '';
             this.#renderSearchSummary(summary);
             this.#renderGrid();
         } catch (e) {
             if (e.name === 'AbortError') return; // intentional cancellation
+            if (!this.#isCurrentRequest(seq)) return;
             this.#setStatus(_t('common.error') + ': ' + e.message);
+        }
+    }
+
+    async #loadMoreSearch() {
+        const s = this.#state;
+        if (s.mode !== 'search' || !s.searchHasMore || s.searchLoadingMore) return;
+        s.searchLoadingMore = true;
+        this.#renderGrid();
+        try {
+            const data = await this.#apiSearch(s.query, s.path, s.searchOffset);
+            if (s.mode !== 'search' || data.query !== s.query) return;
+            const incoming = data.files || [];
+            const seen = new Set(s.rawFiles.map(file => `${file.subfolder || ''}/${file.name}`));
+            for (const file of incoming) {
+                const key = `${file.subfolder || ''}/${file.name}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    s.rawFiles.push(file);
+                }
+            }
+            s.files = this.#applyClientFilters(s.rawFiles);
+            s.total = Number(data.total || s.files.length);
+            s.searchOffset += incoming.length;
+            s.searchHasMore = !!data.hasMore && incoming.length > 0;
+            s.searchLoadingMore = false;
+            const countText = `${s.total.toLocaleString()}${data.totalExact === false && s.searchHasMore ? '+' : ''}`;
+            const summary = _t('gallery.searchResultsShowing', {
+                count: countText,
+                shown: s.files.length.toLocaleString(),
+            });
+            this.#renderSearchSummary(summary);
+            this.#renderGrid();
+        } catch (e) {
+            if (e.name !== 'AbortError') console.warn('[Gallery] Load more search failed:', e);
+        } finally {
+            s.searchLoadingMore = false;
+        }
+    }
+
+    async #loadMoreBrowse() {
+        const s = this.#state;
+        if (s.mode !== 'browse' || s.browseLoadingMore) return;
+        if (!s.browseHasMore) {
+            s.browseVisibleCount = Math.min(
+                s.files.length,
+                Number(s.browseVisibleCount || BROWSE_PAGE_SIZE) + BROWSE_PAGE_SIZE
+            );
+            this.#renderGrid();
+            return;
+        }
+        s.browseLoadingMore = true;
+        this.#renderGrid();
+        try {
+            const data = await this.#apiBrowse(s.path, s.browseOffset);
+            if (s.mode !== 'browse') return;
+            const incoming = data.files || [];
+            s.rawFiles.push(...incoming);
+            s.files = this.#applyClientFilters(s.rawFiles);
+            s.browseOffset += incoming.length;
+            s.browseHasMore = !!data.hasMore && incoming.length > 0;
+            s.browseVisibleCount = s.files.length;
+            this.#sortFiles();
+            this.#renderGrid();
+        } catch (e) {
+            if (e.name !== 'AbortError') console.warn('[Gallery] Load more browse failed:', e);
+        } finally {
+            s.browseLoadingMore = false;
         }
     }
 
@@ -1344,7 +1791,7 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #isIndexRequiredForCurrentSearch() {
-        return ['prompt', 'workflow'].includes(this.#state.searchScope || '');
+        return this.#getEffectiveSearchScopes().some(scope => INDEX_SEARCH_SCOPES.includes(scope));
     }
 
     /** Build and display a positioned dropdown list */
@@ -1414,6 +1861,7 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #renderGrid() {
+        this.#cancelThumbWarm();
         // Flush grid-scoped cleanups from previous render
         for (const fn of this.#gridCleanups) fn();
         this.#gridCleanups = [];
@@ -1440,7 +1888,10 @@ export class GalleryGadget extends GadgetBase {
             grid.parentElement.oncontextmenu = null;
         }
 
-        const total = s.folders.length + s.files.length;
+        const visibleFiles = s.mode === 'browse'
+            ? s.files.slice(0, Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))
+            : s.files;
+        const total = s.folders.length + visibleFiles.length;
         if (total === 0) {
             if (s.mode === 'search') this.#setStatus(`No results for "${s.query}"`);
             else if (s.moveMode) this.#setStatus(_t('gallery.noImages'));
@@ -1494,7 +1945,7 @@ export class GalleryGadget extends GadgetBase {
         }
 
         // Files — build lightbox items list first for cross-referencing
-        const lbItems = s.files.map(f => ({
+        const lbItems = visibleFiles.map(f => ({
             src: this.#imgUrl(f),
             type: f.type || 'image',
             label: f.name,
@@ -1503,16 +1954,20 @@ export class GalleryGadget extends GadgetBase {
         }));
 
 
-        for (let i = 0; i < s.files.length; i++) {
-            const file = s.files[i];
+        for (let i = 0; i < visibleFiles.length; i++) {
+            const file = visibleFiles[i];
             const url = this.#imgUrl(file);
+            const thumbUrl = this.#thumbUrl(file);
             const isMedia = file.type === 'video' || file.type === 'audio';
 
             const mc = createMediaCard({
-                src: url,
+                src: thumbUrl,
+                dragSrc: url,
                 filename: file.name,
-                mediaType: file.type === 'image' ? 'image' : (file.type === 'video' ? 'video' : 'image'),
+                mediaType: file.type === 'audio' ? 'audio' : 'image',
                 thumbHeight: 140,
+                lazy: i >= 8,
+                checkWorkflow: false,
                 lightbox: !inSelectOrMove,
                 draggable: !inSelectOrMove,
                 lightboxItems: lbItems,
@@ -1520,7 +1975,7 @@ export class GalleryGadget extends GadgetBase {
                 lightboxOptions: {
                     get autoplay() { return s.autoplay; },
                     contextMenuType: 'media-file',
-                    contextMenuData: (item) => ({ ...item.data, src: item.src, source: 'gallery', hasWorkflow: item.hasWorkflow }),
+                    contextMenuData: (item) => this.#prepareMediaContextMenu(item.data, item.src, item.hasWorkflow),
                     onKey: (key, item) => {
                         if (key === 'Delete') {
                             this.#deleteCurrent(item?.data || null);
@@ -1529,13 +1984,14 @@ export class GalleryGadget extends GadgetBase {
                     onClose: () => { this.#lbCurrentFile = null; },
                 },
                 onClick: s.selectMode ? () => this.#toggleSelect(file.path, mc.element) : null,
-                onContextMenu: !inSelectOrMove ? (e) => {
-                    this.#contextMenu?.show('media-file', { ...file, src: url, source: 'gallery', hasWorkflow: mc.element._hasWorkflow }, e.clientX, e.clientY);
+                onContextMenu: !inSelectOrMove ? async (e) => {
+                    const ctx = await this.#prepareMediaContextMenu(file, url, mc.element._hasWorkflow);
+                    this.#contextMenu?.show('media-file', ctx, e.clientX, e.clientY);
                 } : null,
                 onFolderDrop: (!inSelectOrMove && this.#state.root !== 'temp') ? async (destPath) => {
                     try {
                         const root = this.#getRoot();
-                        const srcSubfolder = file.subfolder || this.#state.path;
+                        const srcSubfolder = file.subfolder ?? this.#state.path ?? '';
                         const res = await fetch('/drawer/fs/move', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -1550,7 +2006,10 @@ export class GalleryGadget extends GadgetBase {
                         const data = await res.json();
                         if (data.moved > 0) {
                             mc.element.remove();
-                            this.#state.files = this.#state.files.filter(f => f.name !== file.name);
+                            const movedKey = `${srcSubfolder}/${file.name}`;
+                            const keepFile = (f) => `${f.subfolder ?? ''}/${f.name}` !== movedKey;
+                            this.#state.files = this.#state.files.filter(keepFile);
+                            this.#state.rawFiles = this.#state.rawFiles.filter(keepFile);
                             // Notify extensions (e.g. SavePlus sidecar move)
                             this.#emitFsMoved({
                                 root,
@@ -1636,6 +2095,26 @@ export class GalleryGadget extends GadgetBase {
 
             grid.appendChild(mc.element);
         }
+
+        if (s.mode === 'search' && s.searchHasMore) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'gg-load-more';
+            more.disabled = !!s.searchLoadingMore;
+            more.textContent = s.searchLoadingMore ? _t('common.loading') : _t('gallery.loadMore');
+            more.addEventListener('click', () => this.#loadMoreSearch());
+            grid.appendChild(more);
+        }
+        if (s.mode === 'browse' && (s.browseHasMore || s.files.length > visibleFiles.length)) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'gg-load-more';
+            more.disabled = !!s.browseLoadingMore;
+            more.textContent = s.browseLoadingMore ? _t('common.loading') : _t('gallery.loadMore');
+            more.addEventListener('click', () => this.#loadMoreBrowse());
+            grid.appendChild(more);
+        }
+        this.#scheduleThumbWarm(visibleFiles);
     }
 
     /**
@@ -1704,7 +2183,7 @@ export class GalleryGadget extends GadgetBase {
         openLightbox(lbItems, startIdx, {
             autoplay: this.#state.autoplay,
             contextMenuType: 'media-file',
-            contextMenuData: (item) => ({ ...item.data, src: item.src, source: 'gallery' }),
+            contextMenuData: (item) => this.#prepareMediaContextMenu(item.data, item.src, item.hasWorkflow),
             onKey: (key, item) => {
                 if (key === 'Delete') {
                     this.#deleteCurrent(item?.data || null);
@@ -1899,16 +2378,12 @@ export class GalleryGadget extends GadgetBase {
                 form.innerHTML = `
                     <label class="cd-rename-file-field cd-rename-file-name">
                         <span>${escapeHTML(_t('gallery.filenameStem'))}</span>
-                        <input class="cd-dialog-input" type="text" value="${escapeHTML(baseName)}" />
+                        <input class="cd-dialog-input" type="text" value="${escapeHTML(baseName)}" data-autoselect />
                     </label>
                     <span class="cd-rename-file-ext">${escapeHTML(extName)}</span>
                 `;
                 body.appendChild(form);
                 const nameInput = form.querySelector('.cd-rename-file-name input');
-                setTimeout(() => {
-                    nameInput?.focus();
-                    nameInput?.select();
-                }, 0);
                 return () => {
                     const name = (nameInput?.value || '').trim();
                     return { name, finalName: `${name}${extName}` };
@@ -1928,7 +2403,7 @@ export class GalleryGadget extends GadgetBase {
         const finalName = result?.finalName;
         if (!finalName || finalName === file.name) return;
         const root = this.#getRoot();
-        const subfolder = file.subfolder || this.#state.path;
+        const subfolder = file.subfolder ?? this.#state.path ?? '';
         try {
             const r = await fetch('/drawer/fs/rename', {
                 method: 'POST',

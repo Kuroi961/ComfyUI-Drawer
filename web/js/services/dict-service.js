@@ -498,6 +498,35 @@ export function createNodeTypeLoader() {
     };
 }
 
+/**
+ * Create a loader for third-party Python dictionary providers.
+ * @returns {function(): Promise<Array>}
+ */
+export function createThirdPartyDictLoader() {
+    return async () => {
+        const resp = await fetch('/drawer/dict/third-party');
+        if (!resp.ok) return [];
+        const payload = await resp.json();
+        const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+        const entries = [];
+        for (const provider of providers) {
+            const providerContext = provider?.context || 'all';
+            if (providerContext !== 'all' && providerContext !== 'search') continue;
+            const providerEntries = Array.isArray(provider?.entries) ? provider.entries : [];
+            for (const entry of providerEntries) {
+                if (!entry?.t) continue;
+                entries.push({
+                    ...entry,
+                    providerId: provider.id,
+                    providerLabel: provider.label,
+                });
+            }
+        }
+        entries.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+        return entries;
+    };
+}
+
 // ═══════════════════════════════════════════════════════
 //  Autocomplete UI
 // ═══════════════════════════════════════════════════════
@@ -676,6 +705,10 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
                 // Node type dictionary entry
                 const display = m.displayText || m.insertText || m.t;
                 item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">node</span>`;
+            } else if (m.c === -4) {
+                // Third-party dictionary entry
+                const display = m.displayText || m.insertText || m.t;
+                item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">${m.providerLabel || 'third-party'}</span>`;
             } else if (m.c === -1) {
                 // User dictionary entry
                 const display = m.t.replace(/_/g, ' ');
