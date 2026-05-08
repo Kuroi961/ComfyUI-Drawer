@@ -15,6 +15,7 @@
  *     onSelect: (value) => { widget.value = value; }
  *   });
  */
+import { apiFetch, apiURL } from '../core/api-utils.js';
 
 /* ═══════════════════════════════════════════════════════
    CSS Injection
@@ -39,7 +40,7 @@ function ensureCSS() {
    ═══════════════════════════════════════════════════════ */
 
 function makeThumbUrl(root, subfolder, filename) {
-    return `/drawer/fs/thumb?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(filename)}&size=200`;
+    return apiURL(`/drawer/fs/thumb?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(filename)}&size=200`);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -182,7 +183,7 @@ export function openImagePicker(opts = {}) {
             body.appendChild(status);
 
             try {
-                const r = await fetch(
+                const r = await apiFetch(
                     `/drawer/fs/browse?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`
                 );
                 if (!r.ok) throw new Error('Failed to browse');
@@ -238,7 +239,7 @@ export function openImagePicker(opts = {}) {
 
                     if (isAudio) {
                         // Audio: waveform icon + mini player
-                        const viewUrl = `/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(file.subfolder || '')}&filename=${encodeURIComponent(file.name)}`;
+                        const viewUrl = apiURL(`/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(file.subfolder || '')}&filename=${encodeURIComponent(file.name)}`);
                         const wrapper = document.createElement('div');
                         wrapper.className = 'cd-picker-audio-icon';
                         wrapper.innerHTML = ICON_MUSIC;
@@ -251,7 +252,7 @@ export function openImagePicker(opts = {}) {
                         el.appendChild(wrapper);
                     } else if (isVideo) {
                         // Video: use <video> element for poster frame
-                        const viewUrl = `/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(file.subfolder || '')}&filename=${encodeURIComponent(file.name)}`;
+                        const viewUrl = apiURL(`/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(file.subfolder || '')}&filename=${encodeURIComponent(file.name)}`);
                         const vid = document.createElement('video');
                         vid.src = viewUrl;
                         vid.muted = true;

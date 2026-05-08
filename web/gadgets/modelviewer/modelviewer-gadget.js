@@ -24,6 +24,7 @@ import { enumerateModelValueTargets } from '../../js/utils/widget-targets.js';
 
 /** @private Locale helper */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
+const isXyzSweepActive = () => !!window.__xyzSweepActive;
 
 const MV_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
@@ -76,6 +77,23 @@ function setStatusButtonContent(button, icon, label) {
 function setIconButtonContent(button, icon, label) {
     button.innerHTML = `${icon}<span></span>`;
     button.querySelector('span').textContent = label;
+}
+
+async function readErrorMessage(resp, fallback) {
+    try {
+        const data = await resp.clone().json();
+        if (data?.error) return String(data.error);
+        if (data?.message) return String(data.message);
+    } catch (_) {
+        // Fall through to text/fallback.
+    }
+    try {
+        const text = await resp.text();
+        if (text) return text;
+    } catch (_) {
+        // Fall through to fallback.
+    }
+    return fallback;
 }
 
 const ITEMS_PER_PAGE = 40;
@@ -330,7 +348,7 @@ export class ModelViewerGadget extends GadgetBase {
     async #loadCategories() {
         this.#setStatus(_t('modelviewer.loadingCategories'));
         try {
-            const resp = await fetch('/models');
+            const resp = await this.bridge.fetchApi('/models');
             if (!resp.ok) throw new Error(resp.statusText);
             const allCategories = await resp.json();
 
@@ -343,7 +361,7 @@ export class ModelViewerGadget extends GadgetBase {
             const counts = await Promise.all(
                 candidates.map(async (cat) => {
                     try {
-                        const r = await fetch(`/models/${encodeURIComponent(cat)}`);
+                        const r = await this.bridge.fetchApi(`/models/${encodeURIComponent(cat)}`);
                         if (!r.ok) return { cat, count: 0 };
                         const list = await r.json();
                         return { cat, count: Array.isArray(list) ? list.length : 0 };
@@ -391,7 +409,7 @@ export class ModelViewerGadget extends GadgetBase {
             let allModels = [];
             let pathGroups = [];
             try {
-                const pathResp = await fetch(`/drawer/models/paths/${encodeURIComponent(category)}`);
+                const pathResp = await this.bridge.fetchApi(`/drawer/models/paths/${encodeURIComponent(category)}`);
                 if (pathResp.ok) {
                     const groups = await pathResp.json();
                     pathGroups = groups.map(g => {
@@ -409,7 +427,7 @@ export class ModelViewerGadget extends GadgetBase {
 
             // Fallback to standard API if Drawer API unavailable
             if (allModels.length === 0) {
-                const resp = await fetch(`/models/${encodeURIComponent(category)}`);
+                const resp = await this.bridge.fetchApi(`/models/${encodeURIComponent(category)}`);
                 if (!resp.ok) throw new Error(resp.statusText);
                 const models = await resp.json();
                 allModels = models.map(m => normalizePath(m));
@@ -845,7 +863,7 @@ export class ModelViewerGadget extends GadgetBase {
                 : modelPath;
         const displayName = filename.replace(/\.(safetensors|ckpt|pt|bin|pth|sft|gguf)$/i, '');
 
-        const thumbSrc = `/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${this.#thumbEpoch}`;
+        const thumbSrc = this.bridge.apiURL(`/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${this.#thumbEpoch}`);
 
         // Use shared MediaCard component
         const mc = createMediaCard({
@@ -1027,7 +1045,7 @@ export class ModelViewerGadget extends GadgetBase {
         el.syncBarInner.classList.remove('done');
         el.syncCount.textContent = '';
 
-        const url = `/drawer/civitai-batch-sync/${encodeURIComponent(this.#activeCategory)}`;
+        const url = this.bridge.apiURL(`/drawer/civitai-batch-sync/${encodeURIComponent(this.#activeCategory)}`);
         const es = new EventSource(url);
         this.#syncEventSource = es;
 
@@ -1091,7 +1109,7 @@ export class ModelViewerGadget extends GadgetBase {
                 : modelPath;
         const displayName = filename.replace(/\.(safetensors|ckpt|pt|bin|pth|sft|gguf)$/i, '');
 
-        const thumbSrc = `/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${Date.now()}`;
+        const thumbSrc = this.bridge.apiURL(`/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${Date.now()}`);
 
         // Build info card DOM
         const card = document.createElement('div');
@@ -1159,32 +1177,43 @@ export class ModelViewerGadget extends GadgetBase {
             });
             if (!selected) return;
             try {
-                const resp = await fetch(`/drawer/model-preview-from-output/${encodeURIComponent(this.#activeCategory)}`, {
+                const resp = await this.bridge.fetchApi(`/drawer/model-preview-from-output/${encodeURIComponent(this.#activeCategory)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: modelPath, image: selected }),
                 });
-                const result = await resp.json();
-                if (result.ok) {
-                    // Remove any existing video fallback
-                    previewWrap.querySelectorAll('video.mv-info-preview').forEach(v => v.remove());
-                    // Reset to image with fresh handlers
-                    img.style.display = '';
-                    img.addEventListener('load', () => {
-                        placeholder.style.display = 'none';
-                        overlay.style.display = '';
-                    }, { once: true });
-                    img.addEventListener('error', () => {
-                        img.style.display = 'none';
-                        placeholder.style.display = '';
-                    }, { once: true });
-                    const bustSrc = thumbSrc + '&t=' + Date.now();
-                    img.src = bustSrc;
-                    previewMedia = img;
-                    this.#showToast(_t('modelviewer.thumbnailUpdated'));
-                    this.#refreshGridThumb(modelPath);
+                const result = await resp.clone().json().catch(() => ({}));
+                if (!resp.ok || !result.ok) {
+                    const message = result?.error || result?.message || await readErrorMessage(resp, resp.statusText || _t('modelviewer.thumbnailUpdateFailed'));
+                    await window.ComfyDrawer?.showAlert?.(message, {
+                        title: _t('modelviewer.thumbnailUpdateFailed'),
+                        variant: 'danger',
+                    });
+                    return;
                 }
-            } catch { /* ignore */ }
+                // Remove any existing video fallback
+                previewWrap.querySelectorAll('video.mv-info-preview').forEach(v => v.remove());
+                // Reset to image with fresh handlers
+                img.style.display = '';
+                img.addEventListener('load', () => {
+                    placeholder.style.display = 'none';
+                    overlay.style.display = '';
+                }, { once: true });
+                img.addEventListener('error', () => {
+                    img.style.display = 'none';
+                    placeholder.style.display = '';
+                }, { once: true });
+                const bustSrc = thumbSrc + '&t=' + Date.now();
+                img.src = bustSrc;
+                previewMedia = img;
+                this.#refreshGridThumb(modelPath);
+            } catch (err) {
+                console.warn('[ModelViewer] Thumbnail update failed:', err);
+                await window.ComfyDrawer?.showAlert?.(err?.message || String(err), {
+                    title: _t('modelviewer.thumbnailUpdateFailed'),
+                    variant: 'danger',
+                });
+            }
         });
 
         const deleteBtn = document.createElement('button');
@@ -1193,21 +1222,32 @@ export class ModelViewerGadget extends GadgetBase {
         deleteBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             try {
-                const resp = await fetch(
+                const resp = await this.bridge.fetchApi(
                     `/drawer/model-preview/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`,
                     { method: 'DELETE' },
                 );
-                const result = await resp.json();
-                if (result.ok) {
-                    img.style.display = 'none';
-                    previewWrap.querySelectorAll('video.mv-info-preview').forEach(v => v.remove());
-                    previewMedia = img;
-                    placeholder.style.display = '';
-                    overlay.style.display = 'none';
-                    this.#showToast(_t('modelviewer.thumbnailDeleted'));
-                    this.#refreshGridThumb(modelPath);
+                const result = await resp.clone().json().catch(() => ({}));
+                if (!resp.ok || !result.ok) {
+                    const message = result?.error || result?.message || await readErrorMessage(resp, resp.statusText || _t('modelviewer.thumbnailDeleteFailed'));
+                    await window.ComfyDrawer?.showAlert?.(message, {
+                        title: _t('modelviewer.thumbnailDeleteFailed'),
+                        variant: 'danger',
+                    });
+                    return;
                 }
-            } catch { /* ignore */ }
+                img.style.display = 'none';
+                previewWrap.querySelectorAll('video.mv-info-preview').forEach(v => v.remove());
+                previewMedia = img;
+                placeholder.style.display = '';
+                overlay.style.display = 'none';
+                this.#refreshGridThumb(modelPath);
+            } catch (err) {
+                console.warn('[ModelViewer] Thumbnail delete failed:', err);
+                await window.ComfyDrawer?.showAlert?.(err?.message || String(err), {
+                    title: _t('modelviewer.thumbnailDeleteFailed'),
+                    variant: 'danger',
+                });
+            }
         });
 
         overlay.appendChild(changeBtn);
@@ -1351,7 +1391,7 @@ export class ModelViewerGadget extends GadgetBase {
                         cb.type = 'checkbox';
                         cb.checked = false;
                         cb.addEventListener('change', () => {
-                            applyBtn.disabled = !checkboxes.some(c => c.cb.checked);
+                            applyBtn.disabled = isXyzSweepActive() || !checkboxes.some(c => c.cb.checked);
                         });
 
                         const textWrap = document.createElement('div');
@@ -1385,6 +1425,7 @@ export class ModelViewerGadget extends GadgetBase {
                 // Start disabled since nothing is checked
 
                 applyBtn.addEventListener('click', () => {
+                    if (isXyzSweepActive()) return;
                     const selected = checkboxes.filter(c => c.cb.checked);
                     this.#applyToNodes(selected.map(c => c.target));
 
@@ -1419,6 +1460,12 @@ export class ModelViewerGadget extends GadgetBase {
                         applyBtn.textContent = _t('modelviewer.applyToNodes');
                     }, 1500);
                 });
+                const syncXyzApplyLock = () => {
+                    applyBtn.disabled = isXyzSweepActive() || !checkboxes.some(c => c.cb.checked);
+                };
+                document.addEventListener('drawer:xyz-sweep-state', syncXyzApplyLock);
+                card._cleanupXyzApplyLock = () => document.removeEventListener('drawer:xyz-sweep-state', syncXyzApplyLock);
+                syncXyzApplyLock();
             }
         } // end !isEmbedding
 
@@ -1432,12 +1479,13 @@ export class ModelViewerGadget extends GadgetBase {
             confirmLabel: null,
             cancelLabel: _t('common.close'),
             showCancel: true,
+            onDismiss: () => card._cleanupXyzApplyLock?.(),
         });
     }
 
     async #populateModelInfo(card, rows, triggersWrap, addTriggerBtn, commentArea, modelPath) {
         try {
-            const r = await fetch(`/drawer/model-info/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`);
+            const r = await this.bridge.fetchApi(`/drawer/model-info/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`);
             if (!r.ok) return;
             const info = await r.json();
 
@@ -1474,7 +1522,7 @@ export class ModelViewerGadget extends GadgetBase {
                     if (val === lastSaved) return;  // no change
                     lastSaved = val;
                     try {
-                        await fetch(`/drawer/model-comment/${encodeURIComponent(this.#activeCategory)}`, {
+                        await this.bridge.fetchApi(`/drawer/model-comment/${encodeURIComponent(this.#activeCategory)}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ filename: modelPath, comment: val }),
@@ -1560,7 +1608,7 @@ export class ModelViewerGadget extends GadgetBase {
                 setStatusButtonContent(syncBtn, SYNC_BTN_SVG, _t('modelviewer.civitaiSyncing'));
 
                 try {
-                    const resp = await fetch(`/drawer/civitai-sync/${encodeURIComponent(this.#activeCategory)}`, {
+                    const resp = await this.bridge.fetchApi(`/drawer/civitai-sync/${encodeURIComponent(this.#activeCategory)}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ filename: modelPath }),
@@ -1616,7 +1664,7 @@ export class ModelViewerGadget extends GadgetBase {
                                     if (previewPlaceholder) previewPlaceholder.style.display = '';
                                     if (previewOverlay) previewOverlay.style.display = 'none';
                                 }, { once: true });
-                                const refreshSrc = `/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${Date.now()}`;
+                                const refreshSrc = this.bridge.apiURL(`/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}&t=${Date.now()}`);
                                 previewImg.src = refreshSrc;
                             }
                             this.#refreshGridThumb(modelPath);
@@ -1697,7 +1745,7 @@ export class ModelViewerGadget extends GadgetBase {
             if (text && !text.startsWith('✓ ')) words.push(text);
         }
         try {
-            await fetch(`/drawer/model-trigger-words/${encodeURIComponent(this.#activeCategory)}`, {
+            await this.bridge.fetchApi(`/drawer/model-trigger-words/${encodeURIComponent(this.#activeCategory)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: modelPath, triggerWords: words }),
@@ -1718,7 +1766,7 @@ export class ModelViewerGadget extends GadgetBase {
         if (!confirmed) return;
 
         try {
-            const resp = await fetch(
+            const resp = await this.bridge.fetchApi(
                 `/drawer/model/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`,
                 { method: 'DELETE' },
             );
@@ -1750,7 +1798,7 @@ export class ModelViewerGadget extends GadgetBase {
             if (!name) return;  // cancelled
 
             try {
-                const r = await fetch(`/drawer/model-folder/${encodeURIComponent(this.#activeCategory)}`, {
+                const r = await this.bridge.fetchApi(`/drawer/model-folder/${encodeURIComponent(this.#activeCategory)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subfolder: parentSubfolder || '', name }),
@@ -1782,6 +1830,7 @@ export class ModelViewerGadget extends GadgetBase {
     }
 
     #applyToNodes(targets) {
+        if (isXyzSweepActive()) return;
         for (const t of targets) {
             t.addOption?.(t.origValue);
             t.setValue(t.origValue);
@@ -2010,7 +2059,7 @@ export class ModelViewerGadget extends GadgetBase {
             position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
             padding: '8px 18px', background: 'rgba(0,0,0,.85)', color: '#fff',
             borderRadius: '8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-            zIndex: '10001', pointerEvents: 'none', transition: 'opacity .3s',
+            zIndex: '230000', pointerEvents: 'none', transition: 'opacity .3s',
         });
         el.textContent = msg;
         document.body.appendChild(el);
@@ -2023,7 +2072,7 @@ export class ModelViewerGadget extends GadgetBase {
      * @param {string} modelPath
      */
     #refreshGridThumb(modelPath) {
-        const thumbBase = `/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`;
+        const thumbBase = this.bridge.apiURL(`/drawer/model-thumb/${encodeURIComponent(this.#activeCategory)}?filename=${encodeURIComponent(modelPath)}`);
         const bust = `${thumbBase}&t=${Date.now()}`;
         const grid = this.container?.querySelector('.mv-grid');
         if (!grid) return;

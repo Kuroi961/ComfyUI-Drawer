@@ -73,6 +73,12 @@ git clone https://github.com/Kuroi961/ComfyUI-Drawer.git
 pip install -r ComfyUI-Drawer/requirements.txt
 ```
 
+### Dependencies
+
+`requirements.txt` lists the Python packages this extension installs directly. ComfyUI normally already provides Pillow and SQLite support, which Drawer uses for image thumbnails, media metadata, and the Gallery search index.
+
+Video thumbnails and video/audio metadata use the external `ffmpeg` / `ffprobe` binaries when available. They are optional system tools, not Python packages; without them, images and model browsing still work, while video thumbnails fall back to a placeholder and some video/audio metadata may be unavailable.
+
 ---
 
 ## Sample Workflows

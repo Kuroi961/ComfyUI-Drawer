@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.1.1 - 2026-05-09
+
+- Fix direct Drawer API calls to respect ComfyUI base paths and API fetch handling
+- Fix manual `ComfyBridge.queuePrompt()` payloads and make Drawer startup hooks idempotent
+- Fix Model Viewer preview replacement so stale `.preview.*` sidecars do not keep winning over the newly selected image
+- Show Model Viewer preview update/delete failures in an error dialog with the returned reason
+- Keep Drawer toast messages above dialogs and pickers instead of behind blurred backdrops
+- Show an XYZ Plot completion toast and block Deck/model-apply/media-to-node/mask actions while an XYZ sweep is active
+- Show completion toasts for user-started Gallery search index builds/syncs, and surface index failures in dialogs
+- Show dictionary import size limits inline and report oversized imports instead of failing silently
+- Show a graceful video thumbnail placeholder when external `ffmpeg` thumbnail generation is unavailable
+- Clarify direct, ComfyUI-provided, and optional system dependencies in the README files
+- Document dictionary import limits, XYZ sweep action locks, Model Viewer preview replacement, and Gallery index notifications in the user guides
+- Limit the Home changelog preview to the latest three releases
+- Add regression tests for path safety, dictionary storage, and thumbnail cache naming
+- Reuse recent Gallery search index estimates when starting an index build to avoid an immediate duplicate pre-scan
+- Harden user dictionary entry routes, dictionary imports, media metadata parsing, and Gallery thumbnail cache names
+
 ## v2.1.0 - 2026-05-08
 
 - Add third-party metadata provider and contributor hooks for Gallery search indexing

@@ -11,6 +11,7 @@ from .metadata_ext import read_provider_meta
 
 _VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.avi', '.mkv')
 _AUDIO_EXTS = ('.flac', '.mp3', '.opus', '.wav', '.ogg')
+_MAX_META_CHUNK_BYTES = 16 * 1024 * 1024
 
 
 def _read_png_text_chunks(filepath):
@@ -28,6 +29,12 @@ def _read_png_text_chunks(filepath):
                 chunk_type = chunk_type.decode("ascii", errors="ignore")
                 if chunk_type == "IEND":
                     break
+                if chunk_type not in ("tEXt", "iTXt") or length <= 0:
+                    f.seek(length + 4, os.SEEK_CUR)
+                    continue
+                if length > _MAX_META_CHUNK_BYTES:
+                    f.seek(length + 4, os.SEEK_CUR)
+                    continue
                 data = f.read(length)
                 f.read(4)  # CRC
                 if chunk_type == "tEXt" and len(data) > 0:
@@ -79,12 +86,16 @@ def _read_webp_riff_meta(filepath):
                     break
                 chunk_id = ch[:4]
                 chunk_size = struct.unpack_from("<I", ch, 4)[0]
-                chunk_data = f.read(chunk_size)
+                chunk_data = None
+                if chunk_id in (b"EXIF", b"XMP ", b"XMP\x00") and chunk_size <= _MAX_META_CHUNK_BYTES:
+                    chunk_data = f.read(chunk_size)
+                else:
+                    f.seek(chunk_size, os.SEEK_CUR)
                 if chunk_size % 2:
-                    f.read(1)
-                if chunk_id == b"EXIF":
+                    f.seek(1, os.SEEK_CUR)
+                if chunk_id == b"EXIF" and chunk_data is not None:
                     exif_bytes = chunk_data
-                elif chunk_id in (b"XMP ", b"XMP\x00"):
+                elif chunk_id in (b"XMP ", b"XMP\x00") and chunk_data is not None:
                     xmp_bytes = chunk_data
 
         if exif_bytes:

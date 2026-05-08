@@ -604,7 +604,7 @@ const MaskService = (() => {
     Object.assign(el.style, {
       position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
       padding: '8px 18px', background: 'rgba(0,0,0,.85)', color: 'var(--cd-text)',
-      borderRadius: '8px', fontSize: '13px', zIndex: '10001', transition: 'opacity .3s',
+      borderRadius: '8px', fontSize: '13px', zIndex: '230000', transition: 'opacity .3s',
     });
     el.textContent = msg; document.body.appendChild(el);
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
@@ -612,6 +612,7 @@ const MaskService = (() => {
 
   // ── Public API ────────────────────────────────────────────────────────────
   function open({ url, filename, bridge } = {}) {
+    if (window.__xyzSweepActive) return;
     _bridge = bridge;
 
     if (!_overlay) _buildOverlay();

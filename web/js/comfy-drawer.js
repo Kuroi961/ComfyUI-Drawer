@@ -183,22 +183,31 @@ app.registerExtension({
 
     async setup() {
         // DrawerSeed: monkeypatch queuePrompt to randomize unlocked seeds
-        const origQueuePrompt = app.queuePrompt.bind(app);
-        app.queuePrompt = async function(...args) {
-            // Skip DrawerSeed randomization during XYZ sweep — the sweep
-            // manages seeds via pinnedSnapshot for within-sweep consistency
-            if (!window.__xyzSweepActive) {
-                for (const node of app.graph._nodes) {
-                    if (node.type !== 'DrawerSeed') continue;
-                    const modeW = node.widgets?.find(w => w.name === 'mode');
-                    const seedW = node.widgets?.find(w => w.name === 'seed_value');
-                    if (modeW?.value === 'randomize' && seedW) {
-                        seedW.value = Math.floor(Math.random() * 0xFFFFFFFF);
+        if (!app.__comfyDrawerQueuePromptWrapped) {
+            const origQueuePrompt = app.queuePrompt.bind(app);
+            app.queuePrompt = async function(...args) {
+                // Skip DrawerSeed randomization during XYZ sweep — the sweep
+                // manages seeds via pinnedSnapshot for within-sweep consistency
+                if (!window.__xyzSweepActive) {
+                    for (const node of app.graph._nodes) {
+                        if (node.type !== 'DrawerSeed') continue;
+                        const modeW = node.widgets?.find(w => w.name === 'mode');
+                        const seedW = node.widgets?.find(w => w.name === 'seed_value');
+                        if (modeW?.value === 'randomize' && seedW) {
+                            const buf = new Uint32Array(1);
+                            if (globalThis.crypto?.getRandomValues) {
+                                globalThis.crypto.getRandomValues(buf);
+                                seedW.value = buf[0];
+                            } else {
+                                seedW.value = Math.floor(Math.random() * 0xFFFFFFFF);
+                            }
+                        }
                     }
                 }
-            }
-            return origQueuePrompt(...args);
-        };
+                return origQueuePrompt(...args);
+            };
+            app.__comfyDrawerQueuePromptWrapped = true;
+        }
 
         // ── Hook LGraph for graph-change detection and clean metadata export ──
         // ComfyUI V2 reuses the same LGraph object and calls configure()
@@ -207,13 +216,14 @@ app.registerExtension({
         // a DOM event that DrawerShell can listen for instead of polling.
         try {
             const LGraph = app.graph?.constructor;
-            if (LGraph?.prototype?.configure) {
+            if (LGraph?.prototype?.configure && !LGraph.prototype.__comfyDrawerConfigureWrapped) {
                 const origConfigure = LGraph.prototype.configure;
                 LGraph.prototype.configure = function(...args) {
                     const result = origConfigure.apply(this, args);
                     document.dispatchEvent(new CustomEvent('drawer:graph-configured'));
                     return result;
                 };
+                LGraph.prototype.__comfyDrawerConfigureWrapped = true;
             }
             if (LGraph?.prototype?.serialize && !LGraph.prototype.__comfyDrawerSerializeWrapped) {
                 const origSerialize = LGraph.prototype.serialize;
@@ -513,7 +523,7 @@ app.registerExtension({
         });
         let hasThirdPartyDictProviders = false;
         try {
-            const resp = await fetch('/drawer/dict/third-party/status');
+            const resp = await bridge.fetchApi('/drawer/dict/third-party/status');
             if (resp.ok) {
                 const payload = await resp.json();
                 hasThirdPartyDictProviders = Boolean(payload?.hasProviders);
@@ -581,7 +591,7 @@ app.registerExtension({
                 const validRoots = ['output', 'temp', 'input'];
                 const root = validRoots.includes(source) ? source : 'output';
                 try {
-                    const r = await fetch(
+                    const r = await bridge.fetchApi(
                         `/drawer/fs/meta?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(name)}`
                     );
                     if (r.ok) meta = await r.json();
@@ -648,7 +658,7 @@ app.registerExtension({
             try {
                 const validRoots = ['output', 'temp', 'input'];
                 const root = validRoots.includes(source) ? source : 'output';
-                const r = await fetch(
+                const r = await bridge.fetchApi(
                     `/drawer/fs/meta-panels?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(name)}`
                 );
                 if (r.ok) {
@@ -966,6 +976,7 @@ app.registerExtension({
          * originate from any gadget's MediaCard or Lightbox.
          */
         async function sendMediaToLoadImageNode(ctx) {
+            if (window.__xyzSweepActive) return false;
             if (ctx?.type !== 'image' || !ctx.targetKey) return false;
             const { src, name } = resolveMediaInfo(ctx);
             if (!src) return false;
@@ -1069,7 +1080,7 @@ app.registerExtension({
                     label,
                     icon: 'send',
                     order: 20,
-                    visible: (ctx) => ctx.type === 'image',
+                    visible: (ctx) => ctx.type === 'image' && !window.__xyzSweepActive,
                     action: (ctx) => sendMediaToLoadImageNode({ ...ctx, targetKey }),
                 });
             }
@@ -1208,7 +1219,7 @@ app.registerExtension({
             label: 'Create Mask',
             icon: 'brush',
             order: 31,
-            visible: (c) => c.type === 'image',
+            visible: (c) => c.type === 'image' && !window.__xyzSweepActive,
             action:  (c) => MaskService.open({ url: c.src, filename: c.name, bridge }),
         }]);
 
@@ -1390,7 +1401,7 @@ app.registerExtension({
             render: async (container, ctx = {}) => {
                 container.innerHTML = `<div class="hm-empty">${t('common.loading')}</div>`;
                 const url = ctx.force ? '/drawer/storage/summary?refresh=1' : '/drawer/storage/summary';
-                const res = await fetch(url, { cache: 'no-store' });
+                const res = await bridge.fetchApi(url, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const overviewRows = [
@@ -1436,7 +1447,7 @@ app.registerExtension({
                 const ok = await showConfirm(t('home.serverRestartConfirm'));
                 if (!ok) return;
                 try {
-                    await fetch('/drawer/reboot', {
+                    await bridge.fetchApi('/drawer/reboot', {
                         method: 'POST',
                         headers: { 'X-Comfy-Drawer-Action': 'reboot' },
                     });
@@ -1447,7 +1458,7 @@ app.registerExtension({
                     showAlert(t('home.serverRestarting'));
                     const poll = setInterval(async () => {
                         try {
-                            const r = await fetch('/system_stats', { signal: AbortSignal.timeout(2000) });
+                            const r = await bridge.fetchApi('/system_stats', { signal: AbortSignal.timeout(2000) });
                             if (r.ok) { clearInterval(poll); location.reload(); }
                         } catch { /* still down */ }
                     }, 3000);
@@ -1485,7 +1496,7 @@ app.registerExtension({
 
         // Push saved preference to backend on startup
         const commentInitial = settings.get(COMMENT_KEY, true);
-        fetch('/drawer/settings/comments-enabled', {
+        bridge.fetchApi('/drawer/settings/comments-enabled', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ enabled: commentInitial }),
@@ -1493,7 +1504,7 @@ app.registerExtension({
 
         // Sync backend when setting changes
         settings.onChange(COMMENT_KEY, (_key, enabled) => {
-            fetch('/drawer/settings/comments-enabled', {
+            bridge.fetchApi('/drawer/settings/comments-enabled', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled }),
@@ -1593,7 +1604,7 @@ app.registerExtension({
                 ctrl.abort();
             });
             try {
-                const resp = await fetch('/drawer/fs/index-estimate', { signal: ctrl.signal });
+                const resp = await bridge.fetchApi('/drawer/fs/index-estimate', { signal: ctrl.signal });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const estimate = await resp.json();
                 measuring.close();
@@ -1618,13 +1629,97 @@ app.registerExtension({
                 const ok = await showConfirm(message, { variant: 'warning' });
                 if (!ok) return null;
             }
-            const resp = await fetch('/drawer/fs/index-start', { method: 'POST' });
+            const resp = await bridge.fetchApi('/drawer/fs/index-start', { method: 'POST' });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             bus.emit('drawer:index-build-started', data);
             return data;
         };
         drawerAPI.createSearchIndex = createSearchIndex;
+
+        const showDrawerToast = (message) => {
+            const el = document.createElement('div');
+            Object.assign(el.style, {
+                position: 'fixed',
+                bottom: '24px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                padding: '10px 20px',
+                background: 'rgba(0,0,0,.85)',
+                color: '#fff',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontFamily: 'system-ui, sans-serif',
+                zIndex: '230000',
+                pointerEvents: 'none',
+                transition: 'opacity .3s',
+                boxShadow: '0 4px 16px rgba(0,0,0,.4)',
+            });
+            el.textContent = message;
+            document.body.appendChild(el);
+            setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3500);
+        };
+
+        let manualIndexMonitor = null;
+        const stopManualIndexMonitor = () => {
+            if (manualIndexMonitor) {
+                clearInterval(manualIndexMonitor.timer);
+                manualIndexMonitor = null;
+            }
+        };
+        const getIndexMonitorError = (status, kind) => {
+            const value = String(kind === 'sync' ? status?.syncProgress || '' : status?.progress || '').trim();
+            if (!value) return '';
+            if (kind === 'sync') {
+                return /^(Sync error|Metadata refresh error):/i.test(value) ? value : '';
+            }
+            return /^Index error:/i.test(value) ? value : '';
+        };
+        const showIndexMonitorError = (kind, message) => {
+            showAlert(message || t('common.errorOccurred'), {
+                title: t(kind === 'sync' ? 'settings.searchIndexSyncFailed' : 'settings.searchIndexFailed'),
+                variant: 'danger',
+            });
+        };
+        const startManualIndexMonitor = (kind) => {
+            stopManualIndexMonitor();
+            const token = Symbol(kind);
+            manualIndexMonitor = { kind, timer: null, token };
+            const poll = async () => {
+                try {
+                    const resp = await bridge.fetchApi('/drawer/fs/index-status');
+                    if (!resp.ok || !manualIndexMonitor || manualIndexMonitor.token !== token) return;
+                    const status = await resp.json();
+                    if (!manualIndexMonitor || manualIndexMonitor.token !== token) return;
+                    const error = getIndexMonitorError(status, kind);
+                    if (error) {
+                        stopManualIndexMonitor();
+                        showIndexMonitorError(kind, error);
+                        return;
+                    }
+                    if (kind === 'build') {
+                        if (status.ready && !status.building && !status.paused) {
+                            showDrawerToast(t('settings.searchIndexReady'));
+                            stopManualIndexMonitor();
+                        }
+                        return;
+                    }
+                    if (kind === 'sync' && !status.syncing) {
+                        showDrawerToast(t('settings.searchIndexSyncComplete'));
+                        stopManualIndexMonitor();
+                    }
+                } catch (e) {
+                    console.warn('[ComfyDrawer] Search index completion monitor failed:', e);
+                }
+            };
+            manualIndexMonitor.timer = setInterval(poll, 3000);
+            setTimeout(poll, 1000);
+        };
+        bus.on('drawer:index-build-started', () => startManualIndexMonitor('build'));
+        bus.on('drawer:index-sync-started', (data) => {
+            if (data?.started === false) return;
+            startManualIndexMonitor('sync');
+        });
         // 2. Clear Drawer cache action
         const getClearCacheTargets = async () => showDialog({
             title: t('settings.clearCache'),
@@ -1676,7 +1771,7 @@ app.registerExtension({
             action: async () => {
                 const targets = await getClearCacheTargets();
                 if (!targets) return;
-                const resp = await fetch('/drawer/clear-cache', {
+                const resp = await bridge.fetchApi('/drawer/clear-cache', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(targets),
@@ -1700,7 +1795,7 @@ app.registerExtension({
             refreshEvents: ['drawer:cache-cleared', 'drawer:index-build-started', 'drawer:index-sync-started', 'drawer:index-auto-sync-changed'],
             refreshInterval: 3000,
             getButtonState: async () => {
-                const resp = await fetch('/drawer/fs/index-status');
+                const resp = await bridge.fetchApi('/drawer/fs/index-status');
                 if (!resp.ok) return { label: t('settings.create'), disabled: true, description: t('settings.searchIndexStatusUnavailable') };
                 const status = await resp.json();
                 const description = describeSearchIndexStatus(status);
@@ -1711,11 +1806,11 @@ app.registerExtension({
                 return { label: t('settings.create'), disabled: false, description };
             },
             action: async () => {
-                const statusResp = await fetch('/drawer/fs/index-status');
+                const statusResp = await bridge.fetchApi('/drawer/fs/index-status');
                 if (!statusResp.ok) throw new Error(`HTTP ${statusResp.status}`);
                 const status = await statusResp.json();
                 if (status.ready && !status.building && !status.paused && !status.syncing) {
-                    const resp = await fetch('/drawer/fs/index-sync', { method: 'POST' });
+                    const resp = await bridge.fetchApi('/drawer/fs/index-sync', { method: 'POST' });
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
                     bus.emit('drawer:index-sync-started', data);
@@ -1737,7 +1832,7 @@ app.registerExtension({
             defaultValue: false,
             order: 81,
         });
-        fetch('/drawer/fs/index-status')
+        bridge.fetchApi('/drawer/fs/index-status')
             .then(r => r.ok ? r.json() : null)
             .then(status => {
                 if (status && typeof status.autoSyncEnabled === 'boolean') {
@@ -1749,7 +1844,7 @@ app.registerExtension({
             .catch(() => { syncingAutoSyncSetting = false; });
         settings.onChange(AUTO_SYNC_KEY, (_key, enabled) => {
             if (syncingAutoSyncSetting) return;
-            fetch('/drawer/fs/index-auto-sync', {
+            bridge.fetchApi('/drawer/fs/index-auto-sync', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: !!enabled }),

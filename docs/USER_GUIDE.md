@@ -87,7 +87,8 @@ This makes it useful for comparing prompt differences, sampler settings, LoRA ch
 
 ### Execution Protection
 
-During a sweep, normal queue submission is temporarily blocked so outside actions do not mix with the sweep. If a server disconnect is detected, the sweep is aborted.
+During a sweep, normal queue submission is temporarily blocked so outside actions do not mix with the sweep. Drawer also suppresses actions that would change the current workflow state, including Deck controls, sending media to LoadImage/LoadImageMask, opening Mask Editor from context menus, and applying models from Model Viewer info cards.
+If a server disconnect is detected, the sweep is aborted.
 
 ## Gallery
 
@@ -116,6 +117,8 @@ Filename search works without a search index. To search prompt, workflow, node t
 The index is created only when the user explicitly starts it, so Drawer does not silently begin a heavy scan in large libraries. Before creation, Drawer performs a quick estimate and shows a confirmation dialog depending on the file count and estimated time.
 
 After the index is created, file additions, moves, renames, and deletes are reconciled at low priority. Existing file metadata is treated as a search snapshot and is not reinterpreted during normal sync. If providers or contributors are added or changed, sync switches to a metadata refresh path.
+
+Large output/input folders can take time to index. Drawer shows progress while indexing, reports completion for user-started builds and syncs, and shows an error dialog if indexing or sync fails. The initial estimate is reused when possible so starting an index build does not immediately repeat the same counting pass.
 
 ### Search Syntax
 
@@ -192,6 +195,8 @@ It can cover common ComfyUI model folders such as checkpoints, loras, vae, embed
 
 Models can have sidecar preview images. You can set an output image as a model preview or delete an existing preview. Video previews such as `.mp4` and `.webm` are also supported.
 
+Video thumbnails and video/audio metadata use external `ffmpeg` / `ffprobe` binaries when they are available. If `ffmpeg` is unavailable, video thumbnails fall back to a placeholder.
+
 ### CivitAI Sync
 
 Model information can be fetched from CivitAI using the SHA256 hash. Drawer supports `.red` and `.com` fallback, and can display model information, preview images, and LoRA trainedWords.
@@ -212,6 +217,8 @@ Drawer includes a dictionary service for prompt autocomplete. Dictionaries are m
 - Custom metadata keys: search completion candidates registered by third-party dictionary providers
 
 User dictionaries and the Danbooru dictionary can be used in prompt inputs and Gallery search. Custom metadata keys appear in Settings only when a dictionary provider is registered.
+
+CSV and TXT imports are limited to about 5 MB per file.
 
 ### Wildcards
 

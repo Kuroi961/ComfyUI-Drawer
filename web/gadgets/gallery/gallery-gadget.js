@@ -971,11 +971,12 @@ export class GalleryGadget extends GadgetBase {
                 return;
             }
             const endpoint = isResume ? '/drawer/fs/index-resume' : '/drawer/fs/index-start';
-            const r = await fetch(endpoint, { method: 'POST' });
+            const r = await this.bridge.fetchApi(endpoint, { method: 'POST' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const status = await r.json();
             this.#state.indexStatus = status;
             this.#renderIndexStatus(status);
+            this.bus?.emit?.('drawer:index-build-started', status);
         } catch (e) {
             console.error(`[ComfyDrawer:${this.id}] Index start failed:`, e);
         }
@@ -983,7 +984,7 @@ export class GalleryGadget extends GadgetBase {
 
     async #pauseIndexBuild() {
         try {
-            const r = await fetch('/drawer/fs/index-pause', { method: 'POST' });
+            const r = await this.bridge.fetchApi('/drawer/fs/index-pause', { method: 'POST' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const status = await r.json();
             this.#state.indexStatus = status;
@@ -1009,7 +1010,7 @@ export class GalleryGadget extends GadgetBase {
             return status;
         }
         try {
-            const r = await fetch('/drawer/fs/index-status');
+            const r = await this.bridge.fetchApi('/drawer/fs/index-status');
             if (!r.ok) {
                 this.#setSearchReady(true);
                 return null;
@@ -1091,13 +1092,13 @@ export class GalleryGadget extends GadgetBase {
     #imgUrl(file) {
         const root = this.#getRoot();
         const subfolder = file.subfolder || '';
-        return `/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}`;
+        return this.bridge.apiURL(`/drawer/fs/view?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}`);
     }
     #thumbUrl(file) {
         if (file.type !== 'image' && file.type !== 'video') return this.#imgUrl(file);
         const root = this.#getRoot();
         const subfolder = file.subfolder || '';
-        return `/drawer/fs/thumb?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}&size=512`;
+        return this.bridge.apiURL(`/drawer/fs/thumb?root=${encodeURIComponent(root)}&subfolder=${encodeURIComponent(subfolder)}&filename=${encodeURIComponent(file.name)}&size=512`);
     }
 
     #sortFiles() {
@@ -1269,7 +1270,7 @@ export class GalleryGadget extends GadgetBase {
         this.#lastFetchTime = 0;
         if (files.length) {
             try {
-                await fetch('/drawer/fs/index-generated', {
+                await this.bridge.fetchApi('/drawer/fs/index-generated', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ files }),
@@ -1306,7 +1307,7 @@ export class GalleryGadget extends GadgetBase {
             if (token !== this.#thumbWarmToken || !queue.length) return;
             const files = queue.splice(0, THUMB_WARM_BATCH_SIZE);
             try {
-                await fetch('/drawer/fs/thumb-warm', {
+                await this.bridge.fetchApi('/drawer/fs/thumb-warm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ files, size: 512 }),
@@ -1342,7 +1343,7 @@ export class GalleryGadget extends GadgetBase {
             hasWorkflow === undefined
                 ? window.ComfyDrawer?.checkWorkflowAvailable?.(metaItem).catch(() => false)
                 : Promise.resolve(hasWorkflow),
-            fetch('/drawer/fs/index-generated', {
+            this.bridge.fetchApi('/drawer/fs/index-generated', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(indexBody),
@@ -1398,7 +1399,7 @@ export class GalleryGadget extends GadgetBase {
 
         // Subfolder → fetch siblings from API
         try {
-            const r = await fetch(`/drawer/fs/siblings?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`);
+            const r = await this.bridge.fetchApi(`/drawer/fs/siblings?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`);
             const data = await r.json();
             if (!data.folders?.length) return;
 
@@ -1421,7 +1422,7 @@ export class GalleryGadget extends GadgetBase {
         const signal = this.#newFetchSignal();
         const root = this.#state.root || 'output';
         const sort = this.#state.sort || 'name-asc';
-        const r = await fetch(`/drawer/fs/browse?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&limit=${BROWSE_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&sort=${encodeURIComponent(sort)}`, { signal });
+        const r = await this.bridge.fetchApi(`/drawer/fs/browse?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&limit=${BROWSE_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&sort=${encodeURIComponent(sort)}`, { signal });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
         this.#lastFetchTime = Date.now();
         return r.json();
@@ -1432,7 +1433,7 @@ export class GalleryGadget extends GadgetBase {
         const root = this.#state.root || 'output';
         const scope = this.#getEffectiveSearchScopes().join(',');
         const sort = this.#state.sort || 'date-desc';
-        const r = await fetch(`/drawer/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&path=${encodeURIComponent(path || '')}&limit=${SEARCH_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&scope=${encodeURIComponent(scope)}&sort=${encodeURIComponent(sort)}`, { signal });
+        const r = await this.bridge.fetchApi(`/drawer/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&path=${encodeURIComponent(path || '')}&limit=${SEARCH_PAGE_SIZE}&offset=${encodeURIComponent(offset)}&scope=${encodeURIComponent(scope)}&sort=${encodeURIComponent(sort)}`, { signal });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
         this.#lastFetchTime = Date.now();
         return r.json();
@@ -1742,7 +1743,7 @@ export class GalleryGadget extends GadgetBase {
         }
 
         try {
-            const r = await fetch(`/drawer/fs/siblings?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`);
+            const r = await this.bridge.fetchApi(`/drawer/fs/siblings?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`);
             const data = await r.json();
             if (!data.folders?.length) return;
             const currentName = path ? path.split('/').pop() : '';
@@ -1992,7 +1993,7 @@ export class GalleryGadget extends GadgetBase {
                     try {
                         const root = this.#getRoot();
                         const srcSubfolder = file.subfolder ?? this.#state.path ?? '';
-                        const res = await fetch('/drawer/fs/move', {
+                        const res = await this.bridge.fetchApi('/drawer/fs/move', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -2405,7 +2406,7 @@ export class GalleryGadget extends GadgetBase {
         const root = this.#getRoot();
         const subfolder = file.subfolder ?? this.#state.path ?? '';
         try {
-            const r = await fetch('/drawer/fs/rename', {
+            const r = await this.bridge.fetchApi('/drawer/fs/rename', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ root, subfolder, oldName: file.name, newName: finalName }),
@@ -2435,7 +2436,7 @@ export class GalleryGadget extends GadgetBase {
         if (!newName || newName === name) return;
         const root = this.#getRoot();
         try {
-            const r = await fetch('/drawer/fs/rename', {
+            const r = await this.bridge.fetchApi('/drawer/fs/rename', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ root, subfolder, oldName: name, newName }),
@@ -2466,7 +2467,7 @@ export class GalleryGadget extends GadgetBase {
             if (!name) return;  // cancelled
             const root = this.#getRoot();
             try {
-                const r = await fetch('/drawer/fs/mkdir', {
+                const r = await this.bridge.fetchApi('/drawer/fs/mkdir', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ root, subfolder: parentPath, name }),
@@ -2514,7 +2515,7 @@ export class GalleryGadget extends GadgetBase {
         const { subfolder, name } = this.#parsePath(folder.path);
 
         try {
-            const r = await fetch('/drawer/fs/delete', {
+            const r = await this.bridge.fetchApi('/drawer/fs/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ root, files: [{ subfolder, name }] }),
@@ -2691,7 +2692,7 @@ export class GalleryGadget extends GadgetBase {
 
         // First attempt with conflict=skip
         try {
-            const res = await fetch('/drawer/fs/move', {
+            const res = await this.bridge.fetchApi('/drawer/fs/move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ root: destRoot, srcRoot, files: filesToMove, destSubfolder, conflict: 'skip' }),
@@ -2744,7 +2745,7 @@ export class GalleryGadget extends GadgetBase {
 
                     if (choice && choice !== null) {
                         // Re-send only the skipped files with the chosen conflict strategy
-                        const res2 = await fetch('/drawer/fs/move', {
+                        const res2 = await this.bridge.fetchApi('/drawer/fs/move', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ root: destRoot, srcRoot, files: filesToMove, destSubfolder, conflict: choice }),
@@ -2811,7 +2812,7 @@ export class GalleryGadget extends GadgetBase {
             name: f.name,
             isFolder: !!f.isFolder,
         }));
-        const r = await fetch('/drawer/fs/delete', {
+        const r = await this.bridge.fetchApi('/drawer/fs/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ root, files: payloadFiles.map(f => ({ subfolder: f.subfolder, name: f.name })) }),

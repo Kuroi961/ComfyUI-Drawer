@@ -21,6 +21,7 @@ import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/dr
 import { showAlert, showConfirm, showDialog } from '../../js/services/dialog.js';
 
 const STORAGE_KEY = "comfy-drawer-xyz-plot";
+const _t = (key, params) => window.ComfyDrawer?.t?.(key, params) ?? key;
 
 // One-time migration from old comfypilot- localStorage keys
 (function migrateOldKeys() {
@@ -164,7 +165,7 @@ export class XYZPlotGadget extends GadgetBase {
   async #checkQueueAndUpdateButton() {
     if (this.running) return; // Don't interfere during a sweep
     try {
-      const resp = await fetch('/queue');
+      const resp = await this.bridge.fetchApi('/queue');
       if (!resp.ok) return;
       const data = await resp.json();
       const running = data.queue_running?.length || 0;
@@ -1526,9 +1527,13 @@ export class XYZPlotGadget extends GadgetBase {
     this.cancelled = false;
     this.results = [];
     let completed = 0;
+    let finishedNaturally = false;
 
     // Prevent DrawerSeed's queuePrompt hook from re-randomizing seeds
     window.__xyzSweepActive = true;
+    document.dispatchEvent(new CustomEvent('drawer:xyz-sweep-state', {
+      detail: { active: true, total },
+    }));
 
     // ── Block ComfyUI interactions during sweep ──
     // Covers the entire viewport below the Drawer (z-index 9990 < Drawer's 9995)
@@ -1644,6 +1649,7 @@ export class XYZPlotGadget extends GadgetBase {
         }
         if (this.cancelled) break;
       }
+      finishedNaturally = !this.cancelled && completed === total;
     } finally {
       // ── Unlock the queue & remove graph change guard ──
       appRef.queuePrompt = origQueuePrompt;
@@ -1652,6 +1658,9 @@ export class XYZPlotGadget extends GadgetBase {
       document.removeEventListener('dragover', blockDragOver, true);
       document.removeEventListener('drop',     blockFileDrop,  true);
       window.__xyzSweepActive = false;
+      document.dispatchEvent(new CustomEvent('drawer:xyz-sweep-state', {
+        detail: { active: false, completed, total, cancelled: this.cancelled },
+      }));
       sweepOverlay.remove();
 
       // ★ Capture workflow JSON BEFORE restoring original snapshot.
@@ -1679,7 +1688,10 @@ export class XYZPlotGadget extends GadgetBase {
 
       // Build composite image(s) when done
       if (completed > 0 && !this.cancelled) {
-        this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson);
+        await this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson);
+      }
+      if (finishedNaturally) {
+        this.#showToast(_t('xyzplot.completeToast', { count: completed }));
       }
     }
   }
@@ -1687,6 +1699,29 @@ export class XYZPlotGadget extends GadgetBase {
   cancel() {
     this.cancelled = true;
     this.bridge.interrupt();
+  }
+
+  #showToast(msg) {
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '24px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      padding: '10px 20px',
+      background: 'rgba(0,0,0,.85)',
+      color: '#fff',
+      borderRadius: '8px',
+      fontSize: '13px',
+      fontFamily: 'system-ui, sans-serif',
+      zIndex: '230000',
+      pointerEvents: 'none',
+      transition: 'opacity .3s',
+      boxShadow: '0 4px 16px rgba(0,0,0,.4)',
+    });
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3500);
   }
 
   // ── Pre-sweep caution dialog (dismissable) ──

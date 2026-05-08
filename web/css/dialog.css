@@ -17,6 +17,7 @@
     z-index: 200000;
     background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(6px);
+    isolation: isolate;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -34,6 +35,7 @@
 /* ── Dialog Container ── */
 .cd-dialog {
     position: relative;
+    isolation: isolate;
     width: min(520px, 90vw);
     max-height: 80vh;
     display: flex;

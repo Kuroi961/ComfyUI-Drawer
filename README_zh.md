@@ -73,6 +73,12 @@ git clone https://github.com/Kuroi961/ComfyUI-Drawer.git
 pip install -r ComfyUI-Drawer/requirements.txt
 ```
 
+### 依赖关系
+
+`requirements.txt` 只列出本扩展会直接安装的 Python 包。Drawer 用于图片缩略图、媒体元数据和 Gallery 搜索索引的 Pillow 与 SQLite 支持，通常已经包含在 ComfyUI 环境中。
+
+视频缩略图以及视频/音频元数据会在可用时使用外部 `ffmpeg` / `ffprobe` 程序。它们是可选的系统工具，不是 Python 包；未安装时，图片和模型浏览仍可使用，视频缩略图会显示占位图，部分视频/音频元数据可能不可用。
+
 ---
 
 ## 示例工作流

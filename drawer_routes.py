@@ -6,6 +6,7 @@ import asyncio
 import csv
 import io
 import datetime
+import html
 import json
 import logging
 import random
@@ -27,7 +28,6 @@ import folder_paths
 from .dict_store import (
     count_entries as _count_entries,
     dict_file_path as _dict_file_path,
-    get_dict_type as _get_dict_type,
     read_dict_entries as _read_dict_entries,
     read_manifest as _read_manifest,
     read_wildcard_entries as _read_wildcard_entries,
@@ -307,6 +307,20 @@ async def get_model_paths(request):
 #    {id}.txt        — one entry per line     (type="wildcard")
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+_USER_DICT_ID_RE = re.compile(r"^[a-f0-9]{8}$", re.IGNORECASE)
+_MAX_DICT_IMPORT_BYTES = 5 * 1024 * 1024
+
+
+def _find_user_dict(dict_id):
+    """Return manifest entry for a known user dictionary id."""
+    if not _USER_DICT_ID_RE.match(str(dict_id or "")):
+        return None
+    for d in _read_manifest():
+        if d.get("id") == dict_id:
+            return d
+    return None
+
+
 # ── Dictionary Management Endpoints ──
 
 @_routes.get("/drawer/user-dicts")
@@ -395,7 +409,10 @@ async def delete_user_dict_full(request):
 async def get_user_dict_entries(request):
     """Return entries for a specific user dictionary."""
     dict_id = request.match_info["dict_id"]
-    dtype = _get_dict_type(dict_id)
+    dict_meta = _find_user_dict(dict_id)
+    if dict_meta is None:
+        return web.json_response({"error": "not found"}, status=404)
+    dtype = dict_meta.get("type", "dict")
     if dtype == "wildcard":
         entries = _read_wildcard_entries(dict_id)
         return web.json_response([{"text": e} for e in entries])
@@ -409,7 +426,10 @@ async def post_user_dict_entries(request):
     """Add/update entries in a specific user dictionary."""
     dict_id = request.match_info["dict_id"]
     data = await request.json()
-    dtype = _get_dict_type(dict_id)
+    dict_meta = _find_user_dict(dict_id)
+    if dict_meta is None:
+        return web.json_response({"error": "not found"}, status=404)
+    dtype = dict_meta.get("type", "dict")
 
     if dtype == "wildcard":
         if "entries" in data:
@@ -449,7 +469,10 @@ async def delete_user_dict_entries(request):
     """Delete entries from a specific user dictionary."""
     dict_id = request.match_info["dict_id"]
     data = await request.json()
-    dtype = _get_dict_type(dict_id)
+    dict_meta = _find_user_dict(dict_id)
+    if dict_meta is None:
+        return web.json_response({"error": "not found"}, status=404)
+    dtype = dict_meta.get("type", "dict")
 
     if dtype == "wildcard":
         texts_to_remove = set(data.get("texts", []))
@@ -490,7 +513,14 @@ async def import_user_dict(request):
             dtype = (await part.text()).strip()
         elif part.name == "file":
             filename = part.filename or "import"
-            file_data = await part.read(decode=True)
+            try:
+                file_data = await _read_limited_stream(part, _MAX_DICT_IMPORT_BYTES)
+            except ValueError:
+                return web.json_response({"error": "file too large"}, status=413)
+            if hasattr(part, "decode"):
+                file_data = part.decode(file_data)
+                if len(file_data) > _MAX_DICT_IMPORT_BYTES:
+                    return web.json_response({"error": "file too large"}, status=413)
 
     if file_data is None:
         return web.json_response({"error": "no file uploaded"}, status=400)
@@ -912,6 +942,31 @@ async def fs_view(request):
 
 # -- Thumbnail (cached, WebP) --
 
+_THUMB_PLACEHOLDER_STATUSES = {
+    "ffmpeg-missing": "FFmpeg not found",
+    "video-thumb-timeout": "Video thumbnail timed out",
+    "video-thumb-error": "Video thumbnail unavailable",
+}
+
+
+def _thumb_placeholder_response(kind):
+    label = _THUMB_PLACEHOLDER_STATUSES.get(kind, "Thumbnail unavailable")
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="512" height="384" viewBox="0 0 512 384">
+<rect width="512" height="384" fill="#111"/>
+<rect x="32" y="32" width="448" height="320" rx="22" fill="#1b1b1b" stroke="#333" stroke-width="2"/>
+<path d="M218 148v88l78-44-78-44z" fill="#777"/>
+<text x="256" y="278" text-anchor="middle" fill="#aaa" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="24">{html.escape(label)}</text>
+</svg>"""
+    return web.Response(
+        body=svg.encode("utf-8"),
+        content_type="image/svg+xml",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Comfy-Drawer-Thumb-Status": kind,
+        },
+    )
+
+
 @_routes.get("/drawer/fs/thumb")
 async def fs_thumb(request):
     """GET /drawer/fs/thumb?root=input&subfolder=&filename=img.png&size=200
@@ -934,6 +989,8 @@ async def fs_thumb(request):
         logger.warning(f"Thumbnail generation failed for {filename}: {e}")
         orig = _safe_path(root, subfolder, filename) if subfolder else _safe_path(root, filename)
         return web.FileResponse(orig) if orig and os.path.isfile(orig) else web.Response(status=404, text="Not found")
+    if kind in _THUMB_PLACEHOLDER_STATUSES:
+        return _thumb_placeholder_response(kind)
     if thumb_path is None:
         return web.Response(status=404 if kind == "not-found" else 400, text="Not found" if kind == "not-found" else "Invalid path")
     if kind == "original":
@@ -1928,6 +1985,40 @@ def _find_preview_path(model_path):
     return None
 
 
+def _iter_preview_sidecars(model_path):
+    """Yield existing custom preview sidecars for a model file."""
+    base_no_ext = os.path.splitext(model_path)[0]
+    for ext in _THUMB_PREVIEW_EXTS:
+        candidate = base_no_ext + ext
+        if os.path.isfile(candidate):
+            yield candidate
+
+
+def _remove_stale_preview_sidecars(model_path, keep_path=None):
+    """Remove old .preview.* sidecars so a new preview wins deterministically."""
+    keep_real = os.path.realpath(keep_path) if keep_path else None
+    removed = []
+    for preview in list(_iter_preview_sidecars(model_path)):
+        if keep_real and os.path.realpath(preview) == keep_real:
+            continue
+        try:
+            os.remove(preview)
+            removed.append(preview)
+        except OSError as e:
+            logger.warning(f"[ModelViewer] Failed to remove stale preview {preview}: {e}")
+    return removed
+
+
+def _make_preview_temp_path(preview_path):
+    """Create a temporary file next to the preview so os.replace stays atomic."""
+    fd, temp_path = tempfile.mkstemp(
+        prefix=os.path.basename(preview_path) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(preview_path),
+    )
+    return fd, temp_path
+
+
 @_routes.get("/drawer/model-thumb/{category}")
 async def model_thumbnail(request):
     """Serve sidecar preview image for a model file.
@@ -2127,14 +2218,18 @@ async def delete_model_preview(request):
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
-    preview = _find_preview_path(model_path)
-    if not preview:
+    previews = list(_iter_preview_sidecars(model_path))
+    if not previews:
         return web.json_response({"error": "no preview"}, status=404)
 
-    if not _trash_file(preview):
-        return web.json_response({"error": "failed to move preview to trash"}, status=500)
+    failed = []
+    for preview in previews:
+        if not _trash_file(preview):
+            failed.append(os.path.basename(preview))
+    if failed:
+        return web.json_response({"error": "failed to move preview to trash", "failed": failed}, status=500)
 
-    return web.json_response({"ok": True})
+    return web.json_response({"ok": True, "deleted": len(previews)})
 
 
 @_routes.post("/drawer/model-preview/{category}")
@@ -2196,10 +2291,21 @@ async def upload_model_preview(request):
     base_no_ext = os.path.splitext(model_path)[0]
     preview_path = base_no_ext + '.preview' + image_ext
 
+    temp_path = None
     try:
-        with open(preview_path, 'wb') as f:
+        fd, temp_path = _make_preview_temp_path(preview_path)
+        with os.fdopen(fd, 'wb') as f:
             f.write(image_data)
+        with _MODEL_SIDECAR_LOCK:
+            _remove_stale_preview_sidecars(model_path, keep_path=preview_path)
+            os.replace(temp_path, preview_path)
+            temp_path = None
     except Exception as e:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
         return web.json_response({"error": str(e)}, status=500)
 
     return web.json_response({"ok": True, "path": preview_path.replace("\\", "/")})
@@ -2287,8 +2393,6 @@ async def set_preview_from_output(request):
 
     JSON body: { "filename": "SDXL/foo.safetensors", "image": "subfolder/image.png" }
     """
-    import shutil
-
     category = request.match_info["category"]
     try:
         body = await request.json()
@@ -2319,9 +2423,21 @@ async def set_preview_from_output(request):
     base_no_ext = os.path.splitext(model_path)[0]
     preview_path = base_no_ext + ".preview" + image_ext
 
+    temp_path = None
     try:
-        shutil.copy2(image_path, preview_path)
+        fd, temp_path = _make_preview_temp_path(preview_path)
+        os.close(fd)
+        _shutil.copy2(image_path, temp_path)
+        with _MODEL_SIDECAR_LOCK:
+            _remove_stale_preview_sidecars(model_path, keep_path=preview_path)
+            os.replace(temp_path, preview_path)
+            temp_path = None
     except Exception as e:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
         return web.json_response({"error": str(e)}, status=500)
 
     return web.json_response({"ok": True, "path": preview_path.replace("\\", "/")})

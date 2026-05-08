@@ -71,6 +71,7 @@ class SearchIndex:
     _AUTO_SYNC_DELAY_SECONDS = 45
     _AUTO_SYNC_INTERVAL_SECONDS = 300
     _AUTO_SYNC_SETTING_KEY = "searchIndex.autoSyncEnabled"
+    _ESTIMATE_CACHE_SECONDS = 300
 
     def __init__(self, *, allowed_roots, media_exts, ftype, format_storage_rel, safe_path):
         self._allowed_roots = allowed_roots
@@ -100,6 +101,9 @@ class SearchIndex:
         self._sync_progress = ""
         self._sync_generation = 0
         self._auto_sync_enabled = bool(_get_drawer_setting(self._AUTO_SYNC_SETTING_KEY, False))
+        self._estimate_cache_total = None
+        self._estimate_cache_signature = None
+        self._estimate_cache_at = 0.0
         if self._ready and self._auto_sync_enabled:
             self.schedule_auto_sync()
 
@@ -453,6 +457,25 @@ class SearchIndex:
     def _is_sync_current(self, generation):
         return generation == self._sync_generation
 
+    def _roots_signature(self, roots):
+        return tuple((root_name, os.path.realpath(root_path)) for root_name, root_path in roots)
+
+    def _remember_estimate_total(self, total, roots_signature):
+        with self._lock:
+            self._estimate_cache_total = int(total)
+            self._estimate_cache_signature = roots_signature
+            self._estimate_cache_at = time.time()
+
+    def _recent_estimate_total(self, roots_signature):
+        with self._lock:
+            if self._estimate_cache_signature != roots_signature:
+                return None
+            if not self._estimate_cache_at:
+                return None
+            if time.time() - self._estimate_cache_at > self._ESTIMATE_CACHE_SECONDS:
+                return None
+            return self._estimate_cache_total
+
     def _build_all(self, generation, reset=True):
         """Scan all allowed roots and index media files."""
         with self._lock:
@@ -489,8 +512,14 @@ class SearchIndex:
                     continue
                 roots.append((root_name, root_path))
 
-            self._progress = "Counting index targets..."
-            self._total_expected = sum(self._count_media_files(root_path) for _root_name, root_path in roots)
+            roots_signature = self._roots_signature(roots)
+            cached_total = self._recent_estimate_total(roots_signature)
+            if cached_total is None:
+                self._progress = "Counting index targets..."
+                self._total_expected = sum(self._count_media_files(root_path) for _root_name, root_path in roots)
+            else:
+                self._progress = "Starting index build..."
+                self._total_expected = cached_total
 
             for root_name, root_path in roots:
                 if not self._is_generation_current(generation):
@@ -1450,13 +1479,15 @@ class SearchIndex:
     def estimate(self):
         """Estimate index build size and duration before starting."""
         by_ext = {}
-        for _root_name, getter in self._allowed_roots.items():
+        roots = []
+        for root_name, getter in self._allowed_roots.items():
             try:
                 root_path = getter()
             except Exception:
                 continue
             if not os.path.isdir(root_path):
                 continue
+            roots.append((root_name, root_path))
             for dirpath, dirnames, filenames in os.walk(root_path):
                 dirnames[:] = [d for d in dirnames if not d.startswith(".")]
                 for fname in filenames:
@@ -1464,6 +1495,7 @@ class SearchIndex:
                     if ext in self._media_exts:
                         by_ext.setdefault(ext, []).append(os.path.join(dirpath, fname))
         total = sum(len(paths) for paths in by_ext.values())
+        self._remember_estimate_total(total, self._roots_signature(roots))
         sampled = 0
         sample_seconds = 0.0
         sample_rate = 0.0
@@ -1501,14 +1533,16 @@ class SearchIndex:
     async def estimate_async(self):
         """Estimate index build size/duration, yielding so client abort can cancel."""
         by_ext = {}
+        roots = []
         walked = 0
-        for _root_name, getter in self._allowed_roots.items():
+        for root_name, getter in self._allowed_roots.items():
             try:
                 root_path = getter()
             except Exception:
                 continue
             if not os.path.isdir(root_path):
                 continue
+            roots.append((root_name, root_path))
             for dirpath, dirnames, filenames in os.walk(root_path):
                 dirnames[:] = [d for d in dirnames if not d.startswith(".")]
                 walked += 1
@@ -1519,6 +1553,7 @@ class SearchIndex:
                     if ext in self._media_exts:
                         by_ext.setdefault(ext, []).append(os.path.join(dirpath, fname))
         total = sum(len(paths) for paths in by_ext.values())
+        self._remember_estimate_total(total, self._roots_signature(roots))
         sampled = 0
         sample_seconds = 0.0
         sample_rate = 0.0

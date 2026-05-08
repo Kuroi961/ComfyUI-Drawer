@@ -18,10 +18,36 @@
  *   - action: one-shot button
  */
 
+import { apiFetch } from '../core/api-utils.js';
 import { showConfirm, showDialog } from './dialog.js';
 
 /** @private Locale helper — falls back to key if ComfyDrawer not ready */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
+const MAX_DICT_IMPORT_BYTES = 5 * 1024 * 1024;
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return '';
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+}
+
+async function readErrorMessage(resp, fallbackKey = 'common.errorOccurred') {
+    try {
+        const data = await resp.clone().json();
+        if (data?.error) return String(data.error);
+        if (data?.message) return String(data.message);
+    } catch (_) {
+        // Fall through to text/fallback.
+    }
+    try {
+        const text = await resp.text();
+        if (text) return text;
+    } catch (_) {
+        // Fall through to fallback.
+    }
+    return _t(fallbackKey);
+}
 
 /**
  * Open the settings panel as a dialog.
@@ -736,7 +762,7 @@ function renderDictSection(bodyEl, opts) {
     const showDictList = async () => {
         container.innerHTML = '<div class="cd-ud-loading">' + _t('common.loading') + '</div>';
         try {
-            const resp = await fetch('/drawer/user-dicts');
+            const resp = await apiFetch('/drawer/user-dicts');
             if (!resp.ok) { container.innerHTML = '<div class="cd-ud-empty">' + _t('common.loadError') + '</div>'; return; }
             const allDicts = await resp.json();
             const dicts = allDicts.filter(d => (d.type || 'dict') === type);
@@ -797,7 +823,7 @@ function renderDictSection(bodyEl, opts) {
                     d.enabled = newVal;
                     toggle.classList.toggle('on', newVal);
                     toggle.setAttribute('aria-checked', String(newVal));
-                    await fetch(`/drawer/user-dicts/${d.id}`, {
+                    await apiFetch(`/drawer/user-dicts/${d.id}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ enabled: newVal }),
@@ -846,7 +872,7 @@ function renderDictSection(bodyEl, opts) {
             const title = createInput.value.trim();
             if (!title) { cancelCreate(); return; }
             confirmCreateBtn.disabled = cancelCreateBtn.disabled = true;
-            await fetch('/drawer/user-dicts', {
+            await apiFetch('/drawer/user-dicts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title, type }),
@@ -882,8 +908,9 @@ function renderDictSection(bodyEl, opts) {
         // Import button
         const importBtn = document.createElement('button');
         importBtn.className = 'cd-ud-btn-create cd-ud-btn-import';
-        if (importIcon) importBtn.innerHTML = importIcon + ' ' + importLabel;
-        else importBtn.textContent = importLabel;
+        const importLimitText = _t('dict.importLimitShort', { limit: formatBytes(MAX_DICT_IMPORT_BYTES) });
+        if (importIcon) importBtn.innerHTML = importIcon + ' ' + importLabel + ' ' + importLimitText;
+        else importBtn.textContent = importLabel + ' ' + importLimitText;
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
         fileInput.accept = importAccept;
@@ -896,15 +923,53 @@ function renderDictSection(bodyEl, opts) {
         fileInput.addEventListener('change', async () => {
             const file = fileInput.files[0];
             if (!file) return;
+            if (file.size > MAX_DICT_IMPORT_BYTES) {
+                showDialog({
+                    title: _t('common.error'),
+                    message: _t('dict.importTooLarge', {
+                        size: formatBytes(file.size),
+                        limit: formatBytes(MAX_DICT_IMPORT_BYTES),
+                    }),
+                    showCancel: false,
+                    confirmLabel: _t('common.close'),
+                });
+                fileInput.value = '';
+                return;
+            }
             importBtn.disabled = true;
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('type', type);
-            await fetch('/drawer/user-dicts/import', { method: 'POST', body: formData });
-            reloadUserDict();
-            showDictList();
-            fileInput.value = '';
-            importBtn.disabled = false;
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('type', type);
+                const resp = await apiFetch('/drawer/user-dicts/import', { method: 'POST', body: formData });
+                if (!resp.ok) {
+                    const message = resp.status === 413
+                        ? _t('dict.importTooLarge', {
+                            size: formatBytes(file.size),
+                            limit: formatBytes(MAX_DICT_IMPORT_BYTES),
+                        })
+                        : await readErrorMessage(resp);
+                    showDialog({
+                        title: _t('dict.importFailed'),
+                        message,
+                        showCancel: false,
+                        confirmLabel: _t('common.close'),
+                    });
+                    return;
+                }
+                reloadUserDict();
+                showDictList();
+            } catch (e) {
+                showDialog({
+                    title: _t('dict.importFailed'),
+                    message: e?.message || _t('common.connectionError'),
+                    showCancel: false,
+                    confirmLabel: _t('common.close'),
+                });
+            } finally {
+                fileInput.value = '';
+                importBtn.disabled = false;
+            }
         });
         container.appendChild(importBtn);
     };
@@ -947,7 +1012,7 @@ function renderDictSection(bodyEl, opts) {
             const doSave = async () => {
                 const t = input.value.trim();
                 if (!t) { input.focus(); return; }
-                await fetch(`/drawer/user-dicts/${dictId}`, {
+                await apiFetch(`/drawer/user-dicts/${dictId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title: t }),
@@ -972,7 +1037,7 @@ function renderDictSection(bodyEl, opts) {
         hdrDelBtn.addEventListener('click', async () => {
             if (!await showConfirm(_t('dict.confirmDelete', { title: dictMeta.title }), { danger: true })) return;
             hdrDelBtn.disabled = true;
-            await fetch(`/drawer/user-dicts/${dictId}`, { method: 'DELETE' });
+            await apiFetch(`/drawer/user-dicts/${dictId}`, { method: 'DELETE' });
             reloadUserDict();
             showDictList();
         });
@@ -1026,7 +1091,7 @@ function renderDictSection(bodyEl, opts) {
             const body = isWildcard
                 ? { text: val }
                 : { tag: val, insert_text: (insertInput?.value || '').trim() };
-            await fetch(`/drawer/user-dict/${dictId}`, {
+            await apiFetch(`/drawer/user-dict/${dictId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -1056,7 +1121,7 @@ function renderDictSection(bodyEl, opts) {
         const loadEntries = async () => {
             listEl.innerHTML = '<div class="cd-ud-loading">' + _t('common.loading') + '</div>';
             try {
-                const resp = await fetch(`/drawer/user-dict/${dictId}`);
+                const resp = await apiFetch(`/drawer/user-dict/${dictId}`);
                 if (!resp.ok) { listEl.innerHTML = '<div class="cd-ud-empty">' + _t('common.loadError') + '</div>'; return; }
                 renderEntries(await resp.json());
             } catch (e) {
@@ -1102,12 +1167,12 @@ function renderDictSection(bodyEl, opts) {
                             const nt = et.value.trim();
                             if (!nt) { loadEntries(); return; }
                             if (nt !== e.text) {
-                                await fetch(`/drawer/user-dict/${dictId}`, {
+                                await apiFetch(`/drawer/user-dict/${dictId}`, {
                                     method: 'DELETE',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ texts: [e.text] }),
                                 });
-                                await fetch(`/drawer/user-dict/${dictId}`, {
+                                await apiFetch(`/drawer/user-dict/${dictId}`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ text: nt }),
@@ -1123,7 +1188,7 @@ function renderDictSection(bodyEl, opts) {
                         });
                         db.addEventListener('click', async (ev) => {
                             ev.stopPropagation(); saving = true; db.disabled = true;
-                            await fetch(`/drawer/user-dict/${dictId}`, {
+                            await apiFetch(`/drawer/user-dict/${dictId}`, {
                                 method: 'DELETE',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ texts: [e.text] }),
@@ -1155,13 +1220,13 @@ function renderDictSection(bodyEl, opts) {
                             const nt = et.value.trim();
                             if (!nt) { loadEntries(); return; }
                             if (nt !== e.tag) {
-                                await fetch(`/drawer/user-dict/${dictId}`, {
+                                await apiFetch(`/drawer/user-dict/${dictId}`, {
                                     method: 'DELETE',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ tags: [e.tag] }),
                                 });
                             }
-                            await fetch(`/drawer/user-dict/${dictId}`, {
+                            await apiFetch(`/drawer/user-dict/${dictId}`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ tag: nt, insert_text: ei.value.trim() }),
@@ -1182,7 +1247,7 @@ function renderDictSection(bodyEl, opts) {
                         });
                         db.addEventListener('click', async (ev) => {
                             ev.stopPropagation(); saving = true; db.disabled = true;
-                            await fetch(`/drawer/user-dict/${dictId}`, {
+                            await apiFetch(`/drawer/user-dict/${dictId}`, {
                                 method: 'DELETE',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ tags: [e.tag] }),

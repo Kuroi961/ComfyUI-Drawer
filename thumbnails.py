@@ -18,7 +18,7 @@ def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
         return orig, "original"
 
     thumb_base = os.path.join(root, ".thumbs")
-    thumb_name = (os.path.splitext(filename)[0] + ".webp") if ext in IMAGE_EXTS else (filename + ".webp")
+    thumb_name = filename + ".webp"
     thumb_path = safe_path(thumb_base, subfolder, thumb_name) if subfolder else safe_path(thumb_base, thumb_name)
     if thumb_path is None:
         return None, "invalid"
@@ -33,20 +33,27 @@ def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
 
     if need_generate and ext in VIDEO_EXTS:
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-        subprocess.run(
-            [
-                "ffmpeg", "-v", "error", "-y",
-                "-ss", "0.25",
-                "-i", orig,
-                "-frames:v", "1",
-                "-vf", f"thumbnail,scale={max_size}:-1",
-                thumb_path,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=12,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-v", "error", "-y",
+                    "-ss", "0.25",
+                    "-i", orig,
+                    "-frames:v", "1",
+                    "-vf", f"thumbnail,scale={max_size}:-1",
+                    thumb_path,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=12,
+                check=True,
+            )
+        except FileNotFoundError:
+            return None, "ffmpeg-missing"
+        except subprocess.TimeoutExpired:
+            return None, "video-thumb-timeout"
+        except (subprocess.CalledProcessError, OSError):
+            return None, "video-thumb-error"
     elif need_generate:
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
         with _PILImage.open(orig) as img:

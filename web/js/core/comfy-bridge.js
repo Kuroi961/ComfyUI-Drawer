@@ -197,8 +197,12 @@ export class ComfyBridge {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     client_id: this.#api.clientId,
-                    prompt,
-                    extra_data: { extra_pnginfo: { workflow: this.exportWorkflow() } },
+                    prompt: prompt.output,
+                    extra_data: {
+                        extra_pnginfo: {
+                            workflow: prompt.workflow ?? this.exportWorkflow(),
+                        },
+                    },
                     front: false,
                     number: batchCount,
                 }),

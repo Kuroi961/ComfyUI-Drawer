@@ -492,6 +492,7 @@
     /* ── Preview image with management overlay ── */
     .mv-info-preview-wrap {
         position: relative;
+        isolation: isolate;
         border-radius: var(--mv-r-m);
         overflow: hidden;
         margin-bottom: 12px;
@@ -539,6 +540,7 @@
         opacity: 0;
         transition: opacity 0.2s;
         pointer-events: none;
+        z-index: 1;
     }
 
     .mv-info-preview-wrap:hover .mv-info-preview-overlay {
@@ -558,7 +560,6 @@
         font-size: 12px;
         font-weight: 500;
         cursor: pointer;
-        backdrop-filter: blur(4px);
         transition: background 0.15s, border-color 0.15s;
     }
 

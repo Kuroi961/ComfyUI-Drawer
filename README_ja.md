@@ -73,6 +73,12 @@ git clone https://github.com/Kuroi961/ComfyUI-Drawer.git
 pip install -r ComfyUI-Drawer/requirements.txt
 ```
 
+### 依存関係
+
+`requirements.txt` には、この拡張が直接インストールする Python パッケージのみを記載しています。画像サムネイル、メディアメタデータ、Gallery 検索インデックスで使う Pillow や SQLite は、通常 ComfyUI 側の環境に含まれています。
+
+動画サムネイルおよび動画/音声メタデータの取得には、利用可能な場合に外部バイナリ `ffmpeg` / `ffprobe` を使用します。これらは Python パッケージではなく任意のシステムツールです。未導入でも画像やモデル閲覧は動作し、動画サムネイルはプレースホルダー表示になり、一部の動画/音声メタデータが取得できない場合があります。
+
 ---
 
 ## サンプルワークフロー

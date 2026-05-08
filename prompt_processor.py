@@ -11,9 +11,12 @@ import re
 from aiohttp import web
 import server
 
+from .settings import get_drawer_setting, set_drawer_setting
+
 logger = logging.getLogger("ComfyUI-Drawer")
 
-_comments_enabled = True
+_COMMENTS_SETTING_KEY = "prompt.commentsEnabled"
+_comments_enabled = bool(get_drawer_setting(_COMMENTS_SETTING_KEY, True))
 _read_manifest = None
 _read_wildcard_entries = None
 
@@ -58,6 +61,7 @@ async def set_comments_enabled(request):
     global _comments_enabled
     data = await request.json()
     _comments_enabled = bool(data.get("enabled", True))
+    set_drawer_setting(_COMMENTS_SETTING_KEY, _comments_enabled)
     return web.json_response({"enabled": _comments_enabled})
 
 

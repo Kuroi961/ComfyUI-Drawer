@@ -19,6 +19,7 @@
  *       — Attach autocomplete UI to a textarea
  *       — Public wrapper: window.ComfyDrawer.attachDictAutocomplete(textarea, opts?)
  */
+import { apiFetch } from '../core/api-utils.js';
 
 // ── Dict entry shape: { t: string, c: number, n: number, orig?: string } ──
 
@@ -371,7 +372,7 @@ export class DictService {
  */
 export function createDanbooruLoader() {
     return async () => {
-        const resp = await fetch('/drawer/tags');
+        const resp = await apiFetch('/drawer/tags');
         if (!resp.ok) {
             console.warn(`[DictService] /drawer/tags returned ${resp.status}`);
             return [];
@@ -389,7 +390,7 @@ export function createDanbooruLoader() {
  */
 export function createUserDictLoader() {
     return async () => {
-        const listResp = await fetch('/drawer/user-dicts');
+        const listResp = await apiFetch('/drawer/user-dicts');
         if (!listResp.ok) {
             console.warn(`[DictService] /drawer/user-dicts returned ${listResp.status}`);
             return [];
@@ -401,7 +402,7 @@ export function createUserDictLoader() {
             if (!d.enabled) continue;
             if ((d.type || 'dict') !== 'dict') continue;
             try {
-                const resp = await fetch(`/drawer/user-dict/${d.id}`);
+                const resp = await apiFetch(`/drawer/user-dict/${d.id}`);
                 if (!resp.ok) continue;
                 const entries = await resp.json();
                 for (const e of entries) {
@@ -431,7 +432,7 @@ export function createUserDictLoader() {
  */
 export function createWildcardLoader() {
     return async () => {
-        const listResp = await fetch('/drawer/user-dicts');
+        const listResp = await apiFetch('/drawer/user-dicts');
         if (!listResp.ok) return [];
         const dicts = await listResp.json();
         const allTags = [];
@@ -504,7 +505,7 @@ export function createNodeTypeLoader() {
  */
 export function createThirdPartyDictLoader() {
     return async () => {
-        const resp = await fetch('/drawer/dict/third-party');
+        const resp = await apiFetch('/drawer/dict/third-party');
         if (!resp.ok) return [];
         const payload = await resp.json();
         const providers = Array.isArray(payload?.providers) ? payload.providers : [];
