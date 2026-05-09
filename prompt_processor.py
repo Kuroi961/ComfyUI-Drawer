@@ -59,7 +59,10 @@ async def get_comments_enabled(request):
 
 async def set_comments_enabled(request):
     global _comments_enabled
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
     _comments_enabled = bool(data.get("enabled", True))
     set_drawer_setting(_COMMENTS_SETTING_KEY, _comments_enabled)
     return web.json_response({"enabled": _comments_enabled})

@@ -192,7 +192,7 @@ export class ComfyBridge {
     async queuePrompt(batchCount = 1) {
         try {
             const prompt = await this.#app.graphToPrompt();
-            return this.#api.fetchApi('/prompt', {
+            return this.fetchApi('/prompt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -214,7 +214,7 @@ export class ComfyBridge {
 
     /** Interrupt current generation */
     async interrupt() {
-        return this.#api.fetchApi('/interrupt', { method: 'POST' });
+        return this.fetchApi('/interrupt', { method: 'POST' });
     }
 
     /* ── File Operations ── */
@@ -225,7 +225,7 @@ export class ComfyBridge {
         formData.append('image', file);
         formData.append('subfolder', subfolder);
         formData.append('overwrite', overwrite.toString());
-        const resp = await this.#api.fetchApi('/upload/image', {
+        const resp = await this.fetchApi('/upload/image', {
             method: 'POST',
             body: formData,
         });
@@ -535,7 +535,7 @@ export class ComfyBridge {
         // Fallback: direct POST — bypasses JS hooks but always works.
         try {
             const prompt = await this.#app.graphToPrompt();
-            return this.#api.fetchApi('/prompt', {
+            return this.fetchApi('/prompt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -619,7 +619,10 @@ export class ComfyBridge {
      * @returns {Promise<Response>}
      */
     fetchApi(path, options) {
-        return this.#api.fetchApi(path, options);
+        if (typeof this.#api?.fetchApi === 'function') {
+            return this.#api.fetchApi(path, options);
+        }
+        return fetch(this.apiURL(path), options);
     }
 
     /* ── ComfyUI Settings ── */

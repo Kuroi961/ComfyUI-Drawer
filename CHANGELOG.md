@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.1.2 - 2026-05-09
+
+- Restrict Drawer media file-serving and metadata endpoints to supported media filenames instead of serving arbitrary files from allowed roots
+- Reject unsupported Gallery thumbnail requests instead of falling back to the original file
+- Return 400/413/415 responses for malformed query parameters, JSON bodies, multipart uploads, unsupported file types, and oversized uploads across Drawer routes
+- Move heavy model path and storage summary scans off the async request path
+- Make Drawer settings writes atomic to avoid corrupting `drawer_settings.json` on interrupted writes
+- Add ComfyBridge `fetchApi()` fallback coverage to internal prompt, upload, interrupt, and partial queue calls
+- Avoid unnecessary Gallery thumbnail requests for audio cards
+- Add regression coverage for media filename allowlists, typed body helpers, multipart hardening, settings atomic writes, thumbnail rejection, and Bridge fetch handling
+
 ## v2.1.1 - 2026-05-09
 
 - Fix direct Drawer API calls to respect ComfyUI base paths and API fetch handling

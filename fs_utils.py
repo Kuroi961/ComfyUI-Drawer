@@ -122,6 +122,10 @@ def is_plain_name(name):
     )
 
 
+def is_supported_media_name(filename, media_exts=MEDIA_EXTS):
+    return is_plain_name(filename) and os.path.splitext(filename)[1].lower() in media_exts
+
+
 def truthy(value):
     if isinstance(value, bool):
         return value
@@ -142,3 +146,19 @@ def body_str(data, key, default=""):
     if not isinstance(data, dict):
         return default
     return as_str(data.get(key, default), default).strip()
+
+
+def body_int(data, key, default=0, minimum=None, maximum=None):
+    if not isinstance(data, dict):
+        value = default
+    else:
+        value = data.get(key, default)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value

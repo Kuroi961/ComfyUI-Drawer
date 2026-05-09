@@ -2,6 +2,7 @@
 
 import json
 import os
+import tempfile
 import threading
 
 import folder_paths
@@ -25,8 +26,22 @@ def read_drawer_settings():
 def write_drawer_settings(data):
     with _DRAWER_SETTINGS_LOCK:
         os.makedirs(os.path.dirname(_DRAWER_SETTINGS_PATH), exist_ok=True)
-        with open(_DRAWER_SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="drawer_settings.",
+            suffix=".tmp",
+            dir=os.path.dirname(_DRAWER_SETTINGS_PATH),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
+            os.replace(tmp_path, _DRAWER_SETTINGS_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 def get_drawer_setting(key, default=None):

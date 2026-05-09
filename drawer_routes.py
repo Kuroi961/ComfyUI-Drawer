@@ -42,10 +42,12 @@ from .fs_utils import (
     ROOT_LABELS as _ROOT_LABELS,
     THUMB_WARM_EXTS as _THUMB_WARM_EXTS,
     as_str as _as_str,
+    body_int as _body_int,
     body_str as _body_str,
     format_storage_rel as _format_storage_rel,
     ftype as _ftype,
     is_plain_name as _is_plain_name,
+    is_supported_media_name as _is_supported_media_name,
     resolve_root as _resolve_root,
     safe_path as _safe_path,
     summarize_tree as _summarize_tree,
@@ -274,29 +276,30 @@ async def get_model_paths(request):
         { "path": "G:/ComfyHub2/models/loras", "models": ["SDXL/model2.safetensors", ...] },
     ]
     """
-    category = request.match_info["category"]
-    category = folder_paths.map_legacy(category)
+    def scan(category):
+        category = folder_paths.map_legacy(category)
 
-    if category not in folder_paths.folder_names_and_paths:
-        return web.json_response([], status=200)
+        if category not in folder_paths.folder_names_and_paths:
+            return []
 
-    paths_and_exts = folder_paths.folder_names_and_paths[category]
-    base_paths = paths_and_exts[0]
-    extensions = paths_and_exts[1]
+        paths_and_exts = folder_paths.folder_names_and_paths[category]
+        base_paths = paths_and_exts[0]
+        extensions = paths_and_exts[1]
 
-    result = []
-    for base_path in base_paths:
-        norm_path = base_path.replace("\\", "/")
-        if not os.path.isdir(base_path):
-            continue
-        files, _dirs = folder_paths.recursive_search(base_path, excluded_dir_names=[".git"])
-        filtered = folder_paths.filter_files_extensions(files, extensions)
-        result.append({
-            "path": norm_path,
-            "models": [f.replace("\\", "/") for f in filtered],
-        })
+        result = []
+        for base_path in base_paths:
+            norm_path = base_path.replace("\\", "/")
+            if not os.path.isdir(base_path):
+                continue
+            files, _dirs = folder_paths.recursive_search(base_path, excluded_dir_names=[".git"])
+            filtered = folder_paths.filter_files_extensions(files, extensions)
+            result.append({
+                "path": norm_path,
+                "models": [f.replace("\\", "/") for f in filtered],
+            })
+        return result
 
-    return web.json_response(result)
+    return web.json_response(await asyncio.to_thread(scan, request.match_info["category"]))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -338,8 +341,11 @@ async def create_user_dict(request):
     """Create a new user dictionary.
     Body: { "title": "辞書名", "type": "dict"|"wildcard" }
     """
-    data = await request.json()
-    title = data.get("title", "新しい辞書").strip() or "新しい辞書"
+    try:
+        data = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
+    title = _body_str(data, "title", "新しい辞書") or "新しい辞書"
     dtype = data.get("type", "dict")
     if dtype not in ("dict", "wildcard"):
         dtype = "dict"
@@ -363,7 +369,10 @@ async def update_user_dict_meta(request):
     Body: { "title": "...", "enabled": true/false }
     """
     dict_id = request.match_info["dict_id"]
-    data = await request.json()
+    try:
+        data = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
     manifest = _read_manifest()
     for d in manifest:
@@ -425,7 +434,10 @@ async def get_user_dict_entries(request):
 async def post_user_dict_entries(request):
     """Add/update entries in a specific user dictionary."""
     dict_id = request.match_info["dict_id"]
-    data = await request.json()
+    try:
+        data = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     dict_meta = _find_user_dict(dict_id)
     if dict_meta is None:
         return web.json_response({"error": "not found"}, status=404)
@@ -433,9 +445,9 @@ async def post_user_dict_entries(request):
 
     if dtype == "wildcard":
         if "entries" in data:
-            new_texts = [e.get("text", "").strip() for e in data["entries"]]
+            new_texts = [_body_str(e, "text") for e in data["entries"] if isinstance(e, dict)]
         else:
-            new_texts = [data.get("text", "").strip()]
+            new_texts = [_body_str(data, "text")]
         new_texts = [t for t in new_texts if t]
         existing = _read_wildcard_entries(dict_id)
         existing_set = set(existing)
@@ -453,12 +465,14 @@ async def post_user_dict_entries(request):
         existing = _read_dict_entries(dict_id)
         existing_map = {e["tag"]: e for e in existing}
         for entry in new_entries:
-            tag = entry.get("tag", "").strip()
+            if not isinstance(entry, dict):
+                continue
+            tag = _body_str(entry, "tag")
             if not tag:
                 continue
             existing_map[tag] = {
                 "tag": tag,
-                "insert_text": entry.get("insert_text", "").strip(),
+                "insert_text": _body_str(entry, "insert_text"),
             }
         _write_dict_entries(dict_id, list(existing_map.values()))
         return web.json_response({"ok": True, "count": len(existing_map)})
@@ -468,7 +482,10 @@ async def post_user_dict_entries(request):
 async def delete_user_dict_entries(request):
     """Delete entries from a specific user dictionary."""
     dict_id = request.match_info["dict_id"]
-    data = await request.json()
+    try:
+        data = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     dict_meta = _find_user_dict(dict_id)
     if dict_meta is None:
         return web.json_response({"error": "not found"}, status=404)
@@ -500,27 +517,35 @@ async def import_user_dict(request):
       - title: optional display name (defaults to filename)
       - type: optional "dict"|"wildcard" (auto-detected from extension)
     """
-    reader = await request.multipart()
+    try:
+        reader = await _multipart_reader(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     title = None
     dtype = None
     file_data = None
     filename = None
 
-    async for part in reader:
-        if part.name == "title":
-            title = (await part.text()).strip()
-        elif part.name == "type":
-            dtype = (await part.text()).strip()
-        elif part.name == "file":
-            filename = part.filename or "import"
-            try:
-                file_data = await _read_limited_stream(part, _MAX_DICT_IMPORT_BYTES)
-            except ValueError:
-                return web.json_response({"error": "file too large"}, status=413)
-            if hasattr(part, "decode"):
-                file_data = part.decode(file_data)
-                if len(file_data) > _MAX_DICT_IMPORT_BYTES:
+    try:
+        async for part in reader:
+            if part.name == "title":
+                title = _as_str(await part.text()).strip()
+            elif part.name == "type":
+                dtype = _as_str(await part.text()).strip()
+            elif part.name == "file":
+                filename = part.filename or "import"
+                try:
+                    file_data = await _read_limited_stream(part, _MAX_DICT_IMPORT_BYTES)
+                except ValueError:
                     return web.json_response({"error": "file too large"}, status=413)
+                if hasattr(part, "decode"):
+                    file_data = part.decode(file_data)
+                    if len(file_data) > _MAX_DICT_IMPORT_BYTES:
+                        return web.json_response({"error": "file too large"}, status=413)
+    except ValueError:
+        return web.json_response({"error": "file too large"}, status=413)
+    except Exception:
+        return web.json_response({"error": "Invalid multipart form"}, status=400)
 
     if file_data is None:
         return web.json_response({"error": "no file uploaded"}, status=400)
@@ -544,11 +569,11 @@ async def import_user_dict(request):
         rd = csv.DictReader(io.StringIO(text))
         entries = []
         for row in rd:
-            tag = row.get("tag", "").strip()
+            tag = _body_str(row, "tag")
             if tag:
                 entries.append({
                     "tag": tag,
-                    "insert_text": row.get("insert_text", "").strip(),
+                    "insert_text": _body_str(row, "insert_text"),
                 })
         _write_dict_entries(new_id, entries)
         count = len(entries)
@@ -587,6 +612,44 @@ setup_prompt_processing(_routes, _read_manifest, _read_wildcard_entries)
 
 _STORAGE_SUMMARY_CACHE = {"ts": 0.0, "data": None}
 _STORAGE_SUMMARY_TTL = 30.0
+
+
+def _query_int(request, name, default, *, minimum=None, maximum=None):
+    raw = request.query.get(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise web.HTTPBadRequest(text=f"Invalid integer: {name}")
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+async def _read_json_body(request, default=None):
+    try:
+        data = await request.json()
+    except Exception:
+        if default is not None:
+            return default
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    if not isinstance(data, dict):
+        if default is not None:
+            return default
+        raise web.HTTPBadRequest(text="JSON object required")
+    return data
+
+
+def _json_error(message, status):
+    return web.json_response({"error": message}, status=status)
+
+
+async def _multipart_reader(request):
+    try:
+        return await request.multipart()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid multipart form")
 
 
 def _normalize_search_query(query):
@@ -720,8 +783,11 @@ async def fs_browse(request):
     if root is None:
         return web.json_response({"error": "Unknown root"}, status=400)
     subpath = request.query.get("path", "").strip().replace("\\", "/")
-    limit = max(0, int(request.query.get("limit", "0")))
-    offset = max(0, int(request.query.get("offset", "0")))
+    try:
+        limit = _query_int(request, "limit", 0, minimum=0)
+        offset = _query_int(request, "offset", 0, minimum=0)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     fetch_limit = limit + 1 if limit > 0 else 0
     sort = request.query.get("sort", "name-asc").strip()
     target = _safe_path(root, subpath) if subpath else root
@@ -800,68 +866,71 @@ async def storage_summary(request):
     if not force and cached is not None and now - _STORAGE_SUMMARY_CACHE.get("ts", 0.0) < _STORAGE_SUMMARY_TTL:
         return web.json_response(cached)
 
-    roots = []
-    for root_name in ("output", "input"):
-        getter = _ALLOWED_ROOTS.get(root_name)
-        base = getter() if getter else None
-        summary = _summarize_tree(base, set(_MEDIA_EXTS))
-        roots.append({
-            "id": root_name,
-            "label": _ROOT_LABELS.get(root_name, root_name.title()),
-            "path": base,
-            **summary,
-        })
+    def scan():
+        roots = []
+        for root_name in ("output", "input"):
+            getter = _ALLOWED_ROOTS.get(root_name)
+            base = getter() if getter else None
+            summary = _summarize_tree(base, set(_MEDIA_EXTS))
+            roots.append({
+                "id": root_name,
+                "label": _ROOT_LABELS.get(root_name, root_name.title()),
+                "path": base,
+                **summary,
+            })
 
-    model_categories = []
-    model_total = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}}
-    for category in sorted(folder_paths.folder_names_and_paths.keys()):
-        try:
-            paths, exts = folder_paths.folder_names_and_paths[category]
-        except Exception:
-            continue
-        category_summary = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}, "topDirs": []}
-        for base in paths:
-            summary = _summarize_tree(base, set(exts or []))
-            category_summary["bytes"] += summary["bytes"]
-            category_summary["files"] += summary["files"]
-            category_summary["folders"] += summary["folders"]
-            for entry in summary["byExt"]:
+        model_categories = []
+        model_total = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}}
+        for category in sorted(folder_paths.folder_names_and_paths.keys()):
+            try:
+                paths, exts = folder_paths.folder_names_and_paths[category]
+            except Exception:
+                continue
+            category_summary = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}, "topDirs": []}
+            for base in paths:
+                summary = _summarize_tree(base, set(exts or []))
+                category_summary["bytes"] += summary["bytes"]
+                category_summary["files"] += summary["files"]
+                category_summary["folders"] += summary["folders"]
+                for entry in summary["byExt"]:
+                    ext = entry["ext"]
+                    category_summary["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
+                    category_summary["byExt"][ext]["bytes"] += entry["bytes"]
+                    category_summary["byExt"][ext]["files"] += entry["files"]
+            if category_summary["files"] <= 0:
+                continue
+            by_ext = sorted(category_summary["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:8]
+            item = {
+                "id": category,
+                "label": category,
+                "bytes": category_summary["bytes"],
+                "files": category_summary["files"],
+                "folders": category_summary["folders"],
+                "byExt": by_ext,
+            }
+            model_categories.append(item)
+            model_total["bytes"] += item["bytes"]
+            model_total["files"] += item["files"]
+            model_total["folders"] += item["folders"]
+            for entry in item["byExt"]:
                 ext = entry["ext"]
-                category_summary["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
-                category_summary["byExt"][ext]["bytes"] += entry["bytes"]
-                category_summary["byExt"][ext]["files"] += entry["files"]
-        if category_summary["files"] <= 0:
-            continue
-        by_ext = sorted(category_summary["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:8]
-        item = {
-            "id": category,
-            "label": category,
-            "bytes": category_summary["bytes"],
-            "files": category_summary["files"],
-            "folders": category_summary["folders"],
-            "byExt": by_ext,
-        }
-        model_categories.append(item)
-        model_total["bytes"] += item["bytes"]
-        model_total["files"] += item["files"]
-        model_total["folders"] += item["folders"]
-        for entry in item["byExt"]:
-            ext = entry["ext"]
-            model_total["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
-            model_total["byExt"][ext]["bytes"] += entry["bytes"]
-            model_total["byExt"][ext]["files"] += entry["files"]
+                model_total["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
+                model_total["byExt"][ext]["bytes"] += entry["bytes"]
+                model_total["byExt"][ext]["files"] += entry["files"]
 
-    model_categories.sort(key=lambda x: x["bytes"], reverse=True)
-    data = {
-        "roots": roots,
-        "models": {
-            "bytes": model_total["bytes"],
-            "files": model_total["files"],
-            "folders": model_total["folders"],
-            "byExt": sorted(model_total["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:12],
-            "categories": model_categories[:12],
-        },
-    }
+        model_categories.sort(key=lambda x: x["bytes"], reverse=True)
+        return {
+            "roots": roots,
+            "models": {
+                "bytes": model_total["bytes"],
+                "files": model_total["files"],
+                "folders": model_total["folders"],
+                "byExt": sorted(model_total["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:12],
+                "categories": model_categories[:12],
+            },
+        }
+
+    data = await asyncio.to_thread(scan)
     _STORAGE_SUMMARY_CACHE["ts"] = now
     _STORAGE_SUMMARY_CACHE["data"] = data
     return web.json_response(data)
@@ -918,6 +987,8 @@ async def fs_view(request):
     filename = request.query.get("filename", "").strip()
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
+    if not _is_supported_media_name(filename):
+        return web.json_response({"error": "unsupported file type"}, status=415)
     if subfolder:
         target = _safe_path(root, subfolder, filename)
     else:
@@ -981,20 +1052,24 @@ async def fs_thumb(request):
     filename = request.query.get("filename", "").strip()
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
+    if not _is_supported_media_name(filename, _THUMB_WARM_EXTS):
+        return web.json_response({"error": "unsupported file type"}, status=415)
 
-    max_size = int(request.query.get("size", "200"))
+    try:
+        max_size = _query_int(request, "size", 200, minimum=32, maximum=512)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     try:
         thumb_path, kind = await asyncio.to_thread(_ensure_gallery_thumbnail, root, subfolder, filename, max_size)
     except Exception as e:
         logger.warning(f"Thumbnail generation failed for {filename}: {e}")
-        orig = _safe_path(root, subfolder, filename) if subfolder else _safe_path(root, filename)
-        return web.FileResponse(orig) if orig and os.path.isfile(orig) else web.Response(status=404, text="Not found")
+        return web.Response(status=500, text="Thumbnail generation failed")
     if kind in _THUMB_PLACEHOLDER_STATUSES:
         return _thumb_placeholder_response(kind)
+    if kind == "unsupported":
+        return web.json_response({"error": "unsupported file type"}, status=415)
     if thumb_path is None:
         return web.Response(status=404 if kind == "not-found" else 400, text="Not found" if kind == "not-found" else "Invalid path")
-    if kind == "original":
-        return web.FileResponse(thumb_path)
 
     # Serve the thumbnail with aggressive caching
     resp = web.FileResponse(thumb_path)
@@ -1015,26 +1090,29 @@ async def fs_thumb(request):
 async def fs_thumb_warm(request):
     """POST /drawer/fs/thumb-warm — best-effort thumbnail cache warming."""
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     files = body.get("files", [])
     if not isinstance(files, list):
         return web.json_response({"error": "files must be a list"}, status=400)
-    size = body.get("size", 512)
+    size = _body_int(body, "size", 512, minimum=32, maximum=512)
 
     def warm():
         warmed = skipped = 0
         for entry in files[:20]:
-            root_name = str(entry.get("root", "output")).strip().lower()
+            if not isinstance(entry, dict):
+                skipped += 1
+                continue
+            root_name = _body_str(entry, "root", "output").lower()
             getter = _ALLOWED_ROOTS.get(root_name)
             if getter is None:
                 skipped += 1
                 continue
             try:
                 root = getter()
-                subfolder = str(entry.get("subfolder", "")).strip().replace("\\", "/").strip("/")
-                name = str(entry.get("name", entry.get("filename", ""))).strip()
+                subfolder = _body_str(entry, "subfolder").replace("\\", "/").strip("/")
+                name = _body_str(entry, "name", _body_str(entry, "filename"))
                 if not _is_plain_name(name) or os.path.splitext(name)[1].lower() not in _THUMB_WARM_EXTS:
                     skipped += 1
                     continue
@@ -1071,8 +1149,11 @@ async def fs_search(request):
     if not query:
         return web.json_response({"files": [], "total": 0, "query": ""})
     subpath = request.query.get("path", "").strip().replace("\\", "/")
-    limit = max(0, int(request.query.get("limit", "0")))
-    offset = max(0, int(request.query.get("offset", "0")))
+    try:
+        limit = _query_int(request, "limit", 0, minimum=0)
+        offset = _query_int(request, "offset", 0, minimum=0)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     fetch_limit = limit + 1 if limit > 0 else 0
     scope = request.query.get("scope", "").strip()
     sort = request.query.get("sort", "date-desc").strip()
@@ -1162,10 +1243,7 @@ async def fs_index_refresh_metadata(request):
 @_routes.put("/drawer/fs/index-auto-sync")
 async def fs_index_auto_sync(request):
     """PUT /drawer/fs/index-auto-sync — enable/disable periodic file reconciliation."""
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        body = {}
+    body = await _read_json_body(request, default={})
     enabled = _search_index.set_auto_sync_enabled(bool(body.get("enabled", False)))
     return web.json_response({"ok": True, "enabled": enabled, **_search_index.status})
 
@@ -1179,9 +1257,9 @@ async def fs_index_update(request):
     Existing metadata is preserved unless replace=true is supplied.
     """
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
     entries = body.get("entries")
     if entries and isinstance(entries, list):
@@ -1269,9 +1347,9 @@ async def fs_index_generated(request):
     Body: {"files": [{"root": "output", "subfolder": "...", "name": "..."}]}
     """
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     files = body.get("files", [])
     if not isinstance(files, list):
         return web.json_response({"error": "files must be a list"}, status=400)
@@ -1292,6 +1370,8 @@ async def fs_meta(request):
     name = request.query.get("name", "").strip()
     if not name:
         return web.json_response({"error": "Invalid"}, status=400)
+    if not _is_supported_media_name(name):
+        return web.json_response({"error": "unsupported file type"}, status=415)
 
     media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
     if media_path and os.path.isfile(media_path):
@@ -1323,6 +1403,8 @@ async def fs_meta_panels(request):
     name = request.query.get("name", "").strip()
     if not name:
         return web.json_response({"error": "Invalid"}, status=400)
+    if not _is_supported_media_name(name):
+        return web.json_response({"error": "unsupported file type"}, status=415)
 
     media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
     if not media_path or not os.path.isfile(media_path):
@@ -1374,10 +1456,10 @@ async def fs_delete(request):
             status=503,
         )
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-    root_name = body.get("root", "output").strip().lower()
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
+    root_name = _body_str(body, "root", "output").lower()
     if root_name not in _DELETABLE_ROOTS:
         return web.json_response({"error": f"Delete not allowed for root '{root_name}'"}, status=403)
     getter = _ALLOWED_ROOTS.get(root_name)
@@ -1385,6 +1467,8 @@ async def fs_delete(request):
         return web.json_response({"error": "Unknown root"}, status=400)
     root = getter()
     files = body.get("files", [])
+    if not isinstance(files, list):
+        return web.json_response({"error": "files must be a list"}, status=400)
     if not files:
         return web.json_response({"error": "No files"}, status=400)
     deleted = 0
@@ -1393,8 +1477,10 @@ async def fs_delete(request):
     deleted_folder_items = []
     index_updated = 0
     for item in files:
-        subfolder = item.get("subfolder", "")
-        name = item.get("name", "")
+        if not isinstance(item, dict):
+            continue
+        subfolder = _body_str(item, "subfolder")
+        name = _body_str(item, "name")
         if not _is_plain_name(name):
             continue
         media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
@@ -1486,12 +1572,12 @@ async def fs_move(request):
     Moves files to destSubfolder within the same root.
     """
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
     # 'root' = destination root, 'srcRoot' = source root (defaults to root)
-    root_name = body.get("root", "output").strip().lower()
+    root_name = _body_str(body, "root", "output").lower()
     if root_name == "temp":
         return web.json_response({"error": "Move to Temp is not allowed"}, status=403)
     getter = _ALLOWED_ROOTS.get(root_name)
@@ -1499,15 +1585,17 @@ async def fs_move(request):
         return web.json_response({"error": "Unknown root"}, status=400)
     dest_root = getter()
 
-    src_root_name = body.get("srcRoot", root_name).strip().lower()
+    src_root_name = _body_str(body, "srcRoot", root_name).lower()
     src_getter = _ALLOWED_ROOTS.get(src_root_name)
     if src_getter is None:
         return web.json_response({"error": "Unknown srcRoot"}, status=400)
     src_root = src_getter()
 
     files = body.get("files", [])
-    dest_subfolder = body.get("destSubfolder", "").strip()
-    conflict = body.get("conflict", "skip").strip().lower()
+    if not isinstance(files, list):
+        return web.json_response({"error": "files must be a list"}, status=400)
+    dest_subfolder = _body_str(body, "destSubfolder")
+    conflict = _body_str(body, "conflict", "skip").lower()
     if conflict not in ("skip", "rename", "overwrite"):
         conflict = "skip"
     if not files:
@@ -1526,8 +1614,10 @@ async def fs_move(request):
     errors = []
     index_updated = 0
     for item in files:
-        subfolder = item.get("subfolder", "")
-        name = item.get("name", "")
+        if not isinstance(item, dict):
+            continue
+        subfolder = _body_str(item, "subfolder")
+        name = _body_str(item, "name")
         if not _is_plain_name(name):
             continue
         src_path = _safe_path(src_root, subfolder, name) if subfolder else _safe_path(src_root, name)
@@ -1632,18 +1722,18 @@ async def fs_mkdir(request):
     Creates a new directory inside root/subfolder.
     """
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-    root_name = body.get("root", "output").strip().lower()
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
+    root_name = _body_str(body, "root", "output").lower()
     if root_name == "temp":
         return web.json_response({"error": "Folder creation in Temp is not allowed"}, status=403)
     getter = _ALLOWED_ROOTS.get(root_name)
     if getter is None:
         return web.json_response({"error": "Unknown root"}, status=400)
     root = getter()
-    subfolder = body.get("subfolder", "").strip()
-    name = body.get("name", "").strip()
+    subfolder = _body_str(body, "subfolder")
+    name = _body_str(body, "name")
     if not name:
         return web.json_response({"error": "Folder name required"}, status=400)
     # Reject names with path separators
@@ -1675,17 +1765,17 @@ async def fs_rename(request):
     Renames a file or folder. Rejects if newName already exists.
     """
     try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-    root_name = body.get("root", "output").strip().lower()
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
+    root_name = _body_str(body, "root", "output").lower()
     getter = _ALLOWED_ROOTS.get(root_name)
     if getter is None:
         return web.json_response({"error": "Unknown root"}, status=400)
     root = getter()
-    subfolder = body.get("subfolder", "").strip()
-    old_name = body.get("oldName", "").strip()
-    new_name = body.get("newName", "").strip()
+    subfolder = _body_str(body, "subfolder")
+    old_name = _body_str(body, "oldName")
+    new_name = _body_str(body, "newName")
     if not old_name or not new_name:
         return web.json_response({"error": "Both oldName and newName required"}, status=400)
     if not _is_plain_name(old_name) or not _is_plain_name(new_name):
@@ -1857,11 +1947,13 @@ async def _save_grid(request):
     except Exception as e:
         logger.warning(f"save_grid: JSON parse error: {e}")
         return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "JSON object required"}, status=400)
 
-    image_b64 = data.get("image_data", "")
-    filename_prefix = data.get("filename_prefix", "ComfyDrawer/xyz_plot")
-    fmt = data.get("format", "png").lower()
-    quality = data.get("quality", 95)
+    image_b64 = _body_str(data, "image_data")
+    filename_prefix = _body_str(data, "filename_prefix", "ComfyDrawer/xyz_plot")
+    fmt = _body_str(data, "format", "png").lower()
+    quality = _body_int(data, "quality", 95, minimum=1, maximum=100)
     save_metadata = data.get("save_metadata", True)
     workflow_json = data.get("workflow_json", None)
 
@@ -2136,11 +2228,11 @@ async def save_trigger_words(request):
     """
     category = request.match_info["category"]
     try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
-    filename = body.get("filename", "")
+    filename = _body_str(body, "filename")
     trigger_words = body.get("triggerWords", [])
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
@@ -2172,12 +2264,12 @@ async def save_model_comment(request):
     """
     category = request.match_info["category"]
     try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
-    filename = body.get("filename", "")
-    comment = body.get("comment", "")
+    filename = _body_str(body, "filename")
+    comment = _body_str(body, "comment")
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
@@ -2245,26 +2337,34 @@ async def upload_model_preview(request):
     if request.content_length and request.content_length > _MAX_MODEL_PREVIEW_BYTES:
         return web.json_response({"error": "request too large"}, status=413)
 
-    reader = await request.multipart()
+    try:
+        reader = await _multipart_reader(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     filename = None
     image_data = None
     image_ext = '.png'
 
-    async for part in reader:
-        if part.name == 'filename':
-            filename = (await part.text()).strip()
-        elif part.name == 'image':
-            try:
-                image_data = await _read_limited_stream(part, _MAX_MODEL_PREVIEW_BYTES)
-            except ValueError as e:
-                return web.json_response({"error": str(e)}, status=413)
-            ct = part.headers.get('Content-Type', '')
-            if 'jpeg' in ct or 'jpg' in ct:
-                image_ext = '.jpeg'
-            elif 'webp' in ct:
-                image_ext = '.webp'
-            elif 'png' in ct:
-                image_ext = '.png'
+    try:
+        async for part in reader:
+            if part.name == 'filename':
+                filename = _as_str(await part.text()).strip()
+            elif part.name == 'image':
+                try:
+                    image_data = await _read_limited_stream(part, _MAX_MODEL_PREVIEW_BYTES)
+                except ValueError as e:
+                    return web.json_response({"error": str(e)}, status=413)
+                ct = part.headers.get('Content-Type', '')
+                if 'jpeg' in ct or 'jpg' in ct:
+                    image_ext = '.jpeg'
+                elif 'webp' in ct:
+                    image_ext = '.webp'
+                elif 'png' in ct:
+                    image_ext = '.png'
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=413)
+    except Exception:
+        return web.json_response({"error": "Invalid multipart form"}, status=400)
 
     if not filename or not image_data:
         return web.json_response({"error": "filename and image required"}, status=400)
@@ -2395,12 +2495,12 @@ async def set_preview_from_output(request):
     """
     category = request.match_info["category"]
     try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
-    filename = body.get("filename", "")
-    image_value = body.get("image", "")
+    filename = _body_str(body, "filename")
+    image_value = _body_str(body, "image")
     if not filename or not image_value:
         return web.json_response({"error": "filename and image required"}, status=400)
 
@@ -2452,12 +2552,12 @@ async def create_model_folder(request):
     """
     category = request.match_info["category"]
     try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
-    subfolder = body.get("subfolder", "")
-    name = body.get("name", "").strip()
+    subfolder = _body_str(body, "subfolder")
+    name = _body_str(body, "name")
     if not name:
         return web.json_response({"error": "name required"}, status=400)
 
@@ -2505,11 +2605,11 @@ async def civitai_sync(request):
 
     category = request.match_info["category"]
     try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
+        body = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
 
-    filename = body.get("filename", "")
+    filename = _body_str(body, "filename")
     force = body.get("force", False)
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
@@ -3030,7 +3130,10 @@ async def save_custom_paths(request):
     Creates a .yaml.bak backup before overwriting.
     Body: { "profiles": [...] }
     """
-    data = await request.json()
+    try:
+        data = await _read_json_body(request)
+    except web.HTTPBadRequest as e:
+        return _json_error(e.text, 400)
     profiles = data.get("profiles", [])
 
     yaml_path = _custom_model_paths_yaml()
@@ -3038,11 +3141,13 @@ async def save_custom_paths(request):
     # Build YAML-compatible dict
     config = {}
     for prof in profiles:
-        name = prof.get("name", "").strip()
+        if not isinstance(prof, dict):
+            continue
+        name = _body_str(prof, "name")
         if not name:
             continue
         section = {}
-        base = prof.get("basePath", "").strip()
+        base = _body_str(prof, "basePath")
         if base:
             section["base_path"] = base
         if prof.get("isDefault"):
@@ -3050,8 +3155,10 @@ async def save_custom_paths(request):
         # Group entries by category — if multiple paths per category, use newline
         cat_paths = {}
         for entry in prof.get("entries", []):
-            cat = entry.get("category", "").strip()
-            path = entry.get("path", "").strip()
+            if not isinstance(entry, dict):
+                continue
+            cat = _body_str(entry, "category")
+            path = _body_str(entry, "path")
             if cat and path:
                 cat_paths.setdefault(cat, []).append(path)
         for cat, paths in cat_paths.items():
@@ -3085,10 +3192,7 @@ async def clear_drawer_cache(request):
 
     Returns: { "ok": true, "deleted": <count>, "freedBytes": <bytes> }
     """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    body = await _read_json_body(request, default={})
     clear_thumbnails = bool(body.get("thumbnails", True))
     clear_index = bool(body.get("index", True))
     if not clear_thumbnails and not clear_index:

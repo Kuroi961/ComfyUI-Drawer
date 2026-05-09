@@ -1958,7 +1958,9 @@ export class GalleryGadget extends GadgetBase {
         for (let i = 0; i < visibleFiles.length; i++) {
             const file = visibleFiles[i];
             const url = this.#imgUrl(file);
-            const thumbUrl = this.#thumbUrl(file);
+            const thumbUrl = file.type === 'audio'
+                ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+                : this.#thumbUrl(file);
             const isMedia = file.type === 'video' || file.type === 'audio';
 
             const mc = createMediaCard({

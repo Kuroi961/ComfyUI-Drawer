@@ -7,15 +7,13 @@ from .fs_utils import IMAGE_EXTS, VIDEO_EXTS, safe_path
 
 
 def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
-    from PIL import Image as _PILImage
-
     max_size = max(32, min(int(max_size), 512))
     orig = safe_path(root, subfolder, filename) if subfolder else safe_path(root, filename)
     if orig is None or not os.path.isfile(orig):
         return None, "not-found"
     ext = os.path.splitext(filename)[1].lower()
     if ext not in IMAGE_EXTS and ext not in VIDEO_EXTS:
-        return orig, "original"
+        return None, "unsupported"
 
     thumb_base = os.path.join(root, ".thumbs")
     thumb_name = filename + ".webp"
@@ -55,6 +53,8 @@ def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
         except (subprocess.CalledProcessError, OSError):
             return None, "video-thumb-error"
     elif need_generate:
+        from PIL import Image as _PILImage
+
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
         with _PILImage.open(orig) as img:
             img.thumbnail((max_size, max_size), _PILImage.LANCZOS)
