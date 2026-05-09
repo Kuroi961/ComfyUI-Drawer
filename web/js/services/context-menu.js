@@ -30,6 +30,8 @@ const ICONS = {
     info: iconSvg('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'),
     copy: iconSvg('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
     play: iconSvg('<path d="m5 3 14 9-14 9V3Z"/>'),
+    refresh: iconSvg('<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/>'),
+    'refresh-cw': iconSvg('<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/>'),
 };
 
 const ICON_ALIASES = {
@@ -120,7 +122,7 @@ export class ContextMenuService {
      * Register one or more actions for a context type.
      * @param {string} type - Context type (e.g. 'gallery-file')
      * @param {object|object[]} actions - Action(s) to register
-     *   Each action: { id, label, icon?, order?, danger?, visible?, action: (context) => void }
+     *   Each action: { id, label, icon?, order?, danger?, compact?, visible?, action: (context) => void }
      */
     register(type, actions) {
         if (!this.#registry.has(type)) this.#registry.set(type, []);
@@ -142,6 +144,7 @@ export class ContextMenuService {
                 icon: action.icon || '',
                 order: action.order ?? 50,
                 danger: action.danger || false,
+                compact: action.compact || false,
                 visible: action.visible || null, // (context) => boolean
                 action: action.action,
             });
@@ -173,6 +176,7 @@ export class ContextMenuService {
                 icon: action.icon || '',
                 order: action.order ?? 50,
                 danger: action.danger || false,
+                compact: action.compact || false,
                 visible: action.visible || null,
                 action: action.action,
             });
@@ -218,9 +222,16 @@ export class ContextMenuService {
         const visible = actions.filter(a => !a.visible || a.visible(context));
         if (visible.length === 0) return;
 
-        // Sort: non-danger by order, then danger by order
-        const normal = visible.filter(a => !a.danger).sort((a, b) => a.order - b.order);
-        const danger = visible.filter(a => a.danger).sort((a, b) => a.order - b.order);
+        // Sort: full-width actions first, compact icon actions in the footer.
+        const normal = visible
+            .filter(a => !a.compact && !a.danger)
+            .sort((a, b) => a.order - b.order);
+        const compact = visible
+            .filter(a => a.compact)
+            .sort((a, b) => a.order - b.order);
+        const danger = visible
+            .filter(a => !a.compact && a.danger)
+            .sort((a, b) => a.order - b.order);
 
         // Build menu HTML
         this.#menuEl.innerHTML = '';
@@ -229,7 +240,22 @@ export class ContextMenuService {
             this.#menuEl.appendChild(this.#createItem(item, context));
         }
 
-        if (normal.length > 0 && danger.length > 0) {
+        if (normal.length > 0 && compact.length > 0) {
+            const sep = document.createElement('div');
+            sep.className = 'cd-ctxmenu-sep';
+            this.#menuEl.appendChild(sep);
+        }
+
+        if (compact.length > 0) {
+            const footer = document.createElement('div');
+            footer.className = 'cd-ctxmenu-footer';
+            for (const item of compact) {
+                footer.appendChild(this.#createCompactItem(item, context));
+            }
+            this.#menuEl.appendChild(footer);
+        }
+
+        if ((normal.length > 0 || compact.length > 0) && danger.length > 0) {
             const sep = document.createElement('div');
             sep.className = 'cd-ctxmenu-sep';
             this.#menuEl.appendChild(sep);
@@ -340,6 +366,36 @@ export class ContextMenuService {
         label.className = 'cd-ctxmenu-label';
         label.textContent = actionDef.label;
         btn.appendChild(label);
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.hide();
+            try {
+                actionDef.action(context);
+            } catch (err) {
+                console.error(`[ContextMenu] Error in action "${actionDef.id}":`, err);
+            }
+        });
+
+        return btn;
+    }
+
+    #createCompactItem(actionDef, context) {
+        const btn = document.createElement('button');
+        btn.className = 'cd-ctxmenu-compact-item';
+        if (actionDef.danger) btn.classList.add('cd-ctxmenu-danger');
+        btn.title = actionDef.label;
+        btn.setAttribute('aria-label', actionDef.label);
+
+        const icon = document.createElement('span');
+        icon.className = 'cd-ctxmenu-icon';
+        const svg = resolveIcon(actionDef.icon);
+        if (svg) {
+            icon.innerHTML = svg;
+        } else {
+            icon.textContent = actionDef.icon || actionDef.label;
+        }
+        btn.appendChild(icon);
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();

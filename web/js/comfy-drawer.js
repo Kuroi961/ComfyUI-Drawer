@@ -598,7 +598,45 @@ app.registerExtension({
                 } catch { /* fetch failed — fall through */ }
             }
 
-            return (meta && (meta.prompt || meta.workflow)) ? meta : null;
+            return (meta && typeof meta === 'object' && Object.keys(meta).length) ? meta : null;
+        }
+
+        function canOpenWorkflowFromMeta(meta, item = {}) {
+            if (meta?.workflow) return true;
+            const name = String(item?.name || '').toLowerCase();
+            const src = String(item?.src || '').toLowerCase();
+            const isPng = name.endsWith('.png') || src.includes('.png');
+            return isPng && !!meta?.a1111;
+        }
+
+        function showToast(message, { duration = 2500 } = {}) {
+            const el = document.createElement('div');
+            el.className = 'cd-toast';
+            el.textContent = message;
+            document.body.appendChild(el);
+            requestAnimationFrame(() => el.classList.add('visible'));
+            setTimeout(() => {
+                el.classList.remove('visible');
+                setTimeout(() => el.remove(), 250);
+            }, duration);
+        }
+
+        async function openMediaViaNativeHandler(item, name) {
+            if (!item?.src || !bridge?.handleFile) return false;
+            try {
+                const response = await fetch(item.src);
+                if (!response.ok) return false;
+                const blob = await response.blob();
+                const file = new File([blob], name || item.name || 'media.png', {
+                    type: blob.type || 'image/png',
+                });
+                await bridge.handleFile(file);
+                closeLightbox();
+                return true;
+            } catch (e) {
+                console.warn('[ComfyDrawer] native media import failed:', e);
+                return false;
+            }
         }
 
         /**
@@ -610,7 +648,15 @@ app.registerExtension({
         async function checkWorkflowAvailable(item) {
             try {
                 const meta = await fetchMediaMeta(item);
-                return !!(meta?.workflow);
+                return canOpenWorkflowFromMeta(meta, item);
+            } catch {
+                return false;
+            }
+        }
+
+        async function checkMetadataAvailable(item) {
+            try {
+                return !!(await fetchMediaMeta(item));
             } catch {
                 return false;
             }
@@ -618,8 +664,8 @@ app.registerExtension({
 
         /**
          * Load a workflow from media metadata.
-         * Tries metadata providers, then embedded metadata.
-         * Does NOT fall back to handleFile(blob) to avoid side effects.
+         * Tries ComfyUI workflow JSON directly. For A1111/NAI-style image
+         * metadata, delegates to ComfyUI's native handleFile importer.
          * @returns {Promise<boolean>} true if workflow was loaded.
          */
         async function openWorkflowFromMedia(item) {
@@ -636,6 +682,9 @@ app.registerExtension({
                 } catch (e) {
                     console.warn('[ComfyDrawer] loadWorkflow from meta failed:', e);
                 }
+            }
+            if (canOpenWorkflowFromMeta(meta, { ...item, name })) {
+                return await openMediaViaNativeHandler(item, name);
             }
 
             return false;
@@ -706,8 +755,89 @@ app.registerExtension({
                 textarea.className = `cd-dialog-input cd-dialog-json-viewer ${className}`.trim();
                 textarea.readOnly = true;
                 textarea.spellcheck = false;
+                textarea.wrap = 'soft';
                 textarea.value = value;
                 parent.appendChild(textarea);
+            };
+
+            const addTextBlock = (parent, label, value) => {
+                if (value == null || value === '') return;
+                const group = document.createElement('div');
+                group.className = 'cd-meta-text-group';
+                const title = document.createElement('div');
+                title.className = 'cd-meta-key';
+                title.textContent = label;
+                const block = document.createElement('textarea');
+                block.className = 'cd-dialog-input cd-dialog-json-viewer cd-meta-prompt-box';
+                block.readOnly = true;
+                block.spellcheck = false;
+                block.wrap = 'soft';
+                block.value = String(value);
+                group.append(title, block);
+                parent.appendChild(group);
+            };
+
+            const addSettingGrid = (parent, settings) => {
+                if (!settings || typeof settings !== 'object') return;
+                const entries = Object.entries(settings)
+                    .filter(([, value]) => value != null && value !== '');
+                if (!entries.length) return;
+                const grid = document.createElement('div');
+                grid.className = 'cd-meta-setting-grid';
+                for (const [key, value] of entries) {
+                    const item = document.createElement('div');
+                    item.className = 'cd-meta-setting';
+                    const k = document.createElement('div');
+                    k.className = 'cd-meta-setting-key';
+                    k.textContent = key;
+                    const v = document.createElement('div');
+                    v.className = 'cd-meta-setting-value';
+                    v.textContent = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                    item.append(k, v);
+                    grid.appendChild(item);
+                }
+                parent.appendChild(grid);
+            };
+
+            const addGenerationOverview = (parent, meta) => {
+                const sources = [];
+                if (meta?.a1111 && typeof meta.a1111 === 'object') {
+                    sources.push({
+                        title: 'A1111 Overview',
+                        data: meta.a1111,
+                        negativeKey: 'negative_prompt',
+                    });
+                }
+                if (meta?.nai && typeof meta.nai === 'object') {
+                    sources.push({
+                        title: 'NovelAI Overview',
+                        data: meta.nai,
+                        negativeKey: 'negative_prompt',
+                    });
+                }
+                for (const sourceMeta of sources) {
+                    const section = document.createElement('section');
+                    section.className = 'cd-meta-section cd-meta-generation';
+                    const title = document.createElement('h3');
+                    title.textContent = sourceMeta.title;
+                    section.appendChild(title);
+
+                    const data = sourceMeta.data;
+                    addTextBlock(section, 'Prompt', data.prompt);
+                    addTextBlock(section, 'Negative Prompt', data[sourceMeta.negativeKey] ?? data.uc);
+
+                    if (data.settings && typeof data.settings === 'object') {
+                        addSettingGrid(section, data.settings);
+                    } else {
+                        const hidden = new Set(['parameters', 'prompt', 'negative_prompt', 'uc']);
+                        const settings = {};
+                        for (const [key, value] of Object.entries(data)) {
+                            if (!hidden.has(key) && value != null && value !== '') settings[key] = value;
+                        }
+                        addSettingGrid(section, settings);
+                    }
+                    parent.appendChild(section);
+                }
             };
 
             const formatControlValues = (values) => {
@@ -804,8 +934,10 @@ app.registerExtension({
                     summary.appendChild(summaryTitle);
                     addRow(summary, 'File', name || ctx.name || 'media');
                     addRow(summary, 'Location', [source, subfolder].filter(Boolean).join('/') || source);
-                    addRow(summary, 'Workflow', workflow ? `${nodes.length} nodes, ${groups.length} groups` : 'Not found');
+                    addRow(summary, 'Workflow', workflow ? `${nodes.length} nodes, ${groups.length} groups` : (canOpenWorkflowFromMeta(meta, { name, src: ctx.src }) ? 'Importable metadata' : 'Metadata only'));
                     wrap.appendChild(summary);
+
+                    addGenerationOverview(wrap, meta);
 
                     if (workflow) {
                         const section = document.createElement('section');
@@ -969,6 +1101,41 @@ app.registerExtension({
             });
         }
 
+        async function syncMediaMetadataIndex(ctx) {
+            const { name, subfolder, source } = resolveMediaInfo(ctx);
+            const validRoots = ['output', 'temp', 'input'];
+            const root = validRoots.includes(ctx.root) ? ctx.root : (validRoots.includes(source) ? source : 'output');
+            if (!name || root === 'temp') {
+                await showAlert(t('menu.syncMetadataFailed'), { variant: 'danger' });
+                return;
+            }
+            try {
+                const response = await bridge.fetchApi('/drawer/fs/index-generated', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        replace: true,
+                        files: [{ root, subfolder: subfolder || '', name }],
+                    }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || payload?.ok === false) {
+                    throw new Error(payload?.error || response.statusText || 'sync failed');
+                }
+                const updated = Number(payload?.updated || 0);
+                if (updated > 0) {
+                    showToast(t('menu.syncMetadataDone', { name }));
+                } else if (payload?.notReady) {
+                    showToast(t('menu.syncMetadataNotReady'));
+                } else {
+                    showToast(t('menu.syncMetadataSkipped', { name }));
+                }
+            } catch (e) {
+                console.warn('[ComfyDrawer] metadata index sync failed:', e);
+                await showAlert(t('menu.syncMetadataFailed'), { variant: 'danger' });
+            }
+        }
+
         /**
          * Platform-level media action: upload a media URL into ComfyUI input
          * and apply it to a LoadImage/LoadImageMask node.
@@ -1017,6 +1184,7 @@ app.registerExtension({
                 label: t('menu.openNewTab'),
                 icon: 'external-link',
                 order: 10,
+                compact: true,
                 action: (ctx) => window.open(ctx.src, '_blank'),
             },
             // 'Send to LoadImage' entries are dynamically registered below
@@ -1024,7 +1192,7 @@ app.registerExtension({
                 id: 'media:workflow',
                 label: t('menu.openAsWorkflow'),
                 icon: 'workflow',
-                order: 30,
+                order: 10,
                 // Hide during XYZ sweep — loading a workflow mid-sweep would corrupt results
                 visible: (ctx) => ctx.hasWorkflow !== false && !window.__xyzSweepActive,
                 action: async (ctx) => {
@@ -1036,15 +1204,24 @@ app.registerExtension({
                 id: 'media:metadata',
                 label: t('menu.viewMetadata'),
                 icon: 'info',
-                order: 35,
-                visible: (ctx) => ctx.hasWorkflow !== false,
+                order: 30,
+                visible: (ctx) => ctx.hasMetadata !== false,
                 action: showMediaMetadata,
+            },
+            {
+                id: 'media:sync-metadata',
+                label: t('menu.syncMetadata'),
+                icon: 'refresh-cw',
+                order: 40,
+                visible: (ctx) => ctx.hasMetadata !== false && (ctx.root || ctx.source) !== 'temp',
+                action: syncMediaMetadataIndex,
             },
             {
                 id: 'media:download',
                 label: t('menu.download'),
                 icon: 'download',
-                order: 40,
+                order: 30,
+                compact: true,
                 action: (ctx) => {
                     const a = document.createElement('a');
                     a.href = ctx.src;
@@ -1062,7 +1239,18 @@ app.registerExtension({
         const SEND_PREFIX = 'media:send-to-';
         const refreshLoadImageMenu = () => {
             contextMenu.unregisterByPrefix(SEND_PREFIX);
-            const loadImageTargets = enumerateLoadImageTargets(bridge);
+            const targetRank = (target) => {
+                const type = String(target?.nodeType || '');
+                if (type === 'LoadImage') return 0;
+                if (type === 'LoadImageMask') return 1;
+                return 2;
+            };
+            const loadImageTargets = enumerateLoadImageTargets(bridge)
+                .sort((a, b) => (
+                    targetRank(a) - targetRank(b)
+                    || String(a.nodeTitle || a.nodeType || '').localeCompare(String(b.nodeTitle || b.nodeType || ''))
+                    || Number(a.nodeId || 0) - Number(b.nodeId || 0)
+                ));
             if (loadImageTargets.length === 0) return;
 
             // Single target → simple label; multiple → show node title/id
@@ -1079,7 +1267,7 @@ app.registerExtension({
                     id: `${SEND_PREFIX}${targetKey}`,
                     label,
                     icon: 'send',
-                    order: 20,
+                    order: 60 + targetRank(target),
                     visible: (ctx) => ctx.type === 'image' && !window.__xyzSweepActive,
                     action: (ctx) => sendMediaToLoadImageNode({ ...ctx, targetKey }),
                 });
@@ -1192,10 +1380,14 @@ app.registerExtension({
             showConfirm,
             /** Show a prompt dialog (text input) → Promise<string|null> */
             showPrompt,
+            /** Show a non-blocking toast */
+            showToast,
 
             // ── Workflow ──
             /** Check if media item has workflow data → Promise<boolean> */
             checkWorkflowAvailable,
+            /** Check if media item has displayable metadata → Promise<boolean> */
+            checkMetadataAvailable,
             /** Load workflow from media item (provider-first metadata) */
             openWorkflowFromMedia,
 
@@ -1218,8 +1410,12 @@ app.registerExtension({
             id: 'media:create-mask',
             label: 'Create Mask',
             icon: 'brush',
-            order: 31,
-            visible: (c) => c.type === 'image' && !window.__xyzSweepActive,
+            order: 20,
+            visible: (c) => (
+                c.type === 'image'
+                && !window.__xyzSweepActive
+                && enumerateLoadImageTargets(bridge, { maskOnly: true }).length > 0
+            ),
             action:  (c) => MaskService.open({ url: c.src, filename: c.name, bridge }),
         }]);
 

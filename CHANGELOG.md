@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.3 - 2026-05-09
+
+- Index successful ComfyUI image uploads into the Gallery search index so LoadImage/LoadImageMask upload paths become searchable without waiting for a later sync
+- Read A1111 `parameters` and NovelAI-style `Comment` metadata as raw Gallery metadata, index their prompt/settings fields, show formatted metadata overviews, and delegate opening them to ComfyUI's native image importer
+- Add a media context-menu action to resync one file's Gallery search metadata from the actual file contents
+- Compact common media context-menu actions into an icon-only footer and align primary action ordering
+
 ## v2.1.2 - 2026-05-09
 
 - Restrict Drawer media file-serving and metadata endpoints to supported media filenames instead of serving arbitrary files from allowed roots

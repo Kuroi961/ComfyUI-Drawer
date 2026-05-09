@@ -1353,7 +1353,8 @@ async def fs_index_generated(request):
     files = body.get("files", [])
     if not isinstance(files, list):
         return web.json_response({"error": "files must be a list"}, status=400)
-    result = _search_index.index_files_from_disk(files[:200])
+    replace = _truthy(body.get("replace", body.get("overwrite", False)))
+    result = _search_index.index_files_from_disk(files[:200], replace=replace)
     return web.json_response({"ok": True, **result})
 
 # -- Meta --

@@ -263,6 +263,31 @@ textarea.cd-dialog-json-viewer {
     white-space: pre;
 }
 
+.cd-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    z-index: 230000;
+    max-width: min(520px, calc(100vw - 32px));
+    padding: 10px 18px;
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    background: var(--cd-panel);
+    color: var(--cd-text);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translate(-50%, 8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+}
+
+.cd-toast.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
 .cd-meta-view {
     display: flex;
     flex-direction: column;
@@ -304,6 +329,49 @@ textarea.cd-dialog-json-viewer {
     overflow-wrap: anywhere;
     color: var(--cd-text);
     font-size: 12px;
+}
+
+.cd-meta-text-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+textarea.cd-meta-prompt-box {
+    min-height: 86px;
+    max-height: 180px;
+    resize: vertical;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.cd-meta-setting-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+}
+
+.cd-meta-setting {
+    min-width: 0;
+    border: 1px solid var(--cd-divider);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--cd-s1);
+}
+
+.cd-meta-setting-key {
+    margin-bottom: 4px;
+    color: var(--cd-text-dim);
+    font-size: 11px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.cd-meta-setting-value {
+    color: var(--cd-text);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 .cd-meta-chips {

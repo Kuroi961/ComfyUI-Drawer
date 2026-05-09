@@ -33,6 +33,11 @@
     "openAsWorkflow": "WFとして開く",
     "viewMetadata": "メタデータを表示",
     "viewMetadataTitle": "メタデータ — {name}",
+    "syncMetadata": "メタデータを同期",
+    "syncMetadataDone": "{name} のメタデータを同期しました",
+    "syncMetadataSkipped": "{name} のメタデータを更新できませんでした",
+    "syncMetadataNotReady": "検索インデックスがまだ準備できていません",
+    "syncMetadataFailed": "メタデータの同期に失敗しました",
     "download": "ダウンロード",
     "noMetadataData": "{name} にメタデータがありません",
     "noWorkflowData": "{name} にワークフローデータがありません"

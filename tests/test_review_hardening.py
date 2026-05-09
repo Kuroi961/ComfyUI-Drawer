@@ -153,6 +153,79 @@ class ThumbnailRegressionTests(unittest.TestCase):
             self.assertEqual(kind, "unsupported")
 
 
+class ThirdPartyMetadataTests(unittest.TestCase):
+    def test_a1111_parameters_are_raw_metadata_and_searchable(self):
+        media_metadata = _load_repo_module("media_metadata")
+        search_query = _load_repo_module("search_query")
+
+        meta = media_metadata._extract_third_party_generation_meta({
+            "parameters": (
+                "masterpiece, blue sky\n"
+                "Negative prompt: blurry, low quality\n"
+                "Steps: 28, Sampler: Euler a, CFG scale: 7, Seed: 12345"
+            )
+        })
+
+        self.assertIn("a1111", meta)
+        self.assertEqual(meta["a1111"]["settings"]["Seed"], "12345")
+        parts = search_query.extract_searchable_parts(meta)
+        self.assertIn("blue sky", parts["prompt_value"])
+        self.assertIn("blurry", parts["custom"])
+        self.assertTrue(any(
+            item.get("namespace") == "a1111"
+            and item.get("key") == "settings"
+            and "Seed 12345" in item.get("text", "")
+            for item in parts["custom_index"]
+        ))
+
+    def test_nai_comment_json_is_raw_metadata_and_searchable(self):
+        media_metadata = _load_repo_module("media_metadata")
+        search_query = _load_repo_module("search_query")
+
+        meta = media_metadata._extract_third_party_generation_meta({
+            "Comment": '{"prompt":"castle at night","uc":"bad anatomy","seed":987,"sampler":"k_euler"}'
+        })
+
+        self.assertIn("nai", meta)
+        self.assertEqual(meta["nai"]["negative_prompt"], "bad anatomy")
+        parts = search_query.extract_searchable_parts(meta)
+        self.assertIn("castle at night", parts["prompt_value"])
+        self.assertIn("k_euler", parts["custom"])
+
+    def test_nai_official_inspect_fields_are_merged(self):
+        media_metadata = _load_repo_module("media_metadata")
+
+        meta = media_metadata._extract_third_party_generation_meta({
+            "Title": "NovelAI generated image",
+            "Description": "Artist:hanada ten, simple background, masterpiece",
+            "Software": "NovelAI",
+            "Source": "NovelAI Diffusion V4.5 4BDE2A90",
+            "Comment": (
+                '{"uc":"nsfw, lowres, bad quality",'
+                '"width":832,"height":1216,"seed":2407665985,'
+                '"steps":27,"sampler":"k_euler_ancestral","scale":5,'
+                '"cfg_rescale":0,"request_type":"Text to Image"}'
+            ),
+        })
+
+        nai = meta["nai"]
+        self.assertEqual(nai["prompt"], "Artist:hanada ten, simple background, masterpiece")
+        self.assertEqual(nai["negative_prompt"], "nsfw, lowres, bad quality")
+        self.assertEqual(nai["software"], "NovelAI")
+        self.assertEqual(nai["model"], "NovelAI Diffusion V4.5 4BDE2A90")
+        self.assertEqual(nai["size"], "832x1216")
+
+    def test_exif_unicode_user_comment_accepts_utf16be(self):
+        media_metadata = _load_repo_module("media_metadata")
+
+        raw = b"UNICODE\x00" + "masterpiece, 湖\nSteps: 20, Seed: 42".encode("utf-16be")
+        text = media_metadata._decode_exif_user_comment(raw)
+
+        self.assertIn("masterpiece", text)
+        self.assertIn("湖", text)
+        self.assertIn("Seed: 42", text)
+
+
 class SettingsStoreTests(unittest.TestCase):
     def test_settings_write_is_atomic(self):
         original_path = settings._DRAWER_SETTINGS_PATH
@@ -218,6 +291,79 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertEqual(source.count("this.#api.fetchApi"), 1)
         self.assertIn("return this.fetchApi('/prompt'", source)
         self.assertIn("return this.fetchApi('/interrupt'", source)
+
+    def test_comfy_bridge_upload_indexes_input_file_best_effort(self):
+        source = (REPO_ROOT / "web" / "js" / "core" / "comfy-bridge.js").read_text(encoding="utf-8")
+
+        self.assertIn("this.fetchApi('/drawer/fs/index-generated'", source)
+        self.assertIn("root: 'input'", source)
+        self.assertIn("name: result.name", source)
+
+    def test_metadata_display_accepts_raw_metadata_without_workflow(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+
+        self.assertIn("Object.keys(meta).length", source)
+        self.assertNotIn("return (meta && (meta.prompt || meta.workflow)) ? meta : null", source)
+
+    def test_a1111_metadata_delegates_workflow_open_to_native_handle_file(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+
+        self.assertIn("function canOpenWorkflowFromMeta(meta, item = {})", source)
+        self.assertIn("return isPng && !!meta?.a1111", source)
+        self.assertIn("async function openMediaViaNativeHandler", source)
+        self.assertIn("await bridge.handleFile(file)", source)
+        self.assertIn("if (canOpenWorkflowFromMeta(meta, { ...item, name }))", source)
+
+    def test_generation_metadata_has_formatted_overview(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        css = (REPO_ROOT / "web" / "css" / "dialog.css").read_text(encoding="utf-8")
+
+        self.assertIn("const addGenerationOverview = (parent, meta)", source)
+        self.assertIn("A1111 Overview", source)
+        self.assertIn("NovelAI Overview", source)
+        self.assertIn("cd-meta-prompt-box", source)
+        self.assertIn("cd-meta-setting-grid", css)
+
+    def test_context_menu_can_resync_file_metadata_from_disk(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        index = (REPO_ROOT / "search_index.py").read_text(encoding="utf-8")
+
+        self.assertIn("async function syncMediaMetadataIndex(ctx)", source)
+        self.assertIn("id: 'media:sync-metadata'", source)
+        self.assertIn("replace: true", source)
+        self.assertIn("showToast(t('menu.syncMetadataDone'", source)
+        self.assertIn("ctx.hasMetadata !== false && (ctx.root || ctx.source) !== 'temp'", source)
+        self.assertIn("checkMetadataAvailable", source)
+        self.assertIn("cd-toast", source)
+        self.assertIn("index_files_from_disk(files[:200], replace=replace)", routes)
+        self.assertIn("def index_files_from_disk(self, entries, *, replace=False):", index)
+        self.assertIn("and not replace", index)
+
+    def test_context_menu_has_refresh_icon(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "context-menu.js").read_text(encoding="utf-8")
+
+        self.assertIn("'refresh-cw': iconSvg", source)
+
+    def test_context_menu_supports_compact_footer_actions(self):
+        service = (REPO_ROOT / "web" / "js" / "services" / "context-menu.js").read_text(encoding="utf-8")
+        drawer = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        gallery = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
+        css = (REPO_ROOT / "web" / "css" / "context-menu.css").read_text(encoding="utf-8")
+
+        self.assertIn("const compact = visible", service)
+        self.assertIn("cd-ctxmenu-footer", service)
+        self.assertIn("#createCompactItem", service)
+        self.assertIn(".cd-ctxmenu-compact-item", css)
+        self.assertIn("id: 'media:download'", drawer)
+        self.assertIn("compact: true", drawer)
+        self.assertIn("const targetRank = (target) =>", drawer)
+        self.assertIn("if (type === 'LoadImage') return 0", drawer)
+        self.assertIn("if (type === 'LoadImageMask') return 1", drawer)
+        self.assertIn("order: 60 + targetRank(target)", drawer)
+        self.assertIn("enumerateLoadImageTargets(bridge, { maskOnly: true }).length > 0", drawer)
+        self.assertIn("id: 'gallery:delete'", gallery)
+        self.assertIn("danger: true,\n                compact: true", gallery)
 
 
 if __name__ == "__main__":

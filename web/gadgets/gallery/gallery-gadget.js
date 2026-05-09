@@ -1339,10 +1339,11 @@ export class GalleryGadget extends GadgetBase {
             ...base,
             source: root,
         };
-        const [workflowAvailable] = await Promise.all([
+        const [workflowAvailable, metadataAvailable] = await Promise.all([
             hasWorkflow === undefined
                 ? window.ComfyDrawer?.checkWorkflowAvailable?.(metaItem).catch(() => false)
                 : Promise.resolve(hasWorkflow),
+            window.ComfyDrawer?.checkMetadataAvailable?.(metaItem).catch(() => false),
             this.bridge.fetchApi('/drawer/fs/index-generated', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1352,6 +1353,7 @@ export class GalleryGadget extends GadgetBase {
         return {
             ...base,
             hasWorkflow: !!workflowAvailable,
+            hasMetadata: !!metadataAvailable,
         };
     }
 
@@ -2240,7 +2242,8 @@ export class GalleryGadget extends GadgetBase {
                 id: 'gallery:rename',
                 label: _t('common.rename'),
                 icon: 'edit',
-                order: 35,
+                order: 20,
+                compact: true,
                 visible: (ctx) => ctx.source === 'gallery',
                 action: (ctx) => this.#ctxRenameFile(ctx),
             },
@@ -2249,6 +2252,7 @@ export class GalleryGadget extends GadgetBase {
                 label: _t('gallery.select'),
                 icon: 'select',
                 order: 40,
+                compact: true,
                 visible: (ctx) => ctx.source === 'gallery' && !this.#state.selectMode,
                 action: (ctx) => this.#enterSelectMode(ctx.path),
             },
@@ -2258,6 +2262,7 @@ export class GalleryGadget extends GadgetBase {
                 icon: 'trash',
                 order: 100,
                 danger: true,
+                compact: true,
                 visible: (ctx) => ctx.source === 'gallery',
                 action: (ctx) => this.#ctxDeleteFile(ctx),
             },

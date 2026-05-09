@@ -230,7 +230,21 @@ export class ComfyBridge {
             body: formData,
         });
         if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
-        return resp.json();
+        const result = await resp.json();
+        if (result?.name) {
+            this.fetchApi('/drawer/fs/index-generated', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    files: [{
+                        root: 'input',
+                        subfolder: result.subfolder || '',
+                        name: result.name,
+                    }],
+                }),
+            }).catch(() => { /* best effort */ });
+        }
+        return result;
     }
 
     /** Get the URL for viewing an image

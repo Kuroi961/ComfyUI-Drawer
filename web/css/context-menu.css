@@ -83,6 +83,43 @@
         color: var(--cd-danger, #cc3355);
     }
 
+    .cd-ctxmenu-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+        padding: 2px;
+    }
+
+    .cd-ctxmenu-compact-item {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--cd-text, #e0e0e8);
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .cd-ctxmenu-compact-item:hover {
+        background: var(--cd-s2, #1a1a30);
+        color: var(--cd-text, #f0f0f8);
+    }
+
+    .cd-ctxmenu-compact-item.cd-ctxmenu-danger {
+        color: var(--cd-danger, #cc3355);
+    }
+
+    .cd-ctxmenu-compact-item.cd-ctxmenu-danger:hover {
+        background: var(--cd-danger-subtle, rgba(204,51,85,0.13));
+        color: var(--cd-danger, #cc3355);
+    }
+
     /* ── Icon ── */
     .cd-ctxmenu-icon {
         display: inline-flex;
@@ -126,6 +163,10 @@
         .cd-ctxmenu-item {
             padding: 12px 14px;
             font-size: 14px;
+        }
+        .cd-ctxmenu-compact-item {
+            width: 44px;
+            height: 44px;
         }
     }
 }

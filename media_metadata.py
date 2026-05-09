@@ -12,6 +12,8 @@ from .metadata_ext import read_provider_meta
 _VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.avi', '.mkv')
 _AUDIO_EXTS = ('.flac', '.mp3', '.opus', '.wav', '.ogg')
 _MAX_META_CHUNK_BYTES = 16 * 1024 * 1024
+_A1111_PARAMETER_KEYS = ("parameters", "Parameters")
+_NAI_COMMENT_KEYS = ("Comment", "comment")
 
 
 def _read_png_text_chunks(filepath):
@@ -154,6 +156,206 @@ def _parse_xmp_bytes_for_workflow(xmp_bytes):
     return None
 
 
+def _try_json_object(text):
+    if not isinstance(text, str):
+        return None
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _decoded_text_score(text):
+    if not isinstance(text, str) or not text:
+        return -1000
+    replacement = text.count("\ufffd")
+    controls = sum(1 for ch in text if ord(ch) < 32 and ch not in "\r\n\t")
+    ascii_printable = sum(1 for ch in text if 32 <= ord(ch) < 127)
+    latin = sum(1 for ch in text if 0x00c0 <= ord(ch) <= 0x024f)
+    cjk = sum(1 for ch in text if 0x3000 <= ord(ch) <= 0x9fff)
+    kana = sum(1 for ch in text if 0x3040 <= ord(ch) <= 0x30ff)
+    return ascii_printable + kana + cjk - latin * 2 - replacement * 80 - controls * 40
+
+
+def _decode_best(data, encodings):
+    if isinstance(data, str):
+        return data
+    if not isinstance(data, (bytes, bytearray)):
+        return ""
+    candidates = []
+    raw = bytes(data)
+    for encoding in encodings:
+        try:
+            text = raw.decode(encoding, errors="strict")
+        except UnicodeDecodeError:
+            continue
+        candidates.append((_decoded_text_score(text), text))
+    if not candidates:
+        for encoding in encodings:
+            try:
+                text = raw.decode(encoding, errors="ignore")
+            except Exception:
+                continue
+            candidates.append((_decoded_text_score(text), text))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1].strip("\x00").strip()
+
+
+def _decode_exif_user_comment(value):
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, (bytes, bytearray)):
+        return ""
+    data = bytes(value)
+    if data.startswith(b"UNICODE\x00"):
+        payload = data[8:]
+        return _decode_best(payload, ("utf-16", "utf-16le", "utf-16be"))
+    if data.startswith(b"ASCII\x00\x00\x00"):
+        return _decode_best(data[8:], ("utf-8", "ascii", "cp932", "shift_jis", "latin-1"))
+    if data.startswith(b"JIS\x00\x00\x00\x00\x00"):
+        return _decode_best(data[8:], ("iso2022_jp", "shift_jis", "cp932", "utf-8"))
+    return _decode_best(data, ("utf-8", "utf-16", "utf-16le", "utf-16be", "cp932", "shift_jis", "latin-1"))
+
+
+def _looks_like_a1111_parameters(text):
+    if not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    return (
+        "steps:" in lowered
+        or "negative prompt:" in lowered
+        or "sampler:" in lowered
+        or "cfg scale:" in lowered
+        or "seed:" in lowered
+    )
+
+
+def _parse_a1111_parameters(text):
+    if not isinstance(text, str) or not text.strip():
+        return None
+    result = {"parameters": text.strip()}
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if lines:
+        prompt_lines = []
+        negative_lines = []
+        in_negative = False
+        settings_line = ""
+        for line in lines:
+            stripped = line.strip()
+            if stripped.lower().startswith("negative prompt:"):
+                in_negative = True
+                negative_lines.append(stripped.split(":", 1)[1].strip())
+                continue
+            if re.search(r"\bSteps:\s*\d+", stripped):
+                settings_line = stripped
+                break
+            if in_negative:
+                negative_lines.append(line)
+            else:
+                prompt_lines.append(line)
+        prompt = "\n".join(part.rstrip() for part in prompt_lines).strip()
+        negative = "\n".join(part.rstrip() for part in negative_lines).strip()
+        if prompt:
+            result["prompt"] = prompt
+        if negative:
+            result["negative_prompt"] = negative
+        if settings_line:
+            settings = {}
+            for match in re.finditer(r"([^:,]+):\s*([^,]+)(?:,\s*|$)", settings_line):
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                if key:
+                    settings[key] = value
+            if settings:
+                result["settings"] = settings
+    return result if len(result) > 1 or _looks_like_a1111_parameters(text) else None
+
+
+def _parse_nai_comment(text):
+    data = _try_json_object(text)
+    if not data:
+        return None
+    interesting = {
+        "prompt", "uc", "negative_prompt", "seed", "steps", "scale",
+        "sampler", "model", "model_hash", "strength", "noise",
+    }
+    if not any(key in data for key in interesting):
+        return None
+    result = dict(data)
+    if "uc" in result and "negative_prompt" not in result:
+        result["negative_prompt"] = result.get("uc")
+    return result
+
+
+def _first_text_field(text_fields, keys):
+    for key in keys:
+        value = text_fields.get(key)
+        if isinstance(value, bytes):
+            value = _decode_best(value, ("utf-8", "utf-16", "cp932", "shift_jis", "latin-1"))
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _parse_nai_fields(text_fields):
+    if not isinstance(text_fields, dict):
+        return None
+    comment = None
+    for key in _NAI_COMMENT_KEYS:
+        comment = _parse_nai_comment(text_fields.get(key))
+        if comment:
+            break
+
+    software = _first_text_field(text_fields, ("Software", "software"))
+    source = _first_text_field(text_fields, ("Source", "source"))
+    title = _first_text_field(text_fields, ("Title", "title"))
+    description = _first_text_field(text_fields, ("Description", "description"))
+    looks_like_nai = (
+        comment is not None
+        or software.lower() == "novelai"
+        or source.lower().startswith("novelai")
+        or title.lower().startswith("novelai generated image")
+    )
+    if not looks_like_nai:
+        return None
+
+    result = dict(comment or {})
+    if description and not result.get("prompt"):
+        result["prompt"] = description
+    if title:
+        result["title"] = title
+    if software:
+        result["software"] = software
+    if source:
+        result["source"] = source
+        result.setdefault("model", source)
+    if "uc" in result and "negative_prompt" not in result:
+        result["negative_prompt"] = result.get("uc")
+    width = result.get("width")
+    height = result.get("height")
+    if width and height and "size" not in result:
+        result["size"] = f"{width}x{height}"
+    return result if result else None
+
+
+def _extract_third_party_generation_meta(text_fields):
+    if not isinstance(text_fields, dict):
+        return None
+    result = {}
+    for key in _A1111_PARAMETER_KEYS:
+        parsed = _parse_a1111_parameters(text_fields.get(key))
+        if parsed:
+            result["a1111"] = parsed
+            break
+    parsed = _parse_nai_fields(text_fields)
+    if parsed:
+        result["nai"] = parsed
+    return result if result else None
+
+
 def _read_embedded_meta(filepath):
     """Read ComfyUI metadata embedded in an image, video, or audio file."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -169,6 +371,9 @@ def _read_embedded_meta(filepath):
                     meta[key] = json.loads(chunks[key])
                 except (json.JSONDecodeError, ValueError):
                     pass
+        third_party = _extract_third_party_generation_meta(chunks)
+        if third_party:
+            meta.update(third_party)
         return meta if meta else None
 
     if ext in (".jpg", ".jpeg", ".webp"):
@@ -232,6 +437,9 @@ def _read_exif_meta(filepath):
                         pass
             if meta:
                 return meta
+            third_party = _extract_third_party_generation_meta(info)
+            if third_party:
+                return third_party
 
             exif = img.getexif()
             if exif:
@@ -252,14 +460,7 @@ def _read_exif_meta(filepath):
                 if exif_ifd:
                     user_comment = exif_ifd.get(0x9286)
                     if user_comment:
-                        text = user_comment
-                        if isinstance(text, bytes):
-                            if text.startswith(b"UNICODE\x00"):
-                                text = text[8:].decode("utf-16le", errors="ignore")
-                            elif text.startswith(b"ASCII\x00\x00\x00"):
-                                text = text[8:].decode("ascii", errors="ignore")
-                            else:
-                                text = text.decode("utf-8", errors="ignore")
+                        text = _decode_exif_user_comment(user_comment)
                         if isinstance(text, str) and text.strip():
                             try:
                                 data = json.loads(text)
@@ -272,6 +473,12 @@ def _read_exif_meta(filepath):
                                         return result
                             except (json.JSONDecodeError, ValueError):
                                 pass
+                            a1111 = _parse_a1111_parameters(text)
+                            if a1111:
+                                return {"a1111": a1111}
+                            nai = _parse_nai_comment(text)
+                            if nai:
+                                return {"nai": nai}
     except Exception:
         pass
 

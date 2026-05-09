@@ -33,6 +33,11 @@
     "openAsWorkflow": "Open as Workflow",
     "viewMetadata": "View Metadata",
     "viewMetadataTitle": "Metadata — {name}",
+    "syncMetadata": "Sync Metadata",
+    "syncMetadataDone": "Metadata synced for {name}",
+    "syncMetadataSkipped": "Metadata could not be updated for {name}",
+    "syncMetadataNotReady": "Search index is not ready",
+    "syncMetadataFailed": "Metadata sync failed",
     "download": "Download",
     "noMetadataData": "{name} has no metadata",
     "noWorkflowData": "{name} has no workflow data"

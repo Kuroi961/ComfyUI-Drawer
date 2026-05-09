@@ -1198,11 +1198,12 @@ class SearchIndex:
             conn.commit()
         return True
 
-    def index_files_from_disk(self, entries):
+    def index_files_from_disk(self, entries, *, replace=False):
         """Index a small list of files by reading providers/embedded metadata.
 
         Intended for generation-complete updates. This only runs when the
-        snapshot index is already ready, and it preserves existing metadata.
+        snapshot index is already ready, and it preserves existing metadata
+        unless replace=True.
         """
         if not entries:
             return {"updated": 0, "skipped": 0, "notReady": not self._ready}
@@ -1253,7 +1254,7 @@ class SearchIndex:
                     FROM files
                     WHERE root=? AND subfolder=? AND name=?
                 """, (root_name, subfolder, name)).fetchone()
-                if existing and self._search_values_have_metadata(existing[1:]):
+                if existing and self._search_values_have_metadata(existing[1:]) and not replace:
                     conn.execute("""
                         UPDATE files
                         SET mtime=?, size=?, ftype=?

@@ -33,6 +33,11 @@
     "openAsWorkflow": "作为工作流打开",
     "viewMetadata": "查看元数据",
     "viewMetadataTitle": "元数据 — {name}",
+    "syncMetadata": "同步元数据",
+    "syncMetadataDone": "已同步 {name} 的元数据",
+    "syncMetadataSkipped": "无法更新 {name} 的元数据",
+    "syncMetadataNotReady": "搜索索引尚未准备好",
+    "syncMetadataFailed": "元数据同步失败",
     "download": "下载",
     "noMetadataData": "{name} 没有元数据",
     "noWorkflowData": "{name} 没有工作流数据"

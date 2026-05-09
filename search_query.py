@@ -366,6 +366,50 @@ def _merge_search_contribution(result, contribution):
         result["nodes"].extend(node for node in nodes_value if isinstance(node, dict))
 
 
+def _as_search_text(value):
+    if isinstance(value, dict):
+        return " ".join(
+            part
+            for key, child in value.items()
+            for part in (str(key), _as_search_text(child))
+            if part
+        )
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_as_search_text(v) for v in value if v is not None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _add_custom_search_entry(result, namespace, key, value):
+    text = _as_search_text(value).strip()
+    if not text:
+        return
+    namespace = str(namespace or "").strip()
+    key = str(key or "").strip()
+    result["custom"] = " ".join(part for part in (result.get("custom", ""), namespace, key, text) if part)
+    result["custom_index"].append({
+        "namespace": namespace,
+        "key": key,
+        "text": text,
+    })
+
+
+def _extract_builtin_generation_metadata(result, meta):
+    for namespace in ("a1111", "nai"):
+        value = meta.get(namespace) if isinstance(meta, dict) else None
+        if not isinstance(value, dict):
+            continue
+        for key, child in value.items():
+            _add_custom_search_entry(result, namespace, key, child)
+        prompt = value.get("prompt")
+        negative = value.get("negative_prompt", value.get("uc"))
+        if prompt:
+            _append_search_field(result, "prompt_value", prompt)
+        if negative:
+            _append_search_field(result, "prompt_value", negative)
+
+
 def extract_searchable_parts(meta, ctx=None):
     """Extract structured searchable parts from ComfyUI metadata."""
     prompt_title_parts = []
@@ -442,5 +486,6 @@ def extract_searchable_parts(meta, ctx=None):
     search = meta.get("search") if isinstance(meta, dict) else None
     if isinstance(search, dict):
         _merge_search_contribution(result, search)
+    _extract_builtin_generation_metadata(result, meta)
     apply_index_contributors(result, meta, ctx)
     return result
