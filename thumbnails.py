@@ -1,9 +1,66 @@
 """Gallery thumbnail generation helpers."""
 
 import os
+import shutil
 import subprocess
 
 from .fs_utils import IMAGE_EXTS, VIDEO_EXTS, safe_path
+
+
+def _gallery_thumbnail_path(root, subfolder, filename):
+    thumb_name = filename + ".webp"
+    return safe_path(root, ".thumbs", subfolder, thumb_name) if subfolder else safe_path(root, ".thumbs", thumb_name)
+
+
+def _gallery_thumbnail_dir_path(root, subfolder, name):
+    return safe_path(root, ".thumbs", subfolder, name) if subfolder else safe_path(root, ".thumbs", name)
+
+
+def move_gallery_thumbnail_cache(src_root, src_subfolder, src_name, dest_root, dest_subfolder, dest_name, *, is_dir=False):
+    """Move Drawer thumbnail cache alongside a Drawer-managed file/folder move."""
+    if is_dir:
+        src_thumb = _gallery_thumbnail_dir_path(src_root, src_subfolder, src_name)
+        dest_thumb = _gallery_thumbnail_dir_path(dest_root, dest_subfolder, dest_name)
+    else:
+        src_thumb = _gallery_thumbnail_path(src_root, src_subfolder, src_name)
+        dest_thumb = _gallery_thumbnail_path(dest_root, dest_subfolder, dest_name)
+    if not src_thumb or not dest_thumb or not os.path.exists(src_thumb):
+        return False
+
+    try:
+        os.makedirs(os.path.dirname(dest_thumb), exist_ok=True)
+        if is_dir and os.path.isdir(src_thumb) and os.path.isdir(dest_thumb):
+            for item in os.listdir(src_thumb):
+                shutil.move(os.path.join(src_thumb, item), os.path.join(dest_thumb, item))
+            try:
+                os.rmdir(src_thumb)
+            except OSError:
+                pass
+        else:
+            os.replace(src_thumb, dest_thumb)
+        return True
+    except Exception:
+        return False
+
+
+def remove_gallery_thumbnail_cache(root, subfolder, name, *, is_dir=False):
+    """Remove Drawer thumbnail cache after a Drawer-managed file/folder delete."""
+    thumb_path = (
+        _gallery_thumbnail_dir_path(root, subfolder, name)
+        if is_dir
+        else _gallery_thumbnail_path(root, subfolder, name)
+    )
+    if not thumb_path or not os.path.exists(thumb_path):
+        return False
+
+    try:
+        if os.path.isdir(thumb_path):
+            shutil.rmtree(thumb_path)
+        else:
+            os.remove(thumb_path)
+        return True
+    except Exception:
+        return False
 
 
 def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
@@ -15,9 +72,7 @@ def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
     if ext not in IMAGE_EXTS and ext not in VIDEO_EXTS:
         return None, "unsupported"
 
-    thumb_base = os.path.join(root, ".thumbs")
-    thumb_name = filename + ".webp"
-    thumb_path = safe_path(thumb_base, subfolder, thumb_name) if subfolder else safe_path(thumb_base, thumb_name)
+    thumb_path = _gallery_thumbnail_path(root, subfolder, filename)
     if thumb_path is None:
         return None, "invalid"
 

@@ -133,7 +133,7 @@ Nodes are sorted by Y position from top to bottom. Groups are sorted by X positi
   <img src="docs/xyzplot.webp" width="50%">
 </p>
 
-https://github.com/user-attachments/assets/64fbe663-8f16-4f4c-b9b1-0ae5173eb9a1
+https://github.com/user-attachments/assets/dcb8cfd6-3a74-4cb3-8694-e9cd9c7f6282
 
 A parameter sweep gadget familiar from Stable Diffusion web UI (A1111). Behavior is largely consistent with A1111.
 
@@ -163,7 +163,8 @@ No dedicated XYZ nodes or extra wiring are required; sweep the widgets and bypas
 ### Gallery
 
 <p align="left">
-  <img src="docs/gallery.webp" width="75%">
+  <img src="docs/gallery.webp" width="50%">
+  <img src="docs/gallery2.webp" width="25%">
 </p>
 
 A gadget for browsing media and folders under the output, input, and temp directories.

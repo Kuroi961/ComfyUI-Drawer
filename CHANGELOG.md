@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.1.4 - 2026-05-10
+
+- Make Gallery thumbnail cache entries follow Drawer file move, rename, and delete operations instead of regenerating or orphaning thumbnails during normal Drawer workflows
+- Add visible progress for user-started Gallery index syncs while keeping background auto-sync quiet unless it runs long
+- Fix Gallery search paging and load-more behavior so desktop/mobile page sizes remain consistent and all results can be reached
+- Make Gallery select-all target all search or folder results while keeping the visible cards paged, with loading feedback for long mobile selections
+- Reduce disruptive Gallery redraws by diffing generated files, page loads, and deletions instead of rebuilding the whole grid whenever possible
+- Stabilize lightbox metadata layout and keep lightbox/card references aligned after Gallery deletions and incremental loads
+- Align Gallery and Model Viewer mobile toolbar sizing and item-count display
+- Improve XYZ Plot group/switch ordering and labels, support explicit `__bypass__` switch values, and add inline Prompt S/R selection/editing from the current widget value
+- Add regression coverage for thumbnail cache movement/removal, search paging, and hardened path handling
+
 ## v2.1.3 - 2026-05-09
 
 - Index successful ComfyUI image uploads into the Gallery search index so LoadImage/LoadImageMask upload paths become searchable without waiting for a later sync

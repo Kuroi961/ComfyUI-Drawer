@@ -8,6 +8,7 @@ import { GadgetBase } from '../../js/core/gadget-base.js';
 import { openLightbox } from '../../js/services/lightbox.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
 import { createMediaCard } from '../../js/components/media-card.js';
+import { attachDictAutocomplete } from '../../js/services/dict-service.js';
 import {
   escapeHTML,
   getLinkedInputNames,
@@ -61,6 +62,7 @@ export class XYZPlotGadget extends GadgetBase {
   #contextMenu = null;
   #collapse = new CollapseStore('comfy-drawer-collapsed');
   #valuesInputHandlers = new Map();
+  #dictAutocompleteCleanups = new Map();
 
   constructor() {
     super('xyzplot', {
@@ -85,6 +87,7 @@ export class XYZPlotGadget extends GadgetBase {
 
     const ui = this.#buildFullUI();
     container.appendChild(ui);
+    this.addDisposable(() => this.#clearPromptDictAutocomplete());
 
     // Start / Cancel button
     this.#startBtn = container.querySelector('#xyzg-start');
@@ -354,9 +357,9 @@ export class XYZPlotGadget extends GadgetBase {
 
   /**
    * Return all sweepable nodes in Deck-like display order:
-   *   1. Groups sorted by X position (left → right), tiebreak by Y
-   *   2. Nodes within each group sorted by Y (top → bottom)
-   *   3. Ungrouped nodes at the end, sorted by Y
+   *   1. Groups sorted by X position (left to right), tiebreak by Y
+   *   2. Nodes within each group sorted by marker role, then by Y
+   *   3. Ungrouped nodes at the end, sorted the same way
    */
   getAllNodes() {
     return this.#getGroupedNodes().flatMap(g => g.nodes);
@@ -380,11 +383,21 @@ export class XYZPlotGadget extends GadgetBase {
       const ay = a.pos?.[1] ?? 0, by = b.pos?.[1] ?? 0;
       return (ay - by) || ((a.pos?.[0] ?? 0) - (b.pos?.[0] ?? 0));
     };
+    const markerRank = (node) => {
+      const title = String(node.title || '');
+      if (/(?<!\\)\u{1F4DD}/u.test(title)) return 0;
+      if (/(?<!\\)\u26A1/u.test(title)) return 1;
+      return 2;
+    };
+    const deckDisplayCmp = (a, b) => {
+      const rankDiff = markerRank(a) - markerRank(b);
+      return rankDiff || posCmpY(a, b);
+    };
 
     const groups = this.bridge.getGroups();
     if (groups.length === 0) {
-      // No groups → flat list, sort by Y
-      eligible.sort(posCmpY);
+      // No groups: flat list, split by Deck markers before position.
+      eligible.sort(deckDisplayCmp);
       return [{ title: null, nodes: eligible }];
     }
 
@@ -403,7 +416,7 @@ export class XYZPlotGadget extends GadgetBase {
       const nodesInGroup = this.bridge.getNodesInGroup(group)
         .filter(n => eligibleSet.has(n.id) && !assigned.has(n.id));
       if (nodesInGroup.length === 0) continue;
-      nodesInGroup.sort(posCmpY);
+      nodesInGroup.sort(deckDisplayCmp);
       for (const n of nodesInGroup) assigned.add(n.id);
       result.push({ title: cleanDrawerTitle(group.title || 'Group'), nodes: nodesInGroup });
     }
@@ -411,7 +424,7 @@ export class XYZPlotGadget extends GadgetBase {
     // Ungrouped nodes at the end
     const ungrouped = eligible.filter(n => !assigned.has(n.id));
     if (ungrouped.length > 0) {
-      ungrouped.sort(posCmpY);
+      ungrouped.sort(deckDisplayCmp);
       result.push({ title: null, nodes: ungrouped });
     }
 
@@ -503,6 +516,10 @@ export class XYZPlotGadget extends GadgetBase {
     const v = String(value).trim().toLowerCase();
     if (v === "bypass" || v === "bypassed" || v === "disabled") return "bypass";
     return "active";
+  }
+
+  #isAxisBypassValue(value) {
+    return String(value).trim() === "__bypass__";
   }
 
   getEditableWidgets(node) {
@@ -669,10 +686,10 @@ export class XYZPlotGadget extends GadgetBase {
     return values;
   }
 
-  // Format value for CSV: quote if contains comma or space
+  // Format value for CSV: quote if it needs CSV protection.
   #quoteIfNeeded(val) {
     const s = String(val);
-    return (s.includes(',') || s.includes(' ')) ? `"${s}"` : s;
+    return /[,\s"]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
   }
 
   // ── Full graph snapshot/restore ────────────────────────────────────────
@@ -779,6 +796,12 @@ export class XYZPlotGadget extends GadgetBase {
     }
     if (widget?.__groupExclusive__) {
       const selected = String(value);
+      if (this.#isAxisBypassValue(selected)) {
+        for (const group of widget.set.groups) {
+          this.bridge.setNodesModes(group.nodeIds, 4);
+        }
+        return;
+      }
       for (const group of widget.set.groups) {
         const active = group.title === selected || group.rawTitle === selected || group.key === selected;
         this.bridge.setNodesModes(group.nodeIds, active ? 0 : 4);
@@ -787,6 +810,12 @@ export class XYZPlotGadget extends GadgetBase {
     }
     if (widget?.__nodeExclusive__) {
       const selected = String(value);
+      if (this.#isAxisBypassValue(selected)) {
+        for (const item of widget.set.nodes) {
+          this.bridge.setNodeMode(item.id, 4);
+        }
+        return;
+      }
       for (const item of widget.set.nodes) {
         const active = item.title === selected || String(item.id) === selected;
         this.bridge.setNodeMode(item.id, active ? 0 : 4);
@@ -921,7 +950,12 @@ export class XYZPlotGadget extends GadgetBase {
         <div class="xyzg-field">
           <label class="xyzg-label">Values <span id="xyz-${axis}-hint" class="xyzg-hint"></span></label>
           <input type="text" class="xyzg-input" id="xyz-${axis}-values">
-            <div id="xyz-${axis}-chips" class="xyzg-chips"></div>
+          <div class="xyzg-sr-inline" id="xyz-${axis}-sr-inline" hidden>
+            <div class="xyzg-sr-inline-title">Prompt S/R: select text in the current value to populate search</div>
+            <textarea class="xyzg-sr-inline-text" id="xyz-${axis}-sr-text" spellcheck="false"></textarea>
+            <div class="xyzg-sr-inline-note">Editing updates the widget value. Selected text is linked to the 1st Values entry.</div>
+          </div>
+          <div id="xyz-${axis}-chips" class="xyzg-chips"></div>
         </div>
       </div>
     `;
@@ -943,6 +977,20 @@ export class XYZPlotGadget extends GadgetBase {
       root.querySelector(`#xyz-${axis}-node`).addEventListener("change", () => { this.#onNodeChange(axis); autoSave(); });
       root.querySelector(`#xyz-${axis}-widget`).addEventListener("change", () => { this.#onWidgetChange(axis); autoSave(); });
       root.querySelector(`#xyz-${axis}-values`).addEventListener("input", autoSave);
+      const srText = root.querySelector(`#xyz-${axis}-sr-text`);
+      const syncSrSelection = () => {
+        this.#syncPromptSearchSelection(axis);
+        autoSave();
+      };
+      const syncSrValue = () => {
+        this.#syncPromptWidgetValue(axis);
+        autoSave();
+      };
+      srText.addEventListener("select", syncSrSelection);
+      srText.addEventListener("input", syncSrValue);
+      srText.addEventListener("keyup", syncSrSelection);
+      srText.addEventListener("pointerup", syncSrSelection);
+      srText.addEventListener("touchend", () => setTimeout(syncSrSelection, 0));
       root.querySelector(`#xyz-${axis}-clear`).addEventListener("click", (e) => {
         e.stopPropagation();
         this.#q(`xyz-${axis}-node`).value = "";
@@ -950,6 +998,7 @@ export class XYZPlotGadget extends GadgetBase {
         this.#q(`xyz-${axis}-values`).value = "";
         this.#q(`xyz-${axis}-chips`).innerHTML = "";
         this.#q(`xyz-${axis}-hint`).textContent = "";
+        this.#q(`xyz-${axis}-sr-inline`).hidden = true;
         autoSave();
       });
     }
@@ -1006,26 +1055,29 @@ export class XYZPlotGadget extends GadgetBase {
 
       if (toggleGroups.length || exclusiveGroups.length || exclusiveNodes.length) {
         const deckOg = document.createElement('optgroup');
-        deckOg.label = 'Deck bypass / switches';
+        deckOg.label = 'Group bypass / switches';
 
         for (const group of toggleGroups) {
           const o = document.createElement('option');
           o.value = `${GROUP_BYPASS_PREFIX}${group.key}`;
-          o.textContent = `⚡ Group: ${group.title}`;
+          o.textContent = group.title;
+          o.title = group.rawTitle;
           deckOg.appendChild(o);
         }
 
         for (const set of exclusiveGroups) {
           const o = document.createElement('option');
           o.value = `${GROUP_EXCLUSIVE_PREFIX}${set.label}`;
-          o.textContent = `[${set.label}] Groups`;
+          o.textContent = `[${set.label}]`;
+          o.title = set.groups.map(group => group.title).join(' / ');
           deckOg.appendChild(o);
         }
 
         for (const set of exclusiveNodes) {
           const o = document.createElement('option');
           o.value = `${NODE_EXCLUSIVE_PREFIX}${set.key}`;
-          o.textContent = `[${set.label}] Nodes (${set.groupTitle})`;
+          o.textContent = `[${set.label}]`;
+          o.title = set.groupTitle;
           deckOg.appendChild(o);
         }
 
@@ -1130,13 +1182,18 @@ export class XYZPlotGadget extends GadgetBase {
     const chipsEl = this.#q(`xyz-${axis}-chips`);
     const hintEl = this.#q(`xyz-${axis}-hint`);
     const valuesInput = this.#q(`xyz-${axis}-values`);
+    const srInline = this.#q(`xyz-${axis}-sr-inline`);
+    const srText = this.#q(`xyz-${axis}-sr-text`);
     const prevHandler = this.#valuesInputHandlers.get(axis);
     if (prevHandler) {
       valuesInput.removeEventListener("input", prevHandler);
       this.#valuesInputHandlers.delete(axis);
     }
+    this.#setPromptDictAutocomplete(axis, false);
     chipsEl.innerHTML = "";
     hintEl.textContent = "";
+    if (srInline) srInline.hidden = true;
+    if (srText) srText.value = "";
     if (!this.#swapping) valuesInput.value = "";  // Reset values on widget change
 
     // ── Virtual bypass widget → auto-fill ──
@@ -1155,16 +1212,26 @@ export class XYZPlotGadget extends GadgetBase {
     if (widgetName === "__group_exclusive__") {
       const widget = this.#getWidgetByAxis(axis);
       const values = widget?.set?.groups?.map(group => this.#quoteIfNeeded(group.title)).join(",") || "";
-      hintEl.textContent = "(select one group to keep active)";
+      const chipValues = [
+        ...(widget?.set?.groups?.map(group => group.title) || []),
+        "__bypass__",
+      ];
+      hintEl.textContent = "(select one group to keep active; __bypass__ = all off)";
       if (!this.#swapping) valuesInput.value = values;
+      this.#renderValueChips(chipsEl, valuesInput, axis, chipValues);
       return;
     }
 
     if (widgetName === "__node_exclusive__") {
       const widget = this.#getWidgetByAxis(axis);
       const values = widget?.set?.nodes?.map(node => this.#quoteIfNeeded(node.title)).join(",") || "";
-      hintEl.textContent = "(select one node to keep active)";
+      const chipValues = [
+        ...(widget?.set?.nodes?.map(node => node.title) || []),
+        "__bypass__",
+      ];
+      hintEl.textContent = "(select one node to keep active; __bypass__ = all off)";
       if (!this.#swapping) valuesInput.value = values;
+      this.#renderValueChips(chipsEl, valuesInput, axis, chipValues);
       return;
     }
 
@@ -1174,6 +1241,11 @@ export class XYZPlotGadget extends GadgetBase {
     // ── Text widget → S/R hint only (no chips) ──
     if (this.#isTextWidget(widget)) {
       hintEl.textContent = `(Prompt S/R: 1st = search, rest = replace)`;
+      if (srInline && srText) {
+        srInline.hidden = false;
+        srText.value = String(widget.value ?? "");
+      }
+      this.#setPromptDictAutocomplete(axis, true);
     }
     // ── Combo widget → show clickable option chips ──
     else if (widget.type === "combo") {
@@ -1182,17 +1254,7 @@ export class XYZPlotGadget extends GadgetBase {
         : widget.options?.values || [];
       if (vals.length > 0) {
         hintEl.textContent = `(${vals.length} options — click to toggle)`;
-        for (const v of vals) {
-          const chip = document.createElement("span");
-          chip.className = "xyzg-chip";
-          chip.textContent = v;
-          chip.dataset.value = v;
-          this.#syncChipState(chip, valuesInput);
-          chip.addEventListener("click", () => {
-            this.#toggleChipValue(chip, valuesInput, axis);
-          });
-          chipsEl.appendChild(chip);
-        }
+        this.#renderValueChips(chipsEl, valuesInput, axis, vals);
         const onValuesInput = () => {
           // Sync selected state for all chips
           for (const c of chipsEl.querySelectorAll(".xyzg-chip")) {
@@ -1242,6 +1304,75 @@ export class XYZPlotGadget extends GadgetBase {
     else if (typeof widget.value === "boolean") {
       hintEl.textContent = `(current: ${widget.value})`;
       if (!this.#swapping) valuesInput.value = "false,true";
+    }
+  }
+
+  #syncPromptSearchSelection(axis) {
+    const valuesInput = this.#q(`xyz-${axis}-values`);
+    const srText = this.#q(`xyz-${axis}-sr-text`);
+    if (!valuesInput || !srText) return;
+    const start = srText.selectionStart ?? 0;
+    const end = srText.selectionEnd ?? 0;
+    if (start === end) return;
+    const result = srText.value.slice(Math.min(start, end), Math.max(start, end));
+    if (!result) return;
+    const currentValues = this.#parseQuotedCSV(valuesInput.value);
+    const replacements = currentValues.length > 1 ? currentValues.slice(1) : [];
+    const nextValues = [result, ...replacements].map(v => this.#quoteIfNeeded(v)).join(",");
+    valuesInput.value = replacements.length ? nextValues : `${this.#quoteIfNeeded(result)},`;
+    valuesInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  #syncPromptWidgetValue(axis) {
+    const widget = this.#getWidgetByAxis(axis);
+    const srText = this.#q(`xyz-${axis}-sr-text`);
+    if (!widget || !srText || !this.#isTextWidget(widget)) return;
+    const nodeId = this.#q(`xyz-${axis}-node`)?.value;
+    const node = nodeId ? this.bridge.getNodeById(parseInt(nodeId)) : null;
+    if (!node) return;
+    this.#setWidgetValue(widget, node, srText.value);
+    this.bridge.setDirtyCanvas?.(true, true);
+  }
+
+  #setPromptDictAutocomplete(axis, enabled) {
+    for (const key of [`${axis}:values`, `${axis}:sr`]) {
+      const cleanup = this.#dictAutocompleteCleanups.get(key);
+      if (cleanup) cleanup();
+      this.#dictAutocompleteCleanups.delete(key);
+    }
+    if (!enabled || !window.ComfyDrawer?.dict) return;
+    const valuesInput = this.#q(`xyz-${axis}-values`);
+    const srText = this.#q(`xyz-${axis}-sr-text`);
+    if (valuesInput) {
+      this.#dictAutocompleteCleanups.set(
+        `${axis}:values`,
+        attachDictAutocomplete(window.ComfyDrawer.dict, valuesInput, { separator: ',', context: 'prompt' })
+      );
+    }
+    if (srText) {
+      this.#dictAutocompleteCleanups.set(
+        `${axis}:sr`,
+        attachDictAutocomplete(window.ComfyDrawer.dict, srText, { separator: ',', context: 'prompt' })
+      );
+    }
+  }
+
+  #clearPromptDictAutocomplete() {
+    for (const cleanup of this.#dictAutocompleteCleanups.values()) cleanup();
+    this.#dictAutocompleteCleanups.clear();
+  }
+
+  #renderValueChips(chipsEl, valuesInput, axis, values) {
+    for (const v of values || []) {
+      const chip = document.createElement("span");
+      chip.className = "xyzg-chip";
+      chip.textContent = v;
+      chip.dataset.value = v;
+      this.#syncChipState(chip, valuesInput);
+      chip.addEventListener("click", () => {
+        this.#toggleChipValue(chip, valuesInput, axis);
+      });
+      chipsEl.appendChild(chip);
     }
   }
 
@@ -1393,17 +1524,23 @@ export class XYZPlotGadget extends GadgetBase {
             return null;
           }
         } else if (widget.__groupExclusive__) {
-          const allowed = new Set(widget.set.groups.flatMap(group => [group.title, group.rawTitle, group.key]));
+          const allowed = new Set([
+            "__bypass__",
+            ...widget.set.groups.flatMap(group => [group.title, group.rawTitle, group.key]),
+          ]);
           const invalid = values.filter(v => !allowed.has(v));
           if (invalid.length) {
-            await showAlert(`${label}: unknown group value "${invalid[0]}".`, { variant: 'warning' });
+            await showAlert(`${label}: unknown group value "${invalid[0]}". Use a group name or __bypass__.`, { variant: 'warning' });
             return null;
           }
         } else if (widget.__nodeExclusive__) {
-          const allowed = new Set(widget.set.nodes.flatMap(item => [item.title, String(item.id)]));
+          const allowed = new Set([
+            "__bypass__",
+            ...widget.set.nodes.flatMap(item => [item.title, String(item.id)]),
+          ]);
           const invalid = values.filter(v => !allowed.has(v));
           if (invalid.length) {
-            await showAlert(`${label}: unknown node value "${invalid[0]}".`, { variant: 'warning' });
+            await showAlert(`${label}: unknown node value "${invalid[0]}". Use a node title/id or __bypass__.`, { variant: 'warning' });
             return null;
           }
         }

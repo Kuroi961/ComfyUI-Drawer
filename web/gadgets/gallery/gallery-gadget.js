@@ -79,10 +79,15 @@ export class GalleryGadget extends GadgetBase {
         searchHasMore: false,
         searchOffset: 0,
         searchLoadingMore: false,
+        searchVisibleCount: SEARCH_PAGE_SIZE,
+        searchSelectingAll: false,
+        searchAllSelectedDisplayCount: 0,
         browseHasMore: false,
         browseOffset: 0,
         browseLoadingMore: false,
         browseVisibleCount: BROWSE_PAGE_SIZE,
+        browseTotalFiles: 0,
+        browseSelectingAll: false,
     };
 
     /* ── DOM refs (set in onMount) ── */
@@ -110,6 +115,7 @@ export class GalleryGadget extends GadgetBase {
     #thumbWarmToken = 0;
     #initialBrowseTimer = null;
     #initialLoadComplete = false;
+    #lightboxItems = [];
 
     constructor() {
         super('gallery', {
@@ -165,6 +171,12 @@ export class GalleryGadget extends GadgetBase {
         }));
         this.addDisposable(bus.on('drawer:index-build-started', (status) => {
             this.#state.indexStatus = status || { ready: false, building: true };
+            this.#renderIndexStatus(this.#state.indexStatus);
+            this.#refreshIndexStatus();
+        }));
+        this.addDisposable(bus.on('drawer:index-sync-started', (status) => {
+            if (status?.started === false) return;
+            this.#state.indexStatus = status || { ready: true, syncing: true, syncUserInitiated: true };
             this.#renderIndexStatus(this.#state.indexStatus);
             this.#refreshIndexStatus();
         }));
@@ -241,6 +253,7 @@ export class GalleryGadget extends GadgetBase {
                         </button>
                     </div>
                     <div class="gg-index-status gg-index-status-browse" hidden></div>
+                    <span class="gg-browse-count"></span>
                     <select class="gg-sort-select" title="${_t('common.sort')}">
                         <option value="name-asc">${_t('gallery.sortName')} ↑</option>
                         <option value="name-desc">${_t('gallery.sortName')} ↓</option>
@@ -352,8 +365,11 @@ export class GalleryGadget extends GadgetBase {
                 <!-- ── Select toolbar ── -->
                 <div class="gg-toolbar-select" hidden>
                     <span class="gg-sel-count">0</span>
-                    <button class="gg-sel-all" title="${_t('gallery.selectAll')}">${_t('gallery.selectAll')}</button>
                     <div class="gg-sel-spacer"></div>
+                    <button class="gg-sel-all" title="${_t('gallery.selectAll')}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                        <span class="gg-btn-label">${_t('gallery.selectAll')}</span>
+                    </button>
                     <button class="gg-sel-move" title="${_t('gallery.moveTo')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> ${_t('gallery.moveTo')}</button>
                     <button class="gg-sel-delete" title="${_t('common.delete')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> ${_t('common.delete')}</button>
                     <button class="gg-sel-cancel" title="${_t('common.cancel')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg></button>
@@ -401,6 +417,7 @@ export class GalleryGadget extends GadgetBase {
             clearBtn: q('.gg-clear-btn'),
             sortSelect: q('.gg-sort-select'),
             searchSortSelect: q('.gg-search-sort-select'),
+            browseCount: q('.gg-browse-count'),
             autoplayToggle: q('.gg-autoplay-toggle'),
             indexStatusBrowse: q('.gg-index-status-browse'),
             indexStatusSearch: q('.gg-index-status-search'),
@@ -450,6 +467,8 @@ export class GalleryGadget extends GadgetBase {
             if (this.#state.mode === 'search' && this.#state.query) this.#search(this.#state.query);
             else this.#browse(this.#state.path);
         });
+        el.sortSelect.addEventListener('contextmenu', (e) => e.preventDefault());
+        el.searchSortSelect.addEventListener('contextmenu', (e) => e.preventDefault());
 
         // Search — explicit Enter key / search button trigger
         const doSearch = () => {
@@ -659,7 +678,8 @@ export class GalleryGadget extends GadgetBase {
             };
         }
         this.#state.hasCustomMetadata = Boolean(status?.hasCustomMetadata);
-        if (this.#state.root === 'temp' || !status || status.ready) {
+        const showSync = Boolean(status?.syncing) && (Boolean(status?.syncUserInitiated) || Number(status?.syncElapsed || 0) >= 15);
+        if (this.#state.root === 'temp' || !status || (status.ready && !showSync)) {
             this.#syncIndexDependentControls(true);
             for (const el of els) {
                 el.hidden = true;
@@ -678,8 +698,10 @@ export class GalleryGadget extends GadgetBase {
             this.#setSearchReady(true);
             return;
         }
-        const state = status.state || (status.building ? 'building' : status.paused ? 'paused' : status.cleared ? 'cleared' : 'missing');
-        this.#syncIndexDependentControls(false);
+        const state = showSync
+            ? 'syncing'
+            : (status.state || (status.building ? 'building' : status.paused ? 'paused' : status.cleared ? 'cleared' : 'missing'));
+        this.#syncIndexDependentControls(state === 'syncing');
         if (['missing', 'cleared', 'idle'].includes(state) && localStorage.getItem(INDEX_NOTICE_DISMISSED_KEY) === '1') {
             if (strip) {
                 strip.hidden = true;
@@ -695,14 +717,27 @@ export class GalleryGadget extends GadgetBase {
         const total = Number(status.total || 0).toLocaleString();
         const etaText = this.#getStableEtaText(status, state);
         const elapsedText = status.elapsed ? _t('gallery.searchIndexElapsed', { time: this.#formatDuration(status.elapsed) }) : '';
-        const progress = status.total
+        const syncProcessed = Number(status.syncProcessed || 0).toLocaleString();
+        const syncProgress = Number(status.syncProcessed || 0) > 0
+            ? _t('gallery.searchIndexSyncProgress', { count: syncProcessed })
+            : (status.syncProgress || _t('gallery.searchIndexChecking'));
+        const progress = state === 'syncing'
+            ? syncProgress
+            : status.total
             ? `${indexed}/${total} (${percent.toFixed(percent % 1 ? 1 : 0)}%)`
             : (status.progress || _t('gallery.searchIndexPreparing'));
         const label = state === 'building'
             ? _t('gallery.searchIndexBuilding', { progress })
             : state === 'paused'
                 ? _t('gallery.searchIndexPaused', { progress })
-                : _t('gallery.searchIndexMissing');
+                : state === 'syncing'
+                    ? _t(
+                        status.syncKind === 'metadata-refresh'
+                            ? 'gallery.searchIndexRefreshing'
+                            : (status.syncUserInitiated ? 'gallery.searchIndexSyncing' : 'gallery.searchIndexBackgroundSyncing'),
+                        { progress }
+                    )
+                    : _t('gallery.searchIndexMissing');
         for (const el of els) {
             el.hidden = true;
             el.replaceChildren();
@@ -713,13 +748,21 @@ export class GalleryGadget extends GadgetBase {
             strip.classList.toggle('notice', needsBuild);
             const count = document.createElement('span');
             count.className = 'gg-index-strip-count';
-            if (state === 'building' || state === 'paused') {
+            if (state === 'building' || state === 'paused' || state === 'syncing') {
                 const main = document.createElement('span');
                 main.className = 'gg-index-count-main';
-                main.textContent = status.total ? `${indexed}/${total}` : label;
+                main.textContent = state === 'syncing'
+                    ? label
+                    : (status.total ? `${indexed}/${total}` : label);
                 const meta = document.createElement('span');
                 meta.className = 'gg-index-count-meta';
-                meta.textContent = [elapsedText, etaText].filter(Boolean).join(' / ');
+                const syncElapsedText = status.syncElapsed
+                    ? _t('gallery.searchIndexElapsed', { time: this.#formatDuration(status.syncElapsed) })
+                    : '';
+                meta.textContent = [
+                    state === 'syncing' ? syncElapsedText : elapsedText,
+                    state === 'syncing' ? (status.syncProgress || '') : etaText,
+                ].filter(Boolean).join(' / ');
                 count.replaceChildren(main, meta);
             } else {
                 count.textContent = label;
@@ -753,6 +796,8 @@ export class GalleryGadget extends GadgetBase {
                 actions.className = 'gg-index-actions';
                 actions.append(action, dismiss);
                 strip.replaceChildren(count, actions);
+            } else if (state === 'syncing') {
+                strip.replaceChildren(count);
             } else {
                 const track = document.createElement('span');
                 track.className = 'gg-index-progress';
@@ -764,16 +809,16 @@ export class GalleryGadget extends GadgetBase {
             }
         }
         this.#setSearchReady(true);
-        if (!status.building && this.#indexPollTimer) {
+        if (!status.building && !status.syncing && this.#indexPollTimer) {
             clearTimeout(this.#indexPollTimer);
             this.#indexPollTimer = null;
         }
-        if (status.building) {
+        if (status.building || showSync) {
             this.#startIndexUiTicker(status, state, label);
         } else {
             this.#stopIndexUiTicker();
         }
-        if (!this.#indexPollTimer && status.building) {
+        if (!this.#indexPollTimer && (status.building || status.syncing)) {
             this.#indexPollTimer = setTimeout(async () => {
                 this.#indexPollTimer = null;
                 await this.#refreshIndexStatus();
@@ -813,11 +858,42 @@ export class GalleryGadget extends GadgetBase {
 
     #updateIndexStripProgress(status, state, label) {
         const strip = this.#el.indexStrip;
-        if (!strip || strip.hidden || state !== 'building') return;
+        if (!strip || strip.hidden || !['building', 'syncing'].includes(state)) return;
         const count = strip.querySelector('.gg-index-strip-count');
         const fill = strip.querySelector('.gg-index-progress-fill');
         if (!count && !fill) return;
         const elapsedSinceFetch = Math.max(0, (Date.now() - (status._clientReceivedAt || Date.now())) / 1000);
+        if (state === 'syncing') {
+            if (count) {
+                const syncElapsed = Number(status.syncElapsed || 0) + elapsedSinceFetch;
+                const processed = Number(status.syncProcessed || 0).toLocaleString();
+                let main = count.querySelector('.gg-index-count-main');
+                let meta = count.querySelector('.gg-index-count-meta');
+                if (!main) {
+                    main = document.createElement('span');
+                    main.className = 'gg-index-count-main';
+                    meta = document.createElement('span');
+                    meta.className = 'gg-index-count-meta';
+                    count.replaceChildren(main, meta);
+                }
+                const progress = Number(status.syncProcessed || 0) > 0
+                    ? _t('gallery.searchIndexSyncProgress', { count: processed })
+                    : (status.syncProgress || _t('gallery.searchIndexChecking'));
+                main.textContent = _t(
+                    status.syncKind === 'metadata-refresh'
+                        ? 'gallery.searchIndexRefreshing'
+                        : (status.syncUserInitiated ? 'gallery.searchIndexSyncing' : 'gallery.searchIndexBackgroundSyncing'),
+                    { progress }
+                );
+                if (meta) {
+                    meta.textContent = [
+                        _t('gallery.searchIndexElapsed', { time: this.#formatDuration(syncElapsed) }),
+                        status.syncProgress || '',
+                    ].filter(Boolean).join(' / ');
+                }
+            }
+            return;
+        }
         const totalRaw = Number(status.total || 0);
         const indexedRaw = Number(status.indexed || 0);
         const rate = Number(status.rate || 0);
@@ -1281,8 +1357,80 @@ export class GalleryGadget extends GadgetBase {
             }
         }
         if (this.container?.style.display !== 'none' && this.#state.mode === 'browse') {
-            this.#browse(this.#state.path);
+            this.#applyGeneratedFiles(files);
         }
+    }
+
+    #applyGeneratedFiles(files) {
+        const s = this.#state;
+        if (!files?.length || s.mode !== 'browse') return;
+        const root = this.#getRoot();
+        const path = s.path || '';
+        const existing = new Set(s.rawFiles.map(file => file.path));
+        const added = [];
+        for (const item of files) {
+            if ((item.root || 'output') !== root) continue;
+            const subfolder = (item.subfolder || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            if (subfolder !== path) continue;
+            const name = item.name || item.filename || '';
+            if (!name) continue;
+            const file = {
+                name,
+                path: subfolder ? `${subfolder}/${name}` : name,
+                subfolder,
+                size: Number(item.size || 0),
+                created: Number(item.created || Date.now() / 1000),
+                type: this.#mediaTypeFromName(name),
+            };
+            if (existing.has(file.path)) continue;
+            existing.add(file.path);
+            added.push(file);
+        }
+        if (!added.length) return;
+        s.rawFiles.push(...added);
+        s.files = this.#applyClientFilters(s.rawFiles);
+        this.#sortFiles();
+        s.browseTotalFiles = Math.max(Number(s.browseTotalFiles || 0), s.rawFiles.length);
+        this.#renderBrowseCount();
+        this.#insertGeneratedFileCards(added);
+    }
+
+    #mediaTypeFromName(name) {
+        const ext = String(name || '').toLowerCase().split('.').pop() || '';
+        if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video';
+        if (['flac', 'mp3', 'opus', 'wav', 'ogg'].includes(ext)) return 'audio';
+        return 'image';
+    }
+
+    #insertGeneratedFileCards(addedFiles) {
+        if (!addedFiles?.length) return;
+        const visibleFiles = this.#state.mode === 'browse'
+            ? this.#state.files.slice(0, Number(this.#state.browseVisibleCount || BROWSE_PAGE_SIZE))
+            : this.#state.mode === 'search'
+                ? this.#state.files.slice(0, Number(this.#state.searchVisibleCount || SEARCH_PAGE_SIZE))
+                : this.#state.files;
+        const addedPaths = new Set(addedFiles.map(file => file.path));
+        const visibleAdded = visibleFiles.filter(file => addedPaths.has(file.path));
+        if (!visibleAdded.length) return;
+        const visiblePaths = new Set(visibleFiles.map(file => file.path));
+        this.#lightboxItems.splice(0, this.#lightboxItems.length, ...visibleFiles.map(file => this.#makeLightboxItem(file)));
+        const grid = this.#el.grid;
+        grid.querySelectorAll('.gg-load-more').forEach(el => el.remove());
+        grid.querySelectorAll('[data-file-path]').forEach(el => {
+            if (!visiblePaths.has(el.dataset.filePath)) el.remove();
+        });
+        for (const file of visibleAdded) {
+            const index = visibleFiles.findIndex(item => item.path === file.path);
+            const card = this.#createFileCard(file, index, { appended: true });
+            const nextFile = visibleFiles.slice(index + 1).find(item => !addedPaths.has(item.path));
+            const nextEl = nextFile
+                ? Array.from(grid.querySelectorAll('[data-file-path]')).find(el => el.dataset.filePath === nextFile.path)
+                : null;
+            grid.insertBefore(card, nextEl || null);
+        }
+        this.#syncLightboxCardRefs();
+        this.#renderLoadMoreState();
+        this.#scheduleThumbWarm(visibleAdded);
     }
 
     #cancelThumbWarm() {
@@ -1459,6 +1607,8 @@ export class GalleryGadget extends GadgetBase {
         s.searchHasMore = false;
         s.searchOffset = 0;
         s.searchLoadingMore = false;
+        s.searchVisibleCount = SEARCH_PAGE_SIZE;
+        s.searchAllSelectedDisplayCount = 0;
         s.browseHasMore = false;
         s.browseOffset = 0;
         s.browseLoadingMore = false;
@@ -1481,8 +1631,10 @@ export class GalleryGadget extends GadgetBase {
             s.files = this.#applyClientFilters(s.rawFiles);
             s.browseOffset = s.rawFiles.length;
             s.browseHasMore = !!data.hasMore;
+            s.browseTotalFiles = Number(data.totalFiles || (data.files || []).length);
             s.breadcrumb = data.breadcrumb || [];
             this.#sortFiles();
+            this.#renderBrowseCount();
             this.#renderBreadcrumb();
             this.#renderGrid();
             if (!this.#initialLoadComplete) {
@@ -1519,6 +1671,7 @@ export class GalleryGadget extends GadgetBase {
         }
         const s = this.#state;
         s.mode = 'search'; s.query = query;
+        this.#renderBrowseCount();
         this.#el.breadcrumb.classList.remove('hidden');
         this.#setStatusIcon(SEARCH_ICON, _t('common.loading'));
         this.#el.grid.innerHTML = '';
@@ -1542,6 +1695,9 @@ export class GalleryGadget extends GadgetBase {
             s.searchOffset = s.rawFiles.length;
             s.searchHasMore = !!data.hasMore;
             s.searchLoadingMore = false;
+            s.searchVisibleCount = s.files.length;
+            s.searchSelectingAll = false;
+            s.searchAllSelectedDisplayCount = 0;
             const countText = `${s.total.toLocaleString()}${data.totalExact === false && s.searchHasMore ? '+' : ''}`;
             const summary = _t('gallery.searchResultsShowing', {
                 count: countText,
@@ -1559,37 +1715,51 @@ export class GalleryGadget extends GadgetBase {
 
     async #loadMoreSearch() {
         const s = this.#state;
-        if (s.mode !== 'search' || !s.searchHasMore || s.searchLoadingMore) return;
+        if (s.mode !== 'search' || s.searchLoadingMore) return;
+        const visibleBefore = Number(s.searchVisibleCount || SEARCH_PAGE_SIZE);
+        if (!s.searchHasMore) {
+            s.searchVisibleCount = Math.min(s.files.length, visibleBefore + SEARCH_PAGE_SIZE);
+            this.#renderSearchSummary(_t('gallery.searchResultsShowing', {
+                count: Number(s.total || s.files.length).toLocaleString(),
+                shown: Math.min(s.searchVisibleCount, s.files.length).toLocaleString(),
+            }));
+            this.#renderGrid();
+            return;
+        }
         s.searchLoadingMore = true;
-        this.#renderGrid();
+        this.#renderLoadMoreState();
         try {
             const data = await this.#apiSearch(s.query, s.path, s.searchOffset);
             if (s.mode !== 'search' || data.query !== s.query) return;
             const incoming = data.files || [];
             const seen = new Set(s.rawFiles.map(file => `${file.subfolder || ''}/${file.name}`));
+            const addedFiles = [];
             for (const file of incoming) {
                 const key = `${file.subfolder || ''}/${file.name}`;
                 if (!seen.has(key)) {
                     seen.add(key);
                     s.rawFiles.push(file);
+                    addedFiles.push(file);
                 }
             }
             s.files = this.#applyClientFilters(s.rawFiles);
             s.total = Number(data.total || s.files.length);
             s.searchOffset += incoming.length;
             s.searchHasMore = !!data.hasMore && incoming.length > 0;
+            s.searchVisibleCount = Math.min(s.files.length, visibleBefore + SEARCH_PAGE_SIZE);
             s.searchLoadingMore = false;
             const countText = `${s.total.toLocaleString()}${data.totalExact === false && s.searchHasMore ? '+' : ''}`;
             const summary = _t('gallery.searchResultsShowing', {
                 count: countText,
-                shown: s.files.length.toLocaleString(),
+                shown: Math.min(s.searchVisibleCount, s.files.length).toLocaleString(),
             });
             this.#renderSearchSummary(summary);
-            this.#renderGrid();
+            this.#appendFileCards(s.files.slice(visibleBefore, s.searchVisibleCount));
         } catch (e) {
             if (e.name !== 'AbortError') console.warn('[Gallery] Load more search failed:', e);
         } finally {
             s.searchLoadingMore = false;
+            if (s.mode === 'search') this.#renderLoadMoreState();
         }
     }
 
@@ -1601,11 +1771,12 @@ export class GalleryGadget extends GadgetBase {
                 s.files.length,
                 Number(s.browseVisibleCount || BROWSE_PAGE_SIZE) + BROWSE_PAGE_SIZE
             );
+            this.#renderBrowseCount();
             this.#renderGrid();
             return;
         }
         s.browseLoadingMore = true;
-        this.#renderGrid();
+        this.#renderLoadMoreState();
         try {
             const data = await this.#apiBrowse(s.path, s.browseOffset);
             if (s.mode !== 'browse') return;
@@ -1615,12 +1786,83 @@ export class GalleryGadget extends GadgetBase {
             s.browseOffset += incoming.length;
             s.browseHasMore = !!data.hasMore && incoming.length > 0;
             s.browseVisibleCount = s.files.length;
-            this.#sortFiles();
-            this.#renderGrid();
+            s.browseTotalFiles = Number(data.totalFiles || s.browseTotalFiles || s.files.length);
+            this.#renderBrowseCount();
+            this.#appendFileCards(this.#applyClientFilters(incoming));
         } catch (e) {
             if (e.name !== 'AbortError') console.warn('[Gallery] Load more browse failed:', e);
         } finally {
             s.browseLoadingMore = false;
+            if (s.mode === 'browse') this.#renderLoadMoreState();
+        }
+    }
+
+    async #restoreBrowseLoadedCount(path, targetCount) {
+        while (
+            this.#state.mode === 'browse'
+            && this.#state.path === path
+            && this.#state.browseHasMore
+            && this.#state.rawFiles.length < targetCount
+        ) {
+            const before = this.#state.rawFiles.length;
+            await this.#loadMoreBrowse();
+            if (this.#state.rawFiles.length <= before) break;
+        }
+    }
+
+    #renderBrowseCount() {
+        const el = this.#el.browseCount;
+        if (!el) return;
+        const s = this.#state;
+        if (s.mode !== 'browse') {
+            el.textContent = '';
+            el.hidden = true;
+            return;
+        }
+        const folderCount = Number(s.folders?.length || 0);
+        const totalFiles = Number(s.browseTotalFiles || s.files.length || 0);
+        const shownFiles = Math.min(
+            Number(s.browseVisibleCount || BROWSE_PAGE_SIZE),
+            Number(s.files.length || 0),
+            totalFiles || Number(s.files.length || 0)
+        );
+        const total = folderCount + totalFiles;
+        const shown = folderCount + shownFiles;
+        el.textContent = total > shown
+            ? _t('gallery.folderItemsShowing', {
+                shown: shown.toLocaleString(),
+                total: total.toLocaleString(),
+            })
+            : _t('gallery.folderItemCount', { count: total.toLocaleString() });
+        el.hidden = total <= 0;
+    }
+
+    async #refreshBrowsePreservingLoadedCount(path = this.#state.path, targetCount = this.#state.rawFiles.length) {
+        await this.#browse(path);
+        await this.#restoreBrowseLoadedCount(path, Math.max(BROWSE_PAGE_SIZE, Number(targetCount || 0)));
+    }
+
+    async #refreshSearchPreservingLoadedCount(query = this.#state.query, targetCount = this.#state.rawFiles.length) {
+        await this.#search(query);
+        while (
+            this.#state.mode === 'search'
+            && this.#state.query === query
+            && this.#state.searchHasMore
+            && this.#state.rawFiles.length < targetCount
+        ) {
+            const before = this.#state.rawFiles.length;
+            await this.#loadMoreSearch();
+            if (this.#state.rawFiles.length <= before) break;
+        }
+    }
+
+    async #refreshCurrentPreservingLoadedCount() {
+        const { mode, path, query, rawFiles } = this.#state;
+        const targetCount = rawFiles.length;
+        if (mode === 'search') {
+            await this.#refreshSearchPreservingLoadedCount(query, targetCount);
+        } else {
+            await this.#refreshBrowsePreservingLoadedCount(path, targetCount);
         }
     }
 
@@ -1893,7 +2135,9 @@ export class GalleryGadget extends GadgetBase {
 
         const visibleFiles = s.mode === 'browse'
             ? s.files.slice(0, Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))
-            : s.files;
+            : s.mode === 'search'
+                ? s.files.slice(0, Number(s.searchVisibleCount || SEARCH_PAGE_SIZE))
+                : s.files;
         const total = s.folders.length + visibleFiles.length;
         if (total === 0) {
             if (s.mode === 'search') this.#setStatus(`No results for "${s.query}"`);
@@ -1947,161 +2191,16 @@ export class GalleryGadget extends GadgetBase {
             grid.appendChild(el);
         }
 
-        // Files — build lightbox items list first for cross-referencing
-        const lbItems = visibleFiles.map(f => ({
-            src: this.#imgUrl(f),
-            type: f.type || 'image',
-            label: f.name,
-            details: `${this.#fmtDate(f.created)}   ${this.#fmtSize(f.size)}${f.subfolder ? `   ${f.subfolder}` : ''}`,
-            data: f,
-        }));
-
+        // Files - build lightbox items list first for cross-referencing
+        const lbItems = visibleFiles.map(f => this.#makeLightboxItem(f));
+        this.#lightboxItems = lbItems;
 
         for (let i = 0; i < visibleFiles.length; i++) {
             const file = visibleFiles[i];
-            const url = this.#imgUrl(file);
-            const thumbUrl = file.type === 'audio'
-                ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
-                : this.#thumbUrl(file);
-            const isMedia = file.type === 'video' || file.type === 'audio';
-
-            const mc = createMediaCard({
-                src: thumbUrl,
-                dragSrc: url,
-                filename: file.name,
-                mediaType: file.type === 'audio' ? 'audio' : 'image',
-                thumbHeight: 140,
-                lazy: i >= 8,
-                checkWorkflow: false,
-                lightbox: !inSelectOrMove,
-                draggable: !inSelectOrMove,
-                lightboxItems: lbItems,
-                lightboxIndex: i,
-                lightboxOptions: {
-                    get autoplay() { return s.autoplay; },
-                    contextMenuType: 'media-file',
-                    contextMenuData: (item) => this.#prepareMediaContextMenu(item.data, item.src, item.hasWorkflow),
-                    onKey: (key, item) => {
-                        if (key === 'Delete') {
-                            this.#deleteCurrent(item?.data || null);
-                        }
-                    },
-                    onClose: () => { this.#lbCurrentFile = null; },
-                },
-                onClick: s.selectMode ? () => this.#toggleSelect(file.path, mc.element) : null,
-                onContextMenu: !inSelectOrMove ? async (e) => {
-                    const ctx = await this.#prepareMediaContextMenu(file, url, mc.element._hasWorkflow);
-                    this.#contextMenu?.show('media-file', ctx, e.clientX, e.clientY);
-                } : null,
-                onFolderDrop: (!inSelectOrMove && this.#state.root !== 'temp') ? async (destPath) => {
-                    try {
-                        const root = this.#getRoot();
-                        const srcSubfolder = file.subfolder ?? this.#state.path ?? '';
-                        const res = await this.bridge.fetchApi('/drawer/fs/move', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                root,
-                                srcRoot: root,
-                                files: [{ subfolder: srcSubfolder, name: file.name }],
-                                destSubfolder: destPath,
-                                conflict: 'rename',
-                            }),
-                        });
-                        const data = await res.json();
-                        if (data.moved > 0) {
-                            mc.element.remove();
-                            const movedKey = `${srcSubfolder}/${file.name}`;
-                            const keepFile = (f) => `${f.subfolder ?? ''}/${f.name}` !== movedKey;
-                            this.#state.files = this.#state.files.filter(keepFile);
-                            this.#state.rawFiles = this.#state.rawFiles.filter(keepFile);
-                            // Notify extensions (e.g. SavePlus sidecar move)
-                            this.#emitFsMoved({
-                                root,
-                                files: [{
-                                    name: file.name,
-                                    subfolder: srcSubfolder,
-                                    srcSubfolder,
-                                    destSubfolder: destPath,
-                                    from_subfolder: srcSubfolder,
-                                    to_subfolder: destPath,
-                                    newName: data.renamed?.[0]?.renamed || file.name,
-                                    to_name: data.renamed?.[0]?.renamed || file.name,
-                                }],
-                            });
-                            if (data.renamed?.length) {
-                                this.#showToast(_t('gallery.renamedAndMoved', { name: data.renamed[0].renamed }));
-                            }
-                        }
-                        if (data.errors?.length) console.warn('[Gallery] Move errors:', data.errors);
-                    } catch (e) {
-                        console.error('[Gallery] Move failed:', e);
-                    }
-                } : null,
-            });
-
-            // Audio: show icon placeholder (video uses native thumbnail via MediaCard)
-            if (file.type === 'audio') {
-                mc.thumb.style.display = 'none';
-                const placeholder = document.createElement('div');
-                placeholder.className = 'gg-audio-placeholder';
-                placeholder.innerHTML = AUDIO_ICON_SVG;
-                mc.thumb.parentElement.prepend(placeholder);
-            }
-            // Video: add small badge to indicate media type
-            if (file.type === 'video') {
-                const badge = document.createElement('div');
-                badge.className = 'gg-video-badge';
-                badge.innerHTML = VIDEO_ICON_SVG;
-                mc.thumb.parentElement.appendChild(badge);
-            }
-
-            // Gallery-specific info
-            let infoHtml = `<div class="gg-card-name" title="${escapeHTML(file.name)}">${escapeHTML(file.name)}</div>`;
-            infoHtml += `<div class="gg-card-meta"><span>${this.#fmtDate(file.created)}</span><span>${this.#fmtSize(file.size)}</span></div>`;
-            if (file.subfolder && s.mode === 'search') {
-                infoHtml += `<span class="gg-card-folder">${escapeHTML(file.subfolder)}</span>`;
-            }
-            if (file.snippet && s.mode === 'search') {
-                infoHtml += `<div class="gg-card-snippet">${this.#highlight(file.snippet, s.query)}</div>`;
-            }
-            mc.info.innerHTML = infoHtml;
-
-            // Add gg-card class for Gallery-specific styling
-            mc.element.classList.add('gg-card');
-
-            // Move mode: grey out files (keep visible for scroll position)
-            if (s.moveMode) {
-                mc.element.classList.add('gg-move-disabled');
-                // Show check mark on selected items so they're identifiable
-                if (s.selected.has(file.path)) {
-                    mc.element.classList.add('gg-move-source');
-                    const check = document.createElement('div');
-                    check.className = 'gg-card-select-check';
-                    check.textContent = '✓';
-                    mc.element.appendChild(check);
-                }
-            }
-
-            // Selection mode: check marks + click to toggle
-            if (s.selectMode && !s.moveMode) {
-                mc.element.classList.add('selectable');
-                const check = document.createElement('div');
-                check.className = 'gg-card-select-check';
-                check.textContent = '✓';
-                mc.element.appendChild(check);
-                if (s.selected.has(file.path)) mc.element.classList.add('selected');
-            }
-
-            // PC long-press to enter selection mode (500ms, cancelled by drag threshold)
-            if (!inSelectOrMove) {
-                this.#attachLongPress(mc.element, file.path);
-            }
-
-            grid.appendChild(mc.element);
+            grid.appendChild(this.#createFileCard(file, i, { lazy: i >= 8 }));
         }
 
-        if (s.mode === 'search' && s.searchHasMore) {
+        if (s.mode === 'search' && (s.searchHasMore || s.files.length > Number(s.searchVisibleCount || SEARCH_PAGE_SIZE))) {
             const more = document.createElement('button');
             more.type = 'button';
             more.className = 'gg-load-more';
@@ -2120,6 +2219,222 @@ export class GalleryGadget extends GadgetBase {
             grid.appendChild(more);
         }
         this.#scheduleThumbWarm(visibleFiles);
+    }
+
+    #makeLightboxItem(file) {
+        return {
+            src: this.#imgUrl(file),
+            type: file.type || 'image',
+            label: file.name,
+            details: `${this.#fmtDate(file.created)}   ${this.#fmtSize(file.size)}${file.subfolder ? `   ${file.subfolder}` : ''}`,
+            data: file,
+        };
+    }
+
+    #renderLoadMoreState() {
+        this.#el.grid.querySelectorAll('.gg-load-more').forEach(el => el.remove());
+        const s = this.#state;
+        if (s.mode === 'search' && (s.searchHasMore || s.files.length > visibleFiles.length)) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'gg-load-more';
+            more.disabled = !!s.searchLoadingMore;
+            more.textContent = s.searchLoadingMore ? _t('common.loading') : _t('gallery.loadMore');
+            more.addEventListener('click', () => this.#loadMoreSearch());
+            this.#el.grid.appendChild(more);
+        }
+        if (s.mode === 'browse' && (s.browseHasMore || s.files.length > Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'gg-load-more';
+            more.disabled = !!s.browseLoadingMore;
+            more.textContent = s.browseLoadingMore ? _t('common.loading') : _t('gallery.loadMore');
+            more.addEventListener('click', () => this.#loadMoreBrowse());
+            this.#el.grid.appendChild(more);
+        }
+    }
+
+    #appendFileCards(files) {
+        if (!files?.length) {
+            this.#renderLoadMoreState();
+            return;
+        }
+        const grid = this.#el.grid;
+        grid.querySelectorAll('.gg-load-more').forEach(el => el.remove());
+        const startIndex = this.#lightboxItems.length;
+        this.#lightboxItems.push(...files.map(file => this.#makeLightboxItem(file)));
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const card = this.#createFileCard(file, startIndex + i, { appended: true });
+            grid.appendChild(card);
+        }
+        this.#renderLoadMoreState();
+        this.#scheduleThumbWarm(files);
+    }
+
+    #createFileCard(file, lightboxIndex, { appended = false, lazy = true } = {}) {
+        const s = this.#state;
+        const inSelectOrMove = s.selectMode || s.moveMode;
+        const url = this.#imgUrl(file);
+        const thumbUrl = file.type === 'audio'
+            ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+            : this.#thumbUrl(file);
+        const mc = createMediaCard({
+            src: thumbUrl,
+            dragSrc: url,
+            filename: file.name,
+            mediaType: file.type === 'audio' ? 'audio' : 'image',
+            thumbHeight: 140,
+            lazy,
+            checkWorkflow: false,
+            lightbox: !inSelectOrMove,
+            draggable: !inSelectOrMove,
+            lightboxItems: this.#lightboxItems,
+            lightboxIndex,
+            lightboxOptions: {
+                get autoplay() { return s.autoplay; },
+                contextMenuType: 'media-file',
+                contextMenuData: (item) => this.#prepareMediaContextMenu(item.data, item.src, item.hasWorkflow),
+                onKey: (key, item) => {
+                    if (key === 'Delete') this.#deleteCurrent(item?.data || null);
+                },
+                onClose: () => { this.#lbCurrentFile = null; },
+            },
+            onClick: s.selectMode ? () => this.#toggleSelect(file.path, mc.element) : null,
+            onContextMenu: !inSelectOrMove ? async (e) => {
+                const ctx = await this.#prepareMediaContextMenu(file, url, mc.element._hasWorkflow);
+                this.#contextMenu?.show('media-file', ctx, e.clientX, e.clientY);
+            } : null,
+            onFolderDrop: (!inSelectOrMove && this.#state.root !== 'temp')
+                ? (destPath) => this.#moveSingleFileToFolder(file, destPath, mc.element)
+                : null,
+        });
+        if (file.type === 'audio') {
+            mc.thumb.style.display = 'none';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'gg-audio-placeholder';
+            placeholder.innerHTML = AUDIO_ICON_SVG;
+            mc.thumb.parentElement.prepend(placeholder);
+        }
+        if (file.type === 'video') {
+            const badge = document.createElement('div');
+            badge.className = 'gg-video-badge';
+            badge.innerHTML = VIDEO_ICON_SVG;
+            mc.thumb.parentElement.appendChild(badge);
+        }
+        let infoHtml = `<div class="gg-card-name" title="${escapeHTML(file.name)}">${escapeHTML(file.name)}</div>`;
+        infoHtml += `<div class="gg-card-meta"><span>${this.#fmtDate(file.created)}</span><span>${this.#fmtSize(file.size)}</span></div>`;
+        if (file.subfolder && s.mode === 'search') {
+            infoHtml += `<span class="gg-card-folder">${escapeHTML(file.subfolder)}</span>`;
+        }
+        if (file.snippet && s.mode === 'search') {
+            infoHtml += `<div class="gg-card-snippet">${this.#highlight(file.snippet, s.query)}</div>`;
+        }
+        mc.info.innerHTML = infoHtml;
+        mc.element.classList.add('gg-card');
+        if (appended) mc.element.classList.add('gg-appended-card');
+        mc.element.dataset.filePath = file.path;
+        if (s.moveMode) {
+            mc.element.classList.add('gg-move-disabled');
+            if (s.selected.has(file.path)) {
+                mc.element.classList.add('gg-move-source');
+                const check = document.createElement('div');
+                check.className = 'gg-card-select-check';
+                check.textContent = '✓';
+                mc.element.appendChild(check);
+            }
+        }
+        if (s.selectMode && !s.moveMode) {
+            mc.element.classList.add('selectable');
+            const check = document.createElement('div');
+            check.className = 'gg-card-select-check';
+            check.textContent = '✓';
+            mc.element.appendChild(check);
+            if (s.selected.has(file.path)) mc.element.classList.add('selected');
+        }
+        if (!inSelectOrMove) this.#attachLongPress(mc.element, file.path);
+        return mc.element;
+    }
+
+    async #moveSingleFileToFolder(file, destPath, cardEl = null) {
+        try {
+            const root = this.#getRoot();
+            const srcSubfolder = file.subfolder ?? this.#state.path ?? '';
+            const res = await this.bridge.fetchApi('/drawer/fs/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    root,
+                    srcRoot: root,
+                    files: [{ subfolder: srcSubfolder, name: file.name }],
+                    destSubfolder: destPath,
+                    conflict: 'rename',
+                }),
+            });
+            const data = await res.json();
+            if (data.moved > 0) {
+                cardEl?.remove();
+                const movedKey = `${srcSubfolder}/${file.name}`;
+                const keepFile = (f) => `${f.subfolder ?? ''}/${f.name}` !== movedKey;
+                this.#state.files = this.#state.files.filter(keepFile);
+                this.#state.rawFiles = this.#state.rawFiles.filter(keepFile);
+                this.#lightboxItems.splice(0, this.#lightboxItems.length, ...this.#lightboxItems.filter(item => keepFile(item.data || {})));
+                this.#syncLightboxCardRefs();
+                this.#emitFsMoved({
+                    root,
+                    files: [{
+                        name: file.name,
+                        subfolder: srcSubfolder,
+                        srcSubfolder,
+                        destSubfolder: destPath,
+                        from_subfolder: srcSubfolder,
+                        to_subfolder: destPath,
+                        newName: data.renamed?.[0]?.renamed || file.name,
+                        to_name: data.renamed?.[0]?.renamed || file.name,
+                    }],
+                });
+                if (data.renamed?.length) {
+                    this.#showToast(_t('gallery.renamedAndMoved', { name: data.renamed[0].renamed }));
+                }
+            }
+            if (data.errors?.length) console.warn('[Gallery] Move errors:', data.errors);
+        } catch (e) {
+            console.error('[Gallery] Move failed:', e);
+        }
+    }
+
+    #syncLightboxCardRefs() {
+        const indexByPath = new Map(
+            this.#lightboxItems.map((item, idx) => [item?.data?.path, idx])
+        );
+        this.#el.grid.querySelectorAll('[data-file-path]').forEach(card => {
+            const nextIndex = indexByPath.get(card.dataset.filePath);
+            if (card._lbRef && nextIndex !== undefined) {
+                card._lbRef.items = this.#lightboxItems;
+                card._lbRef.index = nextIndex;
+            }
+        });
+    }
+
+    #syncCardModeDecorations() {
+        const s = this.#state;
+        this.#el.grid.querySelectorAll('.gg-card, .gg-folder-card').forEach(card => {
+            const key = card.dataset.filePath || card.dataset.folderPath || '';
+            const isFile = !!card.dataset.filePath;
+            const isMoveSource = s.moveMode && s.selected.has(key);
+            card.classList.toggle('selectable', s.selectMode && !s.moveMode);
+            card.classList.toggle('selected', s.selectMode && !s.moveMode && s.selected.has(key));
+            card.classList.toggle('gg-move-disabled', s.moveMode && (isFile || isMoveSource));
+            card.classList.toggle('gg-move-source', isMoveSource);
+            card.querySelectorAll(':scope > .gg-card-select-check').forEach(el => el.remove());
+            if ((s.selectMode || s.moveMode) && s.selected.has(key)) {
+                const check = document.createElement('div');
+                check.className = 'gg-card-select-check';
+                check.textContent = '✓';
+                card.appendChild(check);
+            }
+        });
     }
 
     /**
@@ -2557,8 +2872,7 @@ export class GalleryGadget extends GadgetBase {
             const result = await this.#deleteFiles([file]);
             if (result.deleted > 0) {
                 this.#showToast(_t('gallery.deletedSingle', { name: file.name }));
-                if (this.#state.mode === 'search') this.#search(this.#state.query);
-                else this.#browse(this.#state.path);
+                await this.#applyDeletedItems(result, [file]);
             }
         } catch (e) {
             this.#showToast(e.message);
@@ -2575,6 +2889,7 @@ export class GalleryGadget extends GadgetBase {
         if (this.#state.selectMode) return;
         this.#state.selectMode = true;
         this.#state.selected.clear();
+        this.#state.searchAllSelectedDisplayCount = 0;
         if (initialKey) this.#state.selected.add(initialKey);
         this.#showToolbar('select');
         this.#updateSelCount();
@@ -2582,6 +2897,7 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #toggleSelect(fileKey, el) {
+        this.#state.searchAllSelectedDisplayCount = 0;
         if (this.#state.selected.has(fileKey)) {
             this.#state.selected.delete(fileKey);
             el.classList.remove('selected');
@@ -2593,16 +2909,60 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #updateSelCount() {
-        const count = this.#state.selected.size;
-        this.#el.selCount.textContent = _t('common.itemsShort', { count });
+        const allKeys = [
+            ...this.#state.folders.map(f => f.path),
+            ...this.#state.files.map(f => f.path),
+        ];
+        const totalItems = allKeys.length;
+        const loadedAllSelected = totalItems > 0 && allKeys.every(k => this.#state.selected.has(k));
+        const hasUnloadedSearchResults = this.#state.mode === 'search'
+            && this.#state.searchHasMore;
+        const hasUnloadedBrowseFiles = this.#state.mode === 'browse'
+            && (this.#state.browseHasMore || Number(this.#state.rawFiles.length || 0) < Number(this.#state.browseTotalFiles || 0));
+        const selectingAll = this.#state.searchSelectingAll || this.#state.browseSelectingAll;
+        const allSelected = loadedAllSelected && !hasUnloadedSearchResults && !hasUnloadedBrowseFiles;
+        const displayCount = this.#state.mode === 'search'
+            && allSelected
+            && Number(this.#state.searchAllSelectedDisplayCount || 0) > this.#state.selected.size
+            ? Number(this.#state.searchAllSelectedDisplayCount || 0)
+            : this.#state.selected.size;
+        const count = displayCount;
+        this.#el.selCount.textContent = selectingAll
+            ? _t('gallery.selectingAll')
+            : _t('common.itemsShort', { count });
         // Disable move/delete when nothing selected
-        this.#el.selMove.disabled = count === 0;
-        this.#el.selDelete.disabled = count === 0;
+        this.#el.selMove.disabled = selectingAll || count === 0;
+        this.#el.selDelete.disabled = selectingAll || count === 0;
         // Update select-all button label
-        const totalItems = this.#state.folders.length + this.#state.files.length;
-        this.#el.selAll.textContent = (count > 0 && count >= totalItems) ? _t('gallery.deselectAll') : _t('gallery.selectAll');
+        this.#el.selAll.disabled = selectingAll;
+        this.#el.selAll.classList.remove('gg-sel-all-promote');
+        const selAllLabel = selectingAll
+            ? _t('common.loading')
+            : allSelected
+                    ? _t('gallery.deselectAll')
+                    : _t('gallery.selectAll');
+        this.#el.selAll.textContent = selAllLabel;
+        this.#el.selAll.replaceChildren();
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
+        icon.setAttribute('width', '14');
+        icon.setAttribute('height', '14');
+        icon.classList.toggle('gg-spin', selectingAll);
+        icon.innerHTML = selectingAll
+            ? '<path d="M21 12a9 9 0 1 1-3-6.7"/>'
+            : '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>';
+        const label = document.createElement('span');
+        label.className = 'gg-btn-label';
+        label.textContent = selAllLabel;
+        this.#el.selAll.append(icon, label);
+        this.#el.selAll.title = selAllLabel;
         // Auto-exit selection mode if all items deselected
-        if (count === 0 && this.#state.selectMode) {
+        if (count === 0 && this.#state.selectMode && !selectingAll) {
             this.#exitSelectMode();
         }
     }
@@ -2615,23 +2975,125 @@ export class GalleryGadget extends GadgetBase {
         this.#renderGrid();
     }
 
-    #selectAll() {
+    async #selectAll() {
         const s = this.#state;
+        if (s.searchSelectingAll || s.browseSelectingAll) return;
         const allKeys = [
             ...s.folders.map(f => f.path),
             ...s.files.map(f => f.path),
         ];
         const allSelected = allKeys.length > 0 && allKeys.every(k => s.selected.has(k));
+        const hasUnloadedSearchResults = s.mode === 'search'
+            && s.searchHasMore;
+        const hasUnloadedBrowseFiles = s.mode === 'browse'
+            && (s.browseHasMore || Number(s.rawFiles.length || 0) < Number(s.browseTotalFiles || 0));
 
-        if (allSelected) {
+        if (allSelected && !hasUnloadedSearchResults && !hasUnloadedBrowseFiles) {
             // Toggle off — deselect all (will auto-exit via #updateSelCount)
             s.selected.clear();
+            s.searchAllSelectedDisplayCount = 0;
+        } else if (s.mode === 'search' && hasUnloadedSearchResults) {
+            await this.#selectAllSearchResults();
+            return;
+        } else if (s.mode === 'browse' && hasUnloadedBrowseFiles) {
+            await this.#selectAllBrowseResults();
+            return;
         } else {
-            // Select all
             for (const key of allKeys) s.selected.add(key);
+            if (s.mode === 'search') {
+                s.searchAllSelectedDisplayCount = Number(s.total || s.files.length || 0);
+            }
         }
         this.#updateSelCount();
         this.#renderGrid();
+    }
+
+    async #selectAllSearchResults() {
+        const s = this.#state;
+        if (s.mode !== 'search' || s.searchSelectingAll) return;
+        const visibleBefore = Number(s.searchVisibleCount || SEARCH_PAGE_SIZE);
+        s.searchSelectingAll = true;
+        this.#updateSelCount();
+        try {
+            while (s.mode === 'search' && s.searchHasMore) {
+                const data = await this.#apiSearch(s.query, s.path, s.searchOffset);
+                if (s.mode !== 'search' || data.query !== s.query) return;
+                const incoming = data.files || [];
+                if (!incoming.length) {
+                    s.searchHasMore = false;
+                    break;
+                }
+                const seen = new Set(s.rawFiles.map(file => `${file.subfolder || ''}/${file.name}`));
+                let added = 0;
+                for (const file of incoming) {
+                    const key = `${file.subfolder || ''}/${file.name}`;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        s.rawFiles.push(file);
+                        added += 1;
+                    }
+                }
+                s.files = this.#applyClientFilters(s.rawFiles);
+                s.total = Number(data.total || s.files.length);
+                s.searchOffset += incoming.length;
+                s.searchHasMore = !!data.hasMore && added > 0;
+            }
+            s.searchVisibleCount = Math.min(Math.max(visibleBefore, SEARCH_PAGE_SIZE), s.files.length);
+            const countText = `${Number(s.total || s.files.length).toLocaleString()}${s.searchHasMore ? '+' : ''}`;
+            this.#renderSearchSummary(_t('gallery.searchResultsShowing', {
+                count: countText,
+                shown: Math.min(s.searchVisibleCount, s.files.length).toLocaleString(),
+            }));
+            s.selected.clear();
+            for (const file of s.files) s.selected.add(file.path);
+            s.searchAllSelectedDisplayCount = Number(s.total || s.files.length || 0);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                console.warn('[Gallery] Select all search results failed:', e);
+                this.#showToast(_t('common.error') + ': ' + e.message);
+            }
+        } finally {
+            s.searchSelectingAll = false;
+            this.#updateSelCount();
+            this.#renderGrid();
+        }
+    }
+
+    async #selectAllBrowseResults() {
+        const s = this.#state;
+        if (s.mode !== 'browse' || s.browseSelectingAll) return;
+        const path = s.path;
+        const visibleBefore = Number(s.browseVisibleCount || BROWSE_PAGE_SIZE);
+        s.browseSelectingAll = true;
+        this.#updateSelCount();
+        try {
+            while (s.mode === 'browse' && s.path === path && s.browseHasMore) {
+                const data = await this.#apiBrowse(s.path, s.browseOffset);
+                if (s.mode !== 'browse' || s.path !== path) return;
+                const incoming = data.files || [];
+                if (!incoming.length) {
+                    s.browseHasMore = false;
+                    break;
+                }
+                s.rawFiles.push(...incoming);
+                s.files = this.#applyClientFilters(s.rawFiles);
+                this.#sortFiles();
+                s.browseOffset += incoming.length;
+                s.browseHasMore = !!data.hasMore && incoming.length > 0;
+                s.browseTotalFiles = Number(data.totalFiles || s.browseTotalFiles || s.files.length);
+            }
+            s.browseVisibleCount = Math.min(Math.max(visibleBefore, BROWSE_PAGE_SIZE), s.files.length);
+            this.#renderBrowseCount();
+            for (const folder of s.folders) s.selected.add(folder.path);
+            for (const file of s.files) s.selected.add(file.path);
+        } catch (e) {
+            console.warn('[Gallery] Select all browse results failed:', e);
+            this.#showToast(_t('common.error') + ': ' + e.message);
+        } finally {
+            s.browseSelectingAll = false;
+            this.#updateSelCount();
+            this.#renderGrid();
+        }
     }
 
     /**
@@ -2642,6 +3104,69 @@ export class GalleryGadget extends GadgetBase {
         this.#el.toolbarBrowse.hidden = mode !== 'browse';
         this.#el.toolbarSelect.hidden = mode !== 'select';
         this.#el.toolbarMove.hidden = mode !== 'move';
+    }
+
+    #deleteResultKeys(result, fallbackItems = []) {
+        const fileKeys = new Set();
+        const folderKeys = new Set();
+        const addKey = (set, item) => {
+            const key = [item?.subfolder || '', item?.name || ''].filter(Boolean).join('/');
+            if (key) set.add(key);
+        };
+        for (const item of result?.deleted_files || []) addKey(fileKeys, item);
+        for (const item of result?.deleted_folder_items || []) addKey(folderKeys, item);
+        if (!fileKeys.size && !folderKeys.size) {
+            for (const item of fallbackItems) {
+                addKey(item?.isFolder ? folderKeys : fileKeys, item);
+            }
+        }
+        return { fileKeys, folderKeys };
+    }
+
+    async #applyDeletedItems(result, fallbackItems = []) {
+        const { fileKeys, folderKeys } = this.#deleteResultKeys(result, fallbackItems);
+        if (!fileKeys.size && !folderKeys.size) return;
+        const s = this.#state;
+        const fileDeleted = (file) => fileKeys.has(file.path || [file.subfolder || '', file.name || ''].filter(Boolean).join('/'));
+        const folderDeleted = (folder) => folderKeys.has(folder.path);
+        const deletedFileCount = s.rawFiles.filter(fileDeleted).length;
+        const deletedFolderCount = s.folders.filter(folderDeleted).length;
+
+        s.rawFiles = s.rawFiles.filter(file => !fileDeleted(file));
+        s.files = s.files.filter(file => !fileDeleted(file));
+        s.folders = s.folders.filter(folder => !folderDeleted(folder));
+        this.#lightboxItems.splice(0, this.#lightboxItems.length, ...this.#lightboxItems.filter(item => !fileDeleted(item.data || {})));
+        for (const key of fileKeys) s.selected.delete(key);
+        for (const key of folderKeys) s.selected.delete(key);
+        s.searchAllSelectedDisplayCount = 0;
+        if (s.mode === 'search') {
+            s.total = Math.max(0, Number(s.total || 0) - deletedFileCount);
+            this.#renderSearchSummary(_t('gallery.searchResultsShowing', {
+                count: s.total.toLocaleString(),
+                shown: Math.min(Number(s.searchVisibleCount || SEARCH_PAGE_SIZE), s.files.length).toLocaleString(),
+            }));
+        } else if (s.mode === 'browse') {
+            s.browseTotalFiles = Math.max(0, Number(s.browseTotalFiles || 0) - deletedFileCount);
+            this.#renderBrowseCount();
+        }
+
+        this.#el.grid.querySelectorAll('[data-file-path]').forEach(el => {
+            if (fileKeys.has(el.dataset.filePath)) el.remove();
+        });
+        this.#el.grid.querySelectorAll('[data-folder-path]').forEach(el => {
+            if (folderKeys.has(el.dataset.folderPath)) el.remove();
+        });
+        this.#syncLightboxCardRefs();
+        this.#syncCardModeDecorations();
+
+        if (s.selectMode) this.#updateSelCount();
+        if (!s.files.length && !s.folders.length) this.#renderGrid();
+
+        const shouldTopUpBrowse = s.mode === 'browse'
+            && s.browseHasMore
+            && deletedFileCount > 0
+            && s.rawFiles.length < Number(s.browseVisibleCount || BROWSE_PAGE_SIZE);
+        if (shouldTopUpBrowse) await this.#loadMoreBrowse();
     }
 
     /* ═══ Move Mode (Phase 3) ═══ */
@@ -2871,22 +3396,23 @@ export class GalleryGadget extends GadgetBase {
             }
         }
 
+        let result = null;
         try {
-            const result = await this.#deleteFiles(itemsToDelete);
+            result = await this.#deleteFiles(itemsToDelete);
             const parts = [];
             if (result.deleted > 0) parts.push(_t('gallery.filesCount', { count: result.deleted }));
             if (result.deleted_folders > 0) parts.push(_t('gallery.foldersCount', { count: result.deleted_folders }));
             this.#showToast(_t('gallery.deletedItems', { items: parts.join(' / ') }));
         } catch (e) {
             this.#showToast(e.message);
+            return;
         }
-        // Exit select mode and refresh (without double-rendering)
+        // Exit select mode and apply the deletion without rebuilding unaffected cards.
         this.#state.selectMode = false;
         this.#state.moveMode = false;
         this.#state.selected.clear();
         this.#showToolbar('browse');
-        if (this.#state.mode === 'search') this.#search(this.#state.query);
-        else this.#browse(this.#state.path);
+        await this.#applyDeletedItems(result, itemsToDelete);
     }
 
     async #deleteCurrent(file = null) {
@@ -2904,9 +3430,7 @@ export class GalleryGadget extends GadgetBase {
                     removeLightboxItem(lightboxIndex);
                 }
                 this.#lbCurrentFile = null;
-                // Refresh file list from server
-                if (this.#state.mode === 'search') this.#search(this.#state.query);
-                else this.#browse(this.#state.path);
+                await this.#applyDeletedItems(result, [targetFile]);
             }
         } catch (e) {
             this.#showToast(e.message);

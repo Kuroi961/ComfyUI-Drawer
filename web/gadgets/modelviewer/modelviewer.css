@@ -229,7 +229,23 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        margin-left: auto;
+        margin-left: 0;
+    }
+
+    .gadget-modelviewer .mv-item-count {
+        color: var(--mv-text-2);
+        font-size: 12px;
+        line-height: 38px;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        margin-right: auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .gadget-modelviewer .mv-item-count[hidden] {
+        display: none;
     }
 
     .gadget-modelviewer .mv-page-info[hidden] {
@@ -1168,6 +1184,43 @@
 
 /* ═══ Mobile: larger touch targets for MV dropdown (outside @layer, overrides inline styles) ═══ */
 @media (max-width: 600px) {
+    .gadget-modelviewer .mv-toolbar-browse {
+        gap: 8px;
+        padding-inline: 12px;
+    }
+
+    .gadget-modelviewer .mv-item-count {
+        line-height: 44px;
+        max-width: 150px;
+    }
+
+    .gadget-modelviewer .mv-settings-btn,
+    .gadget-modelviewer .mv-search-trigger {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+    }
+
+    .gadget-modelviewer .mv-sync-btn {
+        height: 44px;
+        min-width: 44px;
+    }
+
+    .gadget-modelviewer .mv-sync-btn span {
+        display: none;
+    }
+
+    .gadget-modelviewer .mv-page-info {
+        gap: 4px;
+    }
+
+    .gadget-modelviewer .mv-page-btn {
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        justify-content: center;
+    }
+
     .mv-crumb-dropdown {
         min-width: 200px !important;
         padding: 6px !important;

@@ -100,6 +100,10 @@ class SearchIndex:
         self._last_sync_at = 0.0
         self._sync_progress = ""
         self._sync_generation = 0
+        self._sync_started_at = 0.0
+        self._sync_processed_count = 0
+        self._sync_user_initiated = False
+        self._sync_kind = "sync"
         self._auto_sync_enabled = bool(_get_drawer_setting(self._AUTO_SYNC_SETTING_KEY, False))
         self._estimate_cache_total = None
         self._estimate_cache_signature = None
@@ -404,7 +408,7 @@ class SearchIndex:
             self._sync_timer.start()
             return True
 
-    def start_background_sync(self):
+    def start_background_sync(self, *, user_initiated=False):
         """Start a background reconciliation pass without rebuilding metadata."""
         with self._lock:
             self._sync_timer = None
@@ -418,6 +422,10 @@ class SearchIndex:
             self._syncing = True
             self._sync_generation += 1
             generation = self._sync_generation
+            self._sync_started_at = time.time()
+            self._sync_processed_count = 0
+            self._sync_user_initiated = bool(user_initiated)
+            self._sync_kind = "metadata-refresh" if refresh_needed else "sync"
             self._sync_progress = (
                 "Metadata providers changed; refreshing indexed metadata..."
                 if refresh_needed else
@@ -428,7 +436,7 @@ class SearchIndex:
         t.start()
         return True
 
-    def start_background_metadata_refresh(self):
+    def start_background_metadata_refresh(self, *, user_initiated=False):
         """Re-read metadata for existing files and re-apply contributors."""
         with self._lock:
             self._sync_timer = None
@@ -437,6 +445,10 @@ class SearchIndex:
             self._syncing = True
             self._sync_generation += 1
             generation = self._sync_generation
+            self._sync_started_at = time.time()
+            self._sync_processed_count = 0
+            self._sync_user_initiated = bool(user_initiated)
+            self._sync_kind = "metadata-refresh"
             self._sync_progress = "Refreshing indexed metadata..."
         t = threading.Thread(target=self._refresh_metadata_all, args=(generation,), daemon=True)
         t.start()
@@ -456,6 +468,10 @@ class SearchIndex:
 
     def _is_sync_current(self, generation):
         return generation == self._sync_generation
+
+    def _record_sync_processed(self, delta=1):
+        with self._lock:
+            self._sync_processed_count += delta
 
     def _roots_signature(self, roots):
         return tuple((root_name, os.path.realpath(root_path)) for root_name, root_path in roots)
@@ -852,7 +868,9 @@ class SearchIndex:
                         ):
                             self._update_file_location(conn, old_row["id"], rel, fname, st, ftype)
                         count += 1
-                        if not sync:
+                        if sync:
+                            self._record_sync_processed()
+                        else:
                             self._record_indexed()
                         continue
 
@@ -865,7 +883,9 @@ class SearchIndex:
                 if moved_row:
                     self._update_file_location(conn, moved_row["id"], rel, fname, st, ftype)
                     count += 1
-                    if not sync:
+                    if sync:
+                        self._record_sync_processed()
+                    else:
                         self._record_indexed()
                     if count % 500 == 0:
                         conn.commit()
@@ -926,7 +946,9 @@ class SearchIndex:
                           s_workflow_value, s_custom, s_custom_index,
                           s_nodes, meta_source))
                 count += 1
-                if not sync:
+                if sync:
+                    self._record_sync_processed()
+                else:
                     self._record_indexed()
                 if count % 500 == 0:
                     conn.commit()
@@ -1066,7 +1088,7 @@ class SearchIndex:
             }.get(sort_key, "f.mtime")
             order_dir = "ASC" if sort_dir == "asc" else "DESC"
             sql += f" ORDER BY {order_col} {order_dir}"
-            post_filtering = bool(node_filters or custom_filters)
+            post_filtering = bool(node_filters or custom_filters or terms.get("include") or terms.get("exclude"))
             sql_limit = limit if not post_filtering else 0
             if sql_limit > 0:
                 sql += " LIMIT ? OFFSET ?"
@@ -1327,6 +1349,7 @@ class SearchIndex:
         db_exists = any(os.path.isfile(self._db_path + suffix) for suffix in ("", "-wal", "-shm"))
         state = "ready" if self._ready else "building" if self._building else "paused" if self._paused else "cleared" if self._cleared else "idle" if db_exists else "missing"
         elapsed = max(0.0, time.time() - self._started_at) if self._started_at and self._building else 0.0
+        sync_elapsed = max(0.0, time.time() - self._sync_started_at) if self._sync_started_at and self._syncing else 0.0
         remaining = max(0, self._total_expected - self._indexed_count)
         fallback_rate = (self._indexed_count / elapsed) if elapsed > 0 and self._indexed_count > 0 else 0.0
         eta_rate = self._ema_rate if self._ema_rate > 0 else fallback_rate
@@ -1345,6 +1368,10 @@ class SearchIndex:
             "progress": self._progress,
             "syncing": self._syncing,
             "syncProgress": self._sync_progress,
+            "syncKind": self._sync_kind,
+            "syncUserInitiated": self._sync_user_initiated,
+            "syncProcessed": self._sync_processed_count,
+            "syncElapsed": round(sync_elapsed),
             "lastSyncAt": self._last_sync_at,
             "autoSyncEnabled": self._auto_sync_enabled,
             "indexed": self._indexed_count if (self._building or self._paused) else self._total_count,

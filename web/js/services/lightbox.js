@@ -280,9 +280,7 @@ function renderInfo(item, mediaMeta = '') {
   } else if (item.info) {
     parts.push(`<div class="cd-lightbox-custom-info">${item.info}</div>`);
   }
-  if (mediaMeta) {
-    parts.push(`<div class="cd-lightbox-info-row cd-lightbox-info-secondary">${escapeHTML(mediaMeta)}</div>`);
-  }
+  parts.push(`<div class="cd-lightbox-info-row cd-lightbox-info-secondary cd-lightbox-media-meta">${escapeHTML(mediaMeta || '')}</div>`);
   el.info.innerHTML = parts.join('');
 }
 

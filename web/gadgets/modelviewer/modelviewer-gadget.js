@@ -190,6 +190,7 @@ export class ModelViewerGadget extends GadgetBase {
                         <button class="mv-clear-btn" hidden>${X_BTN_SVG}</button>
                     </div>
 
+                    <span class="mv-item-count" hidden></span>
                     <span class="mv-page-info" hidden>
                         <button class="mv-page-btn mv-prev" disabled>${CHEVRON_LEFT_SVG}</button>
                         <span class="mv-page-text"></span>
@@ -237,6 +238,7 @@ export class ModelViewerGadget extends GadgetBase {
             // Pagination
             pageInfo: q('.mv-page-info'),
             pageText: q('.mv-page-text'),
+            itemCount: q('.mv-item-count'),
             prev: q('.mv-prev'),
             next: q('.mv-next'),
             // Settings & Sync
@@ -321,6 +323,7 @@ export class ModelViewerGadget extends GadgetBase {
     #openSearch() {
         this.#searchOpen = true;
         this.#el.toolbarBrowse.classList.add('search-open');
+        if (this.#el.itemCount) this.#el.itemCount.hidden = true;
         this.#el.searchInput.focus();
     }
 
@@ -334,6 +337,8 @@ export class ModelViewerGadget extends GadgetBase {
             this.#el.clearBtn.hidden = true;
             this.#page = 0;
             this.#applyFilter();
+            this.#renderGrid();
+        } else {
             this.#renderGrid();
         }
     }
@@ -841,12 +846,18 @@ export class ModelViewerGadget extends GadgetBase {
         }
 
         grid.appendChild(frag);
-        this.#updatePagination(totalFiles, totalPages);
+        this.#updatePagination(totalFiles, totalPages, folders.length);
         this.#el.content.scrollTop = 0;
     }
 
-    #updatePagination(total, totalPages) {
+    #updatePagination(total, totalPages, folderCount = 0) {
         const info = this.#el.pageInfo;
+        const itemCount = this.#el.itemCount;
+        const totalItems = Number(folderCount || 0) + Number(total || 0);
+        if (itemCount) {
+            itemCount.textContent = _t('gallery.folderItemCount', { count: totalItems.toLocaleString() });
+            itemCount.hidden = totalItems <= 0 || this.#searchOpen;
+        }
         if (totalPages > 1) {
             info.hidden = false;
             this.#el.prev.disabled = this.#page <= 0;

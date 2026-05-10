@@ -82,7 +82,11 @@ from .search_query import (
     search_text_matches as _search_text_matches,
 )
 from .search_index import SearchIndex
-from .thumbnails import ensure_gallery_thumbnail as _ensure_gallery_thumbnail
+from .thumbnails import (
+    ensure_gallery_thumbnail as _ensure_gallery_thumbnail,
+    move_gallery_thumbnail_cache as _move_gallery_thumbnail_cache,
+    remove_gallery_thumbnail_cache as _remove_gallery_thumbnail_cache,
+)
 
 logger = logging.getLogger("ComfyUI-Drawer")
 
@@ -1225,7 +1229,7 @@ async def fs_index_pause(request):
 @_routes.post("/drawer/fs/index-sync")
 async def fs_index_sync(request):
     """POST /drawer/fs/index-sync — reconcile file changes without rebuilding metadata."""
-    started = _search_index.start_background_sync()
+    started = _search_index.start_background_sync(user_initiated=True)
     return web.json_response({"ok": True, "started": started, **_search_index.status})
 
 
@@ -1236,7 +1240,7 @@ async def fs_index_refresh_metadata(request):
     Use after installing or changing metadata providers/index contributors when
     the existing DB rows should be reinterpreted without dropping the index DB.
     """
-    started = _search_index.start_background_metadata_refresh()
+    started = _search_index.start_background_metadata_refresh(user_initiated=True)
     return web.json_response({"ok": True, "started": started, **_search_index.status})
 
 
@@ -1491,12 +1495,14 @@ async def fs_delete(request):
             if _trash_file(media_path):
                 deleted += 1
                 deleted_files.append({"subfolder": subfolder, "name": name})
+                _remove_gallery_thumbnail_cache(root, subfolder, name)
                 index_updated += _search_index.note_path_deleted(root_name, subfolder, name)
         elif os.path.isdir(media_path):
             # Folder deletion — send entire folder (with contents) to trash
             if _trash_file(media_path):
                 deleted_folders += 1
                 deleted_folder_items.append({"subfolder": subfolder, "name": name})
+                _remove_gallery_thumbnail_cache(root, subfolder, name, is_dir=True)
                 index_updated += _search_index.note_path_deleted(root_name, subfolder, name, is_dir=True)
     return web.json_response({
         "deleted": deleted,
@@ -1654,6 +1660,33 @@ async def fs_move(request):
                     if m > 0:
                         moved += 1
                         dest_name = os.path.basename(dst_path)
+                        src_prefix = _format_storage_rel("/".join(p for p in (subfolder, name) if p))
+                        dest_prefix = _format_storage_rel("/".join(p for p in (dest_subfolder, dest_name) if p))
+                        for renamed_item in r:
+                            original_path = _format_storage_rel(renamed_item.get("originalPath", ""))
+                            renamed_path = _format_storage_rel(renamed_item.get("renamedPath", ""))
+                            original_dir, original_name = os.path.split(original_path)
+                            renamed_dir, renamed_name = os.path.split(renamed_path)
+                            if not original_name or not renamed_name:
+                                continue
+                            _move_gallery_thumbnail_cache(
+                                src_root,
+                                _format_storage_rel("/".join(p for p in (src_prefix, original_dir) if p)),
+                                original_name,
+                                dest_root,
+                                _format_storage_rel("/".join(p for p in (dest_prefix, renamed_dir) if p)),
+                                renamed_name,
+                                is_dir=bool(renamed_item.get("isFolder")),
+                            )
+                        _move_gallery_thumbnail_cache(
+                            src_root,
+                            subfolder,
+                            name,
+                            dest_root,
+                            dest_subfolder,
+                            dest_name,
+                            is_dir=True,
+                        )
                         index_updated += _search_index.note_path_moved(
                             src_root_name,
                             subfolder,
@@ -1663,7 +1696,6 @@ async def fs_move(request):
                             dest_name,
                             is_dir=True,
                         )
-                        dest_prefix = _format_storage_rel("/".join(p for p in (dest_subfolder, dest_name) if p))
                         for renamed_item in r:
                             rename_rel_dir = _format_storage_rel(renamed_item.get("subfolder", ""))
                             rename_subfolder = _format_storage_rel("/".join(
@@ -1696,6 +1728,15 @@ async def fs_move(request):
         try:
             shutil.move(src_path, dst_path)
             moved += 1
+            _move_gallery_thumbnail_cache(
+                src_root,
+                subfolder,
+                name,
+                dest_root,
+                dest_subfolder,
+                os.path.basename(dst_path),
+                is_dir=is_dir,
+            )
             index_updated += _search_index.note_path_moved(
                 src_root_name,
                 subfolder,
@@ -1801,6 +1842,15 @@ async def fs_rename(request):
     try:
         is_dir = os.path.isdir(src)
         os.rename(src, dst)
+        _move_gallery_thumbnail_cache(
+            root,
+            subfolder,
+            old_name,
+            root,
+            subfolder,
+            new_name,
+            is_dir=is_dir,
+        )
         index_updated = _search_index.note_path_moved(
             root_name,
             subfolder,

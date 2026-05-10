@@ -152,6 +152,84 @@ class ThumbnailRegressionTests(unittest.TestCase):
             self.assertIsNone(path)
             self.assertEqual(kind, "unsupported")
 
+    def test_thumbnail_cache_moves_with_file_rename(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            thumb_dir = os.path.join(root, ".thumbs", "nested")
+            os.makedirs(thumb_dir)
+            old_thumb = os.path.join(thumb_dir, "old.png.webp")
+            with open(old_thumb, "wb") as f:
+                f.write(b"thumb")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "nested", "old.png",
+                root, "nested", "new.png",
+            )
+
+            self.assertTrue(moved)
+            self.assertFalse(os.path.exists(old_thumb))
+            with open(os.path.join(thumb_dir, "new.png.webp"), "rb") as f:
+                self.assertEqual(f.read(), b"thumb")
+
+    def test_thumbnail_cache_moves_between_subfolders(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, ".thumbs", "src"))
+            old_thumb = os.path.join(root, ".thumbs", "src", "image.jpg.webp")
+            with open(old_thumb, "wb") as f:
+                f.write(b"thumb")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "src", "image.jpg",
+                root, "dst", "image.jpg",
+            )
+
+            self.assertTrue(moved)
+            self.assertFalse(os.path.exists(old_thumb))
+            self.assertTrue(os.path.isfile(os.path.join(root, ".thumbs", "dst", "image.jpg.webp")))
+
+    def test_thumbnail_cache_is_removed_with_file_delete(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            thumb_dir = os.path.join(root, ".thumbs", "nested")
+            os.makedirs(thumb_dir)
+            thumb = os.path.join(thumb_dir, "old.png.webp")
+            with open(thumb, "wb") as f:
+                f.write(b"thumb")
+
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "nested", "old.png")
+
+            self.assertTrue(removed)
+            self.assertFalse(os.path.exists(thumb))
+
+    def test_thumbnail_cache_rejects_thumbs_symlink_escape(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            outside = os.path.join(tmp, "outside")
+            os.makedirs(root)
+            os.makedirs(outside)
+            try:
+                os.symlink(outside, os.path.join(root, ".thumbs"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            outside_thumb = os.path.join(outside, "image.png.webp")
+            with open(outside_thumb, "wb") as f:
+                f.write(b"outside")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "image.png",
+                root, "nested", "image.png",
+            )
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "", "image.png")
+
+            self.assertFalse(moved)
+            self.assertFalse(removed)
+            self.assertTrue(os.path.isfile(outside_thumb))
+
 
 class ThirdPartyMetadataTests(unittest.TestCase):
     def test_a1111_parameters_are_raw_metadata_and_searchable(self):
@@ -364,6 +442,14 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("enumerateLoadImageTargets(bridge, { maskOnly: true }).length > 0", drawer)
         self.assertIn("id: 'gallery:delete'", gallery)
         self.assertIn("danger: true,\n                compact: true", gallery)
+
+    def test_search_paginates_after_python_term_filtering(self):
+        source = (REPO_ROOT / "search_index.py").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'post_filtering = bool(node_filters or custom_filters or terms.get("include") or terms.get("exclude"))',
+            source,
+        )
 
 
 if __name__ == "__main__":
