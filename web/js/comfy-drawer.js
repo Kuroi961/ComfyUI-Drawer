@@ -703,6 +703,18 @@ app.registerExtension({
             const prompt = meta.prompt && typeof meta.prompt === 'object' ? meta.prompt : null;
             const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
             const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
+            const promptNodes = prompt
+                ? Object.entries(prompt)
+                    .map(([id, node]) => ({
+                        id,
+                        type: node?.class_type || node?.type || 'Unknown',
+                        title: node?._meta?.title || node?.title || '',
+                        mode: node?.mode,
+                        widgets_values: Array.isArray(node?.widgets_values) ? node.widgets_values : [],
+                    }))
+                    .filter(node => node.type)
+                : [];
+            const overviewNodes = nodes.length ? nodes : promptNodes;
             let thirdPartySections = [];
             try {
                 const validRoots = ['output', 'temp', 'input'];
@@ -725,7 +737,7 @@ app.registerExtension({
                 localStorage.setItem(visibleTypesKey, JSON.stringify([...set]));
             };
             const allNodeTypes = new Map();
-            for (const node of nodes) {
+            for (const node of overviewNodes) {
                 const type = node?.type || node?.class_type || 'Unknown';
                 if (!allNodeTypes.has(type)) allNodeTypes.set(type, []);
                 allNodeTypes.get(type).push(node);
@@ -934,12 +946,20 @@ app.registerExtension({
                     summary.appendChild(summaryTitle);
                     addRow(summary, 'File', name || ctx.name || 'media');
                     addRow(summary, 'Location', [source, subfolder].filter(Boolean).join('/') || source);
-                    addRow(summary, 'Workflow', workflow ? `${nodes.length} nodes, ${groups.length} groups` : (canOpenWorkflowFromMeta(meta, { name, src: ctx.src }) ? 'Importable metadata' : 'Metadata only'));
+                    addRow(
+                        summary,
+                        'Workflow',
+                        workflow
+                            ? `${nodes.length} nodes, ${groups.length} groups`
+                            : (promptNodes.length
+                                ? `${promptNodes.length} prompt nodes`
+                                : (canOpenWorkflowFromMeta(meta, { name, src: ctx.src }) ? 'Importable metadata' : 'Metadata only'))
+                    );
                     wrap.appendChild(summary);
 
                     addGenerationOverview(wrap, meta);
 
-                    if (workflow) {
+                    if (workflow || promptNodes.length) {
                         const section = document.createElement('section');
                         section.className = 'cd-meta-section';
                         const title = document.createElement('h3');
@@ -1527,6 +1547,9 @@ app.registerExtension({
             return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${unit}`;
         };
         const paletteFor = (index) => ['#3b82f6', '#f97316', '#22c55e', '#e879f9', '#facc15', '#14b8a6'][index % 6];
+        const STORAGE_WIDGET_CACHE_MS = 120000;
+        let storageWidgetCache = null;
+        let storageWidgetCacheAt = 0;
         const renderPie = (parts) => {
             const total = parts.reduce((sum, part) => sum + (Number(part.bytes) || 0), 0);
             if (total <= 0) return 'var(--cd-s1)';
@@ -1543,14 +1566,14 @@ app.registerExtension({
             container.innerHTML = `<div class="hm-storage-overview"></div>`;
             const grid = container.querySelector('.hm-storage-overview');
             for (const row of rows) {
-                const parts = row.byExt || [];
+                const parts = row.parts || row.byExt || [];
                 const total = parts.reduce((sum, part) => sum + (Number(part.bytes) || 0), 0) || 1;
                 const card = document.createElement('div');
                 card.className = 'hm-storage-pie-card';
                 const legend = parts.slice(0, 4).map((part, index) => `
                     <span class="hm-storage-legend-item">
                         <span class="hm-storage-dot" style="background:${paletteFor(index)}"></span>
-                        ${escapeHTML(part.ext)} ${formatBytes(part.bytes)} (${(((Number(part.bytes) || 0) / total) * 100).toFixed(1)}%)
+                        ${escapeHTML(part.label || part.name || part.ext)} ${formatBytes(part.bytes)} (${(((Number(part.bytes) || 0) / total) * 100).toFixed(1)}%)
                     </span>
                 `).join('');
                 card.innerHTML = `
@@ -1569,8 +1592,8 @@ app.registerExtension({
             const list = document.createElement('div');
             list.className = 'hm-storage-list';
             for (const row of rows) {
-                const chips = (row.byExt || []).slice(0, 4).map(ext =>
-                    `<span class="hm-storage-chip">${escapeHTML(ext.ext)} ${formatBytes(ext.bytes)}</span>`
+                const chips = (row.parts || row.topDirs || row.byExt || []).slice(0, 4).map(part =>
+                    `<span class="hm-storage-chip">${escapeHTML(part.label || part.name || part.ext)} ${formatBytes(part.bytes)}</span>`
                 ).join('');
                 const el = document.createElement('div');
                 el.className = 'hm-storage-row';
@@ -1589,34 +1612,55 @@ app.registerExtension({
             }
             container.appendChild(list);
         };
+        const renderStorageWidget = (container, data) => {
+            const modelCategories = data.models?.categories || [];
+            const overviewRows = [
+                ...(data.roots || []).map(row => ({ ...row, parts: row.byExt || [] })),
+                {
+                    id: 'models',
+                    label: t('modelviewer.label'),
+                    bytes: data.models?.bytes || 0,
+                    files: data.models?.files || 0,
+                    parts: modelCategories.slice(0, 6).map(cat => ({
+                        label: cat.label || cat.id,
+                        bytes: cat.bytes,
+                        files: cat.files,
+                    })),
+                },
+            ];
+            container.replaceChildren();
+            renderStorageOverview(container, overviewRows);
+            const details = document.createElement('details');
+            details.className = 'hm-storage-details';
+            details.innerHTML = `<summary>${t('home.storageModelDetails')}</summary>`;
+            renderStorageBars(details, modelCategories.slice(0, 8).map(cat => ({
+                ...cat,
+                label: cat.label,
+                parts: cat.topDirs?.length ? cat.topDirs : cat.byExt,
+            })));
+            container.appendChild(details);
+        };
 
         drawerAPI.registerHomeWidget({
             id: 'drawer-storage',
             title: t('home.storage'),
             order: 10,
             render: async (container, ctx = {}) => {
-                container.innerHTML = `<div class="hm-empty">${t('common.loading')}</div>`;
+                const now = Date.now();
+                const hasFreshCache = storageWidgetCache && now - storageWidgetCacheAt < STORAGE_WIDGET_CACHE_MS;
+                if (storageWidgetCache) {
+                    renderStorageWidget(container, storageWidgetCache);
+                    if (hasFreshCache) return;
+                } else {
+                    container.innerHTML = `<div class="hm-empty">${t('common.loading')}</div>`;
+                }
                 const url = ctx.force ? '/drawer/storage/summary?refresh=1' : '/drawer/storage/summary';
                 const res = await bridge.fetchApi(url, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-                const overviewRows = [
-                    ...(data.roots || []),
-                    {
-                        id: 'models',
-                        label: t('modelviewer.label'),
-                        bytes: data.models?.bytes || 0,
-                        files: data.models?.files || 0,
-                        byExt: data.models?.byExt || [],
-                    },
-                ];
-                container.replaceChildren();
-                renderStorageOverview(container, overviewRows);
-                const details = document.createElement('details');
-                details.className = 'hm-storage-details';
-                details.innerHTML = `<summary>${t('home.storageModelDetails')}</summary>`;
-                renderStorageBars(details, (data.models?.categories || []).slice(0, 8).map(cat => ({ ...cat, label: cat.label })));
-                container.appendChild(details);
+                storageWidgetCache = data;
+                storageWidgetCacheAt = Date.now();
+                renderStorageWidget(container, data);
             },
         });
 

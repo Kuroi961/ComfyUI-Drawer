@@ -1,19 +1,77 @@
 """Gallery thumbnail generation helpers."""
 
+import logging
 import os
 import shutil
 import subprocess
 
 from .fs_utils import IMAGE_EXTS, VIDEO_EXTS, safe_path
 
+logger = logging.getLogger("ComfyUI-Drawer")
+
+
+def _safe_thumbnail_path(root, *parts):
+    """Resolve a path that must remain inside the physical .thumbs directory."""
+    root_real = os.path.realpath(root)
+    thumb_base = os.path.abspath(os.path.join(root_real, ".thumbs"))
+    target_path = os.path.abspath(os.path.join(thumb_base, *parts))
+    check_path = thumb_base
+    if os.path.islink(check_path):
+        return None
+    for part in parts:
+        check_path = os.path.join(check_path, part)
+        if os.path.lexists(check_path) and os.path.islink(check_path):
+            return None
+    target = os.path.realpath(target_path)
+    try:
+        if os.path.commonpath((thumb_base, target)) != thumb_base:
+            return None
+    except ValueError:
+        return None
+    return target
+
 
 def _gallery_thumbnail_path(root, subfolder, filename):
     thumb_name = filename + ".webp"
-    return safe_path(root, ".thumbs", subfolder, thumb_name) if subfolder else safe_path(root, ".thumbs", thumb_name)
+    return _safe_thumbnail_path(root, subfolder, thumb_name) if subfolder else _safe_thumbnail_path(root, thumb_name)
 
 
 def _gallery_thumbnail_dir_path(root, subfolder, name):
-    return safe_path(root, ".thumbs", subfolder, name) if subfolder else safe_path(root, ".thumbs", name)
+    return _safe_thumbnail_path(root, subfolder, name) if subfolder else _safe_thumbnail_path(root, name)
+
+
+def _remove_path_entry(path):
+    if os.path.islink(path):
+        try:
+            os.remove(path)
+        except OSError:
+            os.rmdir(path)
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+
+
+def _merge_thumbnail_dir(src_dir, dest_dir):
+    os.makedirs(dest_dir, exist_ok=True)
+    for item in os.listdir(src_dir):
+        src_item = os.path.join(src_dir, item)
+        dest_item = os.path.join(dest_dir, item)
+        if os.path.islink(src_item):
+            _remove_path_entry(src_item)
+            continue
+        src_is_dir = os.path.isdir(src_item) and not os.path.islink(src_item)
+        dest_is_dir = os.path.isdir(dest_item) and not os.path.islink(dest_item)
+        if src_is_dir and dest_is_dir:
+            _merge_thumbnail_dir(src_item, dest_item)
+        else:
+            if os.path.lexists(dest_item):
+                _remove_path_entry(dest_item)
+            os.replace(src_item, dest_item)
+    try:
+        os.rmdir(src_dir)
+    except OSError:
+        pass
 
 
 def move_gallery_thumbnail_cache(src_root, src_subfolder, src_name, dest_root, dest_subfolder, dest_name, *, is_dir=False):
@@ -30,16 +88,12 @@ def move_gallery_thumbnail_cache(src_root, src_subfolder, src_name, dest_root, d
     try:
         os.makedirs(os.path.dirname(dest_thumb), exist_ok=True)
         if is_dir and os.path.isdir(src_thumb) and os.path.isdir(dest_thumb):
-            for item in os.listdir(src_thumb):
-                shutil.move(os.path.join(src_thumb, item), os.path.join(dest_thumb, item))
-            try:
-                os.rmdir(src_thumb)
-            except OSError:
-                pass
+            _merge_thumbnail_dir(src_thumb, dest_thumb)
         else:
             os.replace(src_thumb, dest_thumb)
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to move Gallery thumbnail cache: %s", e)
         return False
 
 
@@ -54,12 +108,10 @@ def remove_gallery_thumbnail_cache(root, subfolder, name, *, is_dir=False):
         return False
 
     try:
-        if os.path.isdir(thumb_path):
-            shutil.rmtree(thumb_path)
-        else:
-            os.remove(thumb_path)
+        _remove_path_entry(thumb_path)
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to remove Gallery thumbnail cache: %s", e)
         return False
 
 

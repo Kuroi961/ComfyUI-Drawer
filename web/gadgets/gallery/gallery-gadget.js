@@ -192,7 +192,7 @@ export class GalleryGadget extends GadgetBase {
         // Refresh on tab switch — but only if data is stale (>5s since last fetch)
         const STALE_MS = 5000;
         if (this.#state.mode === 'browse' && (Date.now() - this.#lastFetchTime > STALE_MS)) {
-            this.#browse(this.#state.path);
+            this.#refreshBrowsePreservingLoadedCount(this.#state.path);
         }
     }
 
@@ -205,9 +205,9 @@ export class GalleryGadget extends GadgetBase {
         if (!this.#initialized) return;
         // Always re-fetch on explicit reload / graph switch (no staleness check)
         if (this.#state.mode === 'browse') {
-            this.#browse(this.#state.path);
+            this.#refreshBrowsePreservingLoadedCount(this.#state.path);
         } else if (this.#state.mode === 'search' && this.#state.query) {
-            this.#search(this.#state.query);
+            this.#refreshSearchPreservingLoadedCount(this.#state.query);
         }
     }
 
@@ -437,6 +437,7 @@ export class GalleryGadget extends GadgetBase {
             breadcrumbList: q('.gg-breadcrumb-list'),
             indexStrip: q('.gg-index-strip'),
             searchSummary: q('.gg-search-summary'),
+            content: q('.gg-content'),
             grid: q('.gg-grid'),
             status: q('.gg-status'),
         };
@@ -1591,10 +1592,13 @@ export class GalleryGadget extends GadgetBase {
 
     /* ═══ Browse / Search ═══ */
 
-    async #browse(path) {
+    async #browse(path, { preserveLoadedCount = 0, preserveScrollTop = null } = {}) {
         const seq = ++this.#requestSeq;
         this.#abortCurrentFetch();
         const s = this.#state;
+        const targetLoadedCount = Math.max(BROWSE_PAGE_SIZE, Number(preserveLoadedCount || 0));
+        const canPreserveGrid = this.#initialLoadComplete && preserveLoadedCount > 0;
+        const previousGridSignature = canPreserveGrid ? this.#currentGridSignature() : '';
         if (!this.#initialLoadComplete) this.#setInitialLoading(true);
         // Exit selection mode if navigating to a different folder (e.g. via breadcrumb)
         // but NOT in move mode — move mode needs folder navigation to pick destination
@@ -1612,7 +1616,7 @@ export class GalleryGadget extends GadgetBase {
         s.browseHasMore = false;
         s.browseOffset = 0;
         s.browseLoadingMore = false;
-        s.browseVisibleCount = BROWSE_PAGE_SIZE;
+        s.browseVisibleCount = targetLoadedCount;
         this.#el.searchInput.value = '';
         this.#el.clearBtn.hidden = true;
         this.#el.resultCount.textContent = '';
@@ -1628,15 +1632,52 @@ export class GalleryGadget extends GadgetBase {
             if (!this.#isCurrentRequest(seq)) return;
             s.folders = data.folders || [];
             s.rawFiles = data.files || [];
-            s.files = this.#applyClientFilters(s.rawFiles);
             s.browseOffset = s.rawFiles.length;
             s.browseHasMore = !!data.hasMore;
             s.browseTotalFiles = Number(data.totalFiles || (data.files || []).length);
             s.breadcrumb = data.breadcrumb || [];
+            while (
+                targetLoadedCount > BROWSE_PAGE_SIZE
+                && this.#isCurrentRequest(seq)
+                && s.mode === 'browse'
+                && s.path === path
+                && s.browseHasMore
+                && s.rawFiles.length < targetLoadedCount
+            ) {
+                const next = await this.#apiBrowse(path, s.browseOffset);
+                if (!this.#isCurrentRequest(seq)) return;
+                const incoming = next.files || [];
+                if (!incoming.length) {
+                    s.browseHasMore = false;
+                    break;
+                }
+                s.rawFiles.push(...incoming);
+                s.browseOffset += incoming.length;
+                s.browseHasMore = !!next.hasMore && incoming.length > 0;
+                s.browseTotalFiles = Number(next.totalFiles || s.browseTotalFiles || s.rawFiles.length);
+            }
+            s.files = this.#applyClientFilters(s.rawFiles);
+            s.browseVisibleCount = Math.min(targetLoadedCount, s.files.length);
             this.#sortFiles();
             this.#renderBrowseCount();
             this.#renderBreadcrumb();
-            this.#renderGrid();
+            if (canPreserveGrid && previousGridSignature && previousGridSignature === this.#currentGridSignature()) {
+                this.#lightboxItems = s.files
+                    .slice(0, Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))
+                    .map(file => this.#makeLightboxItem(file));
+                this.#syncLightboxCardRefs();
+                this.#renderLoadMoreState();
+            } else {
+                this.#renderGrid();
+            }
+            if (preserveScrollTop !== null && this.#el.content) {
+                requestAnimationFrame(() => {
+                    this.#el.content.scrollTop = Math.min(
+                        Number(preserveScrollTop || 0),
+                        Math.max(0, this.#el.content.scrollHeight - this.#el.content.clientHeight)
+                    );
+                });
+            }
             if (!this.#initialLoadComplete) {
                 this.#initialLoadComplete = true;
                 this.#setInitialLoading(false);
@@ -1838,8 +1879,11 @@ export class GalleryGadget extends GadgetBase {
     }
 
     async #refreshBrowsePreservingLoadedCount(path = this.#state.path, targetCount = this.#state.rawFiles.length) {
-        await this.#browse(path);
-        await this.#restoreBrowseLoadedCount(path, Math.max(BROWSE_PAGE_SIZE, Number(targetCount || 0)));
+        const scrollTop = this.#el.content?.scrollTop ?? null;
+        await this.#browse(path, {
+            preserveLoadedCount: Math.max(BROWSE_PAGE_SIZE, Number(targetCount || 0)),
+            preserveScrollTop: scrollTop,
+        });
     }
 
     async #refreshSearchPreservingLoadedCount(query = this.#state.query, targetCount = this.#state.rawFiles.length) {
@@ -1864,6 +1908,20 @@ export class GalleryGadget extends GadgetBase {
         } else {
             await this.#refreshBrowsePreservingLoadedCount(path, targetCount);
         }
+    }
+
+    #currentGridSignature() {
+        const s = this.#state;
+        const visibleFiles = s.mode === 'browse'
+            ? s.files.slice(0, Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))
+            : s.mode === 'search'
+                ? s.files.slice(0, Number(s.searchVisibleCount || SEARCH_PAGE_SIZE))
+                : s.files;
+        return JSON.stringify({
+            mode: s.mode,
+            folders: (s.folders || []).map(folder => folder.path || folder.name || ''),
+            files: visibleFiles.map(file => file.path || [file.subfolder || '', file.name || ''].filter(Boolean).join('/')),
+        });
     }
 
     /* ═══ Render ═══ */
@@ -2234,6 +2292,11 @@ export class GalleryGadget extends GadgetBase {
     #renderLoadMoreState() {
         this.#el.grid.querySelectorAll('.gg-load-more').forEach(el => el.remove());
         const s = this.#state;
+        const visibleFiles = s.mode === 'browse'
+            ? s.files.slice(0, Number(s.browseVisibleCount || BROWSE_PAGE_SIZE))
+            : s.mode === 'search'
+                ? s.files.slice(0, Number(s.searchVisibleCount || SEARCH_PAGE_SIZE))
+                : s.files;
         if (s.mode === 'search' && (s.searchHasMore || s.files.length > visibleFiles.length)) {
             const more = document.createElement('button');
             more.type = 'button';

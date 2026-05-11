@@ -615,7 +615,7 @@ setup_prompt_processing(_routes, _read_manifest, _read_wildcard_entries)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _STORAGE_SUMMARY_CACHE = {"ts": 0.0, "data": None}
-_STORAGE_SUMMARY_TTL = 30.0
+_STORAGE_SUMMARY_TTL = 300.0
 
 
 def _query_int(request, name, default, *, minimum=None, maximum=None):
@@ -890,7 +890,7 @@ async def storage_summary(request):
                 paths, exts = folder_paths.folder_names_and_paths[category]
             except Exception:
                 continue
-            category_summary = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}, "topDirs": []}
+            category_summary = {"bytes": 0, "files": 0, "folders": 0, "byExt": {}, "topDirs": {}}
             for base in paths:
                 summary = _summarize_tree(base, set(exts or []))
                 category_summary["bytes"] += summary["bytes"]
@@ -901,6 +901,11 @@ async def storage_summary(request):
                     category_summary["byExt"].setdefault(ext, {"ext": ext, "bytes": 0, "files": 0})
                     category_summary["byExt"][ext]["bytes"] += entry["bytes"]
                     category_summary["byExt"][ext]["files"] += entry["files"]
+                for entry in summary["topDirs"]:
+                    name = entry["name"]
+                    category_summary["topDirs"].setdefault(name, {"name": name, "bytes": 0, "files": 0})
+                    category_summary["topDirs"][name]["bytes"] += entry["bytes"]
+                    category_summary["topDirs"][name]["files"] += entry["files"]
             if category_summary["files"] <= 0:
                 continue
             by_ext = sorted(category_summary["byExt"].values(), key=lambda x: x["bytes"], reverse=True)[:8]
@@ -911,6 +916,7 @@ async def storage_summary(request):
                 "files": category_summary["files"],
                 "folders": category_summary["folders"],
                 "byExt": by_ext,
+                "topDirs": sorted(category_summary["topDirs"].values(), key=lambda x: x["bytes"], reverse=True)[:8],
             }
             model_categories.append(item)
             model_total["bytes"] += item["bytes"]

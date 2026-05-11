@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.1.5 - 2026-05-11
+
+- Harden Gallery thumbnail cache path handling so cache move/remove operations stay within the physical `.thumbs` directory and ignore symlinked cache paths
+- Make Gallery thumbnail cache folder merges deterministic by replacing colliding files, recursively merging directories, and avoiding symlink traversal
+- Preserve loaded Gallery browse/search pages when returning to a stale Gallery view after queue activity or graph refreshes, without recreating unchanged browse cards
+- Show Workflow Overview for API-generated metadata that contains `prompt` node data but no embedded `workflow` graph
+- Make the Home storage widget reuse recent summaries and show model storage by model category/top folder instead of mostly-uniform file extensions
+- Sync the frontend runtime version from `pyproject.toml` at startup so Home version display follows release bumps
+- Reduce Gallery search memory spikes during post-filtered searches by scanning SQLite rows in chunks instead of fetching all candidate rows at once
+- Add regression coverage for thumbnail cache symlink hardening, folder cache merge behavior, and post-filtered Gallery search paging/filter cases
+
 ## v2.1.4 - 2026-05-10
 
 - Make Gallery thumbnail cache entries follow Drawer file move, rename, and delete operations instead of regenerating or orphaning thumbnails during normal Drawer workflows

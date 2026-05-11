@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -190,6 +191,98 @@ class ThumbnailRegressionTests(unittest.TestCase):
             self.assertFalse(os.path.exists(old_thumb))
             self.assertTrue(os.path.isfile(os.path.join(root, ".thumbs", "dst", "image.jpg.webp")))
 
+    def test_thumbnail_cache_merges_folder_cache_with_replace(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            src_dir = os.path.join(root, ".thumbs", "src-folder")
+            dst_dir = os.path.join(root, ".thumbs", "dst-folder")
+            os.makedirs(os.path.join(src_dir, "nested"))
+            os.makedirs(dst_dir)
+            with open(os.path.join(src_dir, "same.png.webp"), "wb") as f:
+                f.write(b"new")
+            with open(os.path.join(src_dir, "nested", "child.png.webp"), "wb") as f:
+                f.write(b"child")
+            with open(os.path.join(dst_dir, "same.png.webp"), "wb") as f:
+                f.write(b"old")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "src-folder",
+                root, "", "dst-folder",
+                is_dir=True,
+            )
+
+            self.assertTrue(moved)
+            self.assertFalse(os.path.exists(src_dir))
+            with open(os.path.join(dst_dir, "same.png.webp"), "rb") as f:
+                self.assertEqual(f.read(), b"new")
+            with open(os.path.join(dst_dir, "nested", "child.png.webp"), "rb") as f:
+                self.assertEqual(f.read(), b"child")
+
+    def test_thumbnail_cache_merge_does_not_follow_destination_child_symlink(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            outside = os.path.join(tmp, "outside")
+            src_dir = os.path.join(root, ".thumbs", "src-folder")
+            dst_dir = os.path.join(root, ".thumbs", "dst-folder")
+            os.makedirs(os.path.join(src_dir, "nested"))
+            os.makedirs(dst_dir)
+            os.makedirs(outside)
+            try:
+                os.symlink(outside, os.path.join(dst_dir, "nested"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            with open(os.path.join(src_dir, "nested", "child.png.webp"), "wb") as f:
+                f.write(b"child")
+            outside_marker = os.path.join(outside, "marker.txt")
+            with open(outside_marker, "w", encoding="utf-8") as f:
+                f.write("outside")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "src-folder",
+                root, "", "dst-folder",
+                is_dir=True,
+            )
+
+            self.assertTrue(moved)
+            self.assertTrue(os.path.isfile(outside_marker))
+            self.assertFalse(os.path.islink(os.path.join(dst_dir, "nested")))
+            with open(os.path.join(dst_dir, "nested", "child.png.webp"), "rb") as f:
+                self.assertEqual(f.read(), b"child")
+
+    def test_thumbnail_cache_merge_drops_source_child_symlink(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            outside = os.path.join(tmp, "outside")
+            src_dir = os.path.join(root, ".thumbs", "src-folder")
+            dst_dir = os.path.join(root, ".thumbs", "dst-folder")
+            os.makedirs(src_dir)
+            os.makedirs(dst_dir)
+            os.makedirs(outside)
+            outside_target = os.path.join(outside, "target.webp")
+            with open(outside_target, "wb") as f:
+                f.write(b"outside")
+            try:
+                os.symlink(outside_target, os.path.join(src_dir, "linked.png.webp"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            with open(os.path.join(src_dir, "normal.png.webp"), "wb") as f:
+                f.write(b"normal")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "src-folder",
+                root, "", "dst-folder",
+                is_dir=True,
+            )
+
+            self.assertTrue(moved)
+            self.assertFalse(os.path.exists(os.path.join(dst_dir, "linked.png.webp")))
+            self.assertTrue(os.path.isfile(outside_target))
+            with open(os.path.join(dst_dir, "normal.png.webp"), "rb") as f:
+                self.assertEqual(f.read(), b"normal")
+
     def test_thumbnail_cache_is_removed_with_file_delete(self):
         thumbnails = _load_repo_module("thumbnails")
         with tempfile.TemporaryDirectory() as tmp:
@@ -229,6 +322,107 @@ class ThumbnailRegressionTests(unittest.TestCase):
             self.assertFalse(moved)
             self.assertFalse(removed)
             self.assertTrue(os.path.isfile(outside_thumb))
+
+    def test_thumbnail_cache_rejects_thumbs_symlink_to_root_internal_dir(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            real_dir = os.path.join(root, "real-thumbs")
+            os.makedirs(root)
+            os.makedirs(real_dir)
+            try:
+                os.symlink(real_dir, os.path.join(root, ".thumbs"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            real_thumb = os.path.join(real_dir, "image.png.webp")
+            with open(real_thumb, "wb") as f:
+                f.write(b"not drawer cache")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "image.png",
+                root, "nested", "image.png",
+            )
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "", "image.png")
+
+            self.assertFalse(moved)
+            self.assertFalse(removed)
+            self.assertTrue(os.path.isfile(real_thumb))
+
+    def test_thumbnail_cache_rejects_thumbs_symlink_to_root_internal_path(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            real_dir = os.path.join(root, "real-cache-looking-dir")
+            thumbs_dir = os.path.join(root, ".thumbs")
+            os.makedirs(real_dir)
+            os.makedirs(thumbs_dir)
+            try:
+                os.symlink(real_dir, os.path.join(thumbs_dir, "nested"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            real_thumb = os.path.join(real_dir, "image.png.webp")
+            with open(real_thumb, "wb") as f:
+                f.write(b"not drawer cache")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "nested", "image.png",
+                root, "other", "image.png",
+            )
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "nested", "image.png")
+
+            self.assertFalse(moved)
+            self.assertFalse(removed)
+            self.assertTrue(os.path.isfile(real_thumb))
+
+    def test_thumbnail_cache_rejects_symlink_components_inside_thumbs(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            real_dir = os.path.join(root, ".thumbs", "real")
+            os.makedirs(real_dir)
+            try:
+                os.symlink(real_dir, os.path.join(root, ".thumbs", "nested"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+            real_thumb = os.path.join(real_dir, "image.png.webp")
+            with open(real_thumb, "wb") as f:
+                f.write(b"inside thumbs")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "nested", "image.png",
+                root, "other", "image.png",
+            )
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "nested", "image.png")
+
+            self.assertFalse(moved)
+            self.assertFalse(removed)
+            self.assertTrue(os.path.isfile(real_thumb))
+
+    def test_thumbnail_cache_rejects_final_thumbnail_symlink(self):
+        thumbnails = _load_repo_module("thumbnails")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            real_dir = os.path.join(root, ".thumbs", "real")
+            os.makedirs(os.path.join(root, ".thumbs"))
+            os.makedirs(real_dir)
+            real_thumb = os.path.join(real_dir, "target.webp")
+            with open(real_thumb, "wb") as f:
+                f.write(b"linked target")
+            try:
+                os.symlink(real_thumb, os.path.join(root, ".thumbs", "image.png.webp"))
+            except (AttributeError, NotImplementedError, OSError):
+                self.skipTest("symlink creation is unavailable in this environment")
+
+            moved = thumbnails.move_gallery_thumbnail_cache(
+                root, "", "image.png",
+                root, "nested", "image.png",
+            )
+            removed = thumbnails.remove_gallery_thumbnail_cache(root, "", "image.png")
+
+            self.assertFalse(moved)
+            self.assertFalse(removed)
+            with open(real_thumb, "rb") as f:
+                self.assertEqual(f.read(), b"linked target")
 
 
 class ThirdPartyMetadataTests(unittest.TestCase):
@@ -319,6 +513,124 @@ class SettingsStoreTests(unittest.TestCase):
                 settings._DRAWER_SETTINGS_PATH = original_path
 
 
+class SearchIndexBehaviorTests(unittest.TestCase):
+    def _make_index(self, search_index, tmp):
+        index = search_index.SearchIndex(
+            allowed_roots={"output": lambda: tmp},
+            media_exts={".png"},
+            ftype=lambda _path: "image",
+            format_storage_rel=lambda _root, subfolder, name: (
+                f"{subfolder}/{name}" if subfolder else name
+            ),
+            safe_path=fs_utils.safe_path,
+        )
+        conn = index._get_conn(reset_outdated=True)
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('index_complete','1')")
+        index._ready = True
+        return index, conn
+
+    def _insert_index_file(self, conn, name, *, prompt="", nodes=None, custom=None, mtime=0.0):
+        conn.execute(
+            """
+            INSERT INTO files(root, subfolder, name, mtime, size, ftype,
+                              s_prompt_value, s_nodes, s_custom, s_custom_index)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "output",
+                "",
+                name,
+                float(mtime),
+                10,
+                "image",
+                prompt,
+                json.dumps(nodes or []),
+                " ".join(
+                    " ".join(str(part) for part in (entry.get("namespace"), entry.get("key"), entry.get("text")) if part)
+                    for entry in (custom or [])
+                ),
+                json.dumps(custom or []),
+            ),
+        )
+
+    def test_search_paginates_after_python_term_filtering_with_real_rows(self):
+        search_index = _load_repo_module("search_index")
+        original_get_user_directory = folder_paths.get_user_directory
+        with tempfile.TemporaryDirectory() as tmp:
+            index = None
+            folder_paths.get_user_directory = lambda: tmp
+            try:
+                index, conn = self._make_index(search_index, tmp)
+                for i in range(10):
+                    self._insert_index_file(
+                        conn,
+                        f"image-{i}.png",
+                        prompt="keep alpha" if i % 2 == 0 else "skip alpha",
+                        mtime=i,
+                    )
+                conn.commit()
+
+                page1 = index.search("alpha -skip", "output", limit=2, offset=0, scope="prompt_value", sort="name-asc")
+                page2 = index.search("alpha -skip", "output", limit=2, offset=2, scope="prompt_value", sort="name-asc")
+                page3 = index.search("alpha -skip", "output", limit=2, offset=4, scope="prompt_value", sort="name-asc")
+
+                self.assertEqual([item["name"] for item in page1["files"]], ["image-0.png", "image-2.png"])
+                self.assertEqual([item["name"] for item in page2["files"]], ["image-4.png", "image-6.png"])
+                self.assertEqual([item["name"] for item in page3["files"]], ["image-8.png"])
+                self.assertEqual(page1["total"], 5)
+                self.assertEqual(page2["total"], 5)
+                self.assertEqual(page3["total"], 5)
+            finally:
+                if index is not None and index._conn is not None:
+                    index._conn.close()
+                folder_paths.get_user_directory = original_get_user_directory
+
+    def test_search_post_filtering_handles_exclude_only_phrase_node_and_custom_filters(self):
+        search_index = _load_repo_module("search_index")
+        original_get_user_directory = folder_paths.get_user_directory
+        with tempfile.TemporaryDirectory() as tmp:
+            index = None
+            folder_paths.get_user_directory = lambda: tmp
+            try:
+                index, conn = self._make_index(search_index, tmp)
+                self._insert_index_file(
+                    conn,
+                    "alpha.png",
+                    prompt="quiet red fox",
+                    nodes=[{"type": "KSampler", "title": "Main", "text": "KSampler detailed sampler"}],
+                    custom=[{"namespace": "myPlugin", "key": "tags", "text": "black hair portrait"}],
+                )
+                self._insert_index_file(
+                    conn,
+                    "beta.png",
+                    prompt="quiet blue fox",
+                    nodes=[{"type": "CLIPTextEncode", "title": "Prompt", "text": "prompt words"}],
+                    custom=[{"namespace": "myPlugin", "key": "tags", "text": "blue hair portrait"}],
+                )
+                self._insert_index_file(
+                    conn,
+                    "gamma.png",
+                    prompt="quiet red fox banned",
+                    nodes=[{"type": "KSampler", "title": "Other", "text": "KSampler plain"}],
+                    custom=[{"namespace": "otherPlugin", "key": "tags", "text": "black hair"}],
+                )
+                conn.commit()
+
+                exclude_only = index.search("-banned", "output", limit=10, scope="prompt_value", sort="name-asc")
+                phrase = index.search('"quiet red"', "output", limit=10, scope="prompt_value", sort="name-asc")
+                node_filter = index.search('type:KSampler[detailed]', "output", limit=10, scope="prompt_value", sort="name-asc")
+                custom_filter = index.search('myPlugin:tags["black hair"]', "output", limit=10, scope="custom", sort="name-asc")
+
+                self.assertEqual([item["name"] for item in exclude_only["files"]], ["alpha.png", "beta.png"])
+                self.assertEqual([item["name"] for item in phrase["files"]], ["alpha.png", "gamma.png"])
+                self.assertEqual([item["name"] for item in node_filter["files"]], ["alpha.png"])
+                self.assertEqual([item["name"] for item in custom_filter["files"]], ["alpha.png"])
+            finally:
+                if index is not None and index._conn is not None:
+                    index._conn.close()
+                folder_paths.get_user_directory = original_get_user_directory
+
+
 class RouteHardeningSourceTests(unittest.TestCase):
     def test_media_file_routes_reject_unsupported_extensions(self):
         source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
@@ -383,6 +695,15 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("Object.keys(meta).length", source)
         self.assertNotIn("return (meta && (meta.prompt || meta.workflow)) ? meta : null", source)
 
+    def test_metadata_display_builds_workflow_overview_from_prompt_only_metadata(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+
+        self.assertIn("const promptNodes = prompt", source)
+        self.assertIn("const overviewNodes = nodes.length ? nodes : promptNodes", source)
+        self.assertIn("for (const node of overviewNodes)", source)
+        self.assertIn("promptNodes.length", source)
+        self.assertIn("if (workflow || promptNodes.length)", source)
+
     def test_a1111_metadata_delegates_workflow_open_to_native_handle_file(self):
         source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
 
@@ -401,6 +722,28 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("NovelAI Overview", source)
         self.assertIn("cd-meta-prompt-box", source)
         self.assertIn("cd-meta-setting-grid", css)
+
+    def test_home_storage_widget_uses_cache_and_model_category_breakdown(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+
+        self.assertIn("STORAGE_WIDGET_CACHE_MS", source)
+        self.assertIn("storageWidgetCache", source)
+        self.assertIn("renderStorageWidget(container, storageWidgetCache)", source)
+        self.assertIn("parts: modelCategories.slice(0, 6).map", source)
+        self.assertIn("parts: cat.topDirs?.length ? cat.topDirs : cat.byExt", source)
+        self.assertIn("_STORAGE_SUMMARY_TTL = 300.0", routes)
+        self.assertIn('"topDirs": sorted(category_summary["topDirs"].values()', routes)
+
+    def test_frontend_version_syncs_from_pyproject_on_startup(self):
+        init_source = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        version_js = (REPO_ROOT / "web" / "js" / "version.js").read_text(encoding="utf-8")
+
+        self.assertIn("def _sync_frontend_version()", init_source)
+        self.assertIn(r'^version\s*=\s*"', init_source)
+        version = pyproject.split('version = "', 1)[1].split('"', 1)[0]
+        self.assertIn(f"DRAWER_VERSION = '{version}'", version_js)
 
     def test_context_menu_can_resync_file_metadata_from_disk(self):
         source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")

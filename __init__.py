@@ -7,7 +7,28 @@ This package entrypoint intentionally stays small:
 - frontend assets are served from ./web
 """
 
+from pathlib import Path
+import re
 import sys
+
+
+def _sync_frontend_version():
+    """Keep the frontend runtime version in sync with pyproject.toml."""
+    root = Path(__file__).resolve().parent
+    pyproject = root / "pyproject.toml"
+    version_js = root / "web" / "js" / "version.js"
+    try:
+        text = pyproject.read_text(encoding="utf-8")
+        match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+        if not match:
+            return
+        version = match.group(1)
+        version_js.write_text(f"export const DRAWER_VERSION = '{version}';\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+_sync_frontend_version()
 
 from .drawer_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 from . import drawer_routes as _drawer_routes  # noqa: F401 - route registration side effects

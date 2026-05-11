@@ -72,6 +72,7 @@ class SearchIndex:
     _AUTO_SYNC_INTERVAL_SECONDS = 300
     _AUTO_SYNC_SETTING_KEY = "searchIndex.autoSyncEnabled"
     _ESTIMATE_CACHE_SECONDS = 300
+    _SEARCH_SCAN_CHUNK_SIZE = 500
 
     def __init__(self, *, allowed_roots, media_exts, ftype, format_storage_rel, safe_path):
         self._allowed_roots = allowed_roots
@@ -1095,43 +1096,58 @@ class SearchIndex:
                 params.extend([sql_limit, max(0, int(offset or 0))])
             try:
                 total_count = int(conn.execute(count_sql, count_params).fetchone()[0] or 0)
-                rows = conn.execute(sql, params).fetchall()
+                cursor = conn.execute(sql, params)
             except sqlite3.OperationalError:
                 return {"files": [], "total": 0}
-        results = []
-        matched_total = 0
-        for (name, subfolder, size, mtime, ftype, s_prompt_title,
-             s_prompt_value, s_workflow_title, s_workflow_value,
-             s_custom, s_custom_index, s_nodes) in rows:
-            if terms.get("include") or terms.get("exclude"):
-                if not _search_scope_group_matches({
+
+            results = []
+            matched_total = 0
+
+            def process_row(row):
+                nonlocal matched_total
+                (name, subfolder, size, mtime, ftype, s_prompt_title,
+                 s_prompt_value, s_workflow_title, s_workflow_value,
+                 s_custom, s_custom_index, s_nodes) = row
+                if terms.get("include") or terms.get("exclude"):
+                    if not _search_scope_group_matches({
+                        "name": name,
+                        "prompt_title": s_prompt_title,
+                        "prompt_value": s_prompt_value,
+                        "workflow_title": s_workflow_title,
+                        "workflow_value": s_workflow_value,
+                        "custom": s_custom,
+                    }, terms, scopes):
+                        return
+                if not _node_filters_match(s_nodes, node_filters):
+                    return
+                if not _custom_filters_match(s_custom_index, custom_filters):
+                    return
+                matched_total += 1
+                if post_filtering and matched_total <= max(0, int(offset or 0)):
+                    return
+                if post_filtering and limit > 0 and len(results) >= limit:
+                    return
+                subfolder = subfolder.replace("\\", "/")
+                results.append({
                     "name": name,
-                    "prompt_title": s_prompt_title,
-                    "prompt_value": s_prompt_value,
-                    "workflow_title": s_workflow_title,
-                    "workflow_value": s_workflow_value,
-                    "custom": s_custom,
-                }, terms, scopes):
-                    continue
-            if not _node_filters_match(s_nodes, node_filters):
-                continue
-            if not _custom_filters_match(s_custom_index, custom_filters):
-                continue
-            matched_total += 1
-            if post_filtering and matched_total <= max(0, int(offset or 0)):
-                continue
-            if post_filtering and limit > 0 and len(results) >= limit:
-                continue
-            subfolder = subfolder.replace("\\", "/")
-            results.append({
-                "name": name,
-                "path": (subfolder + "/" + name) if subfolder else name,
-                "subfolder": subfolder,
-                "size": size,
-                "created": mtime,
-                "type": ftype,
-            })
-        return {"files": results, "total": matched_total if post_filtering else total_count}
+                    "path": (subfolder + "/" + name) if subfolder else name,
+                    "subfolder": subfolder,
+                    "size": size,
+                    "created": mtime,
+                    "type": ftype,
+                })
+
+            if post_filtering:
+                while True:
+                    rows = cursor.fetchmany(self._SEARCH_SCAN_CHUNK_SIZE)
+                    if not rows:
+                        break
+                    for row in rows:
+                        process_row(row)
+            else:
+                for row in cursor.fetchall():
+                    process_row(row)
+            return {"files": results, "total": matched_total if post_filtering else total_count}
 
     def update_searchable(self, root_name, subfolder, name,
                           searchable_text="",
