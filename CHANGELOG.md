@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.6 - 2026-05-12
+
+- Add same-origin guards to all state-changing Drawer HTTP routes to block cross-origin browser requests
+- Add explicit pixel-limit check when opening images for thumbnails and metadata to prevent decompression bomb attacks
+- Replace full model root paths in `/drawer/models/paths` responses with anonymous source IDs to avoid leaking local directory structure
+- Remove unused `/drawer/custom-paths` endpoints and related yaml helpers; remove orphaned Model Viewer settings button
+- Expose package version via `/drawer/version` endpoint and `DRAWER_VERSION` module attribute instead of writing `version.js` at startup
+- Recover gracefully from a corrupt dict manifest by backing it up and resetting to an empty list
+- Pin `Send2Trash>=1.8,<2`; drop `PyYAML` dependency
+
 ## v2.1.5 - 2026-05-11
 
 - Harden Gallery thumbnail cache path handling so cache move/remove operations stay within the physical `.thumbs` directory and ignore symlinked cache paths
