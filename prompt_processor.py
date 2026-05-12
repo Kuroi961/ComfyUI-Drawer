@@ -11,6 +11,7 @@ import re
 from aiohttp import web
 import server
 
+from .request_guards import require_same_origin
 from .settings import get_drawer_setting, set_drawer_setting
 
 logger = logging.getLogger("ComfyUI-Drawer")
@@ -59,6 +60,7 @@ async def get_comments_enabled(request):
 
 async def set_comments_enabled(request):
     global _comments_enabled
+    require_same_origin(request)
     try:
         data = await request.json()
     except Exception:

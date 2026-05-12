@@ -5,6 +5,14 @@ import os
 import shutil
 import subprocess
 
+try:
+    from .image_safety import open_image_checked
+except ImportError:
+    try:
+        from image_safety import open_image_checked
+    except ImportError:
+        open_image_checked = None
+
 from .fs_utils import IMAGE_EXTS, VIDEO_EXTS, safe_path
 
 logger = logging.getLogger("ComfyUI-Drawer")
@@ -162,8 +170,10 @@ def ensure_gallery_thumbnail(root, subfolder, filename, max_size=200):
     elif need_generate:
         from PIL import Image as _PILImage
 
+        if open_image_checked is None:
+            return None, "pillow-missing"
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-        with _PILImage.open(orig) as img:
+        with open_image_checked(orig) as img:
             img.thumbnail((max_size, max_size), _PILImage.LANCZOS)
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGBA")

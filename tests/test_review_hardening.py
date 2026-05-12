@@ -133,6 +133,61 @@ class UserDictionaryStoreTests(unittest.TestCase):
             finally:
                 folder_paths.get_user_directory = original_get_user_directory
 
+    def test_broken_manifest_is_backed_up_and_recreated(self):
+        original_get_user_directory = folder_paths.get_user_directory
+        with tempfile.TemporaryDirectory() as tmp:
+            folder_paths.get_user_directory = lambda: tmp
+            try:
+                os.makedirs(dict_store.dicts_dir(), exist_ok=True)
+                with open(dict_store.manifest_path(), "w", encoding="utf-8") as f:
+                    f.write("{ broken")
+
+                self.assertEqual(dict_store.read_manifest(), [])
+                self.assertTrue(os.path.isfile(dict_store.manifest_path()))
+                backups = [
+                    name for name in os.listdir(dict_store.dicts_dir())
+                    if name.startswith("manifest.json.broken.")
+                ]
+                self.assertTrue(backups)
+            finally:
+                folder_paths.get_user_directory = original_get_user_directory
+
+
+class RequestGuardTests(unittest.TestCase):
+    class _Request:
+        def __init__(self, headers):
+            self.headers = headers
+
+    def test_same_origin_allows_matching_origin(self):
+        try:
+            request_guards = _load_repo_module("request_guards")
+        except ModuleNotFoundError as e:
+            if e.name == "aiohttp":
+                self.skipTest("aiohttp is unavailable")
+            raise
+
+        request_guards.require_same_origin(self._Request({
+            "Host": "127.0.0.1:8188",
+            "Origin": "http://127.0.0.1:8188",
+            "Sec-Fetch-Site": "same-origin",
+        }))
+
+    def test_same_origin_rejects_cross_site(self):
+        try:
+            from aiohttp import web
+            request_guards = _load_repo_module("request_guards")
+        except ModuleNotFoundError as e:
+            if e.name == "aiohttp":
+                self.skipTest("aiohttp is unavailable")
+            raise
+
+        with self.assertRaises(web.HTTPForbidden):
+            request_guards.require_same_origin(self._Request({
+                "Host": "127.0.0.1:8188",
+                "Origin": "https://example.com",
+                "Sec-Fetch-Site": "cross-site",
+            }))
+
 
 class ThumbnailRegressionTests(unittest.TestCase):
     def test_thumbnail_cache_name_keeps_original_extension(self):
@@ -660,7 +715,15 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn('title = _body_str(data, "title", "新しい辞書")', source)
         self.assertIn('root_name = _body_str(body, "root", "output").lower()', source)
         self.assertIn('filename = _body_str(body, "filename")', source)
-        self.assertIn('name = _body_str(prof, "name")', source)
+
+    def test_unused_custom_paths_api_is_removed(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        css = (REPO_ROOT / "web" / "gadgets" / "modelviewer" / "modelviewer.css").read_text(encoding="utf-8")
+
+        self.assertNotIn("/drawer/custom-paths", source)
+        self.assertNotIn("custom_model_paths.yaml", source)
+        self.assertNotIn("yamlPath", source)
+        self.assertNotIn("mv-settings-btn", css)
 
     def test_save_grid_validates_manual_json_body_and_quality(self):
         source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
@@ -735,15 +798,32 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("_STORAGE_SUMMARY_TTL = 300.0", routes)
         self.assertIn('"topDirs": sorted(category_summary["topDirs"].values()', routes)
 
-    def test_frontend_version_syncs_from_pyproject_on_startup(self):
+    def test_frontend_version_is_served_without_import_time_file_write(self):
         init_source = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
+        routes_source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        frontend_source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
         pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         version_js = (REPO_ROOT / "web" / "js" / "version.js").read_text(encoding="utf-8")
 
-        self.assertIn("def _sync_frontend_version()", init_source)
+        self.assertIn("def get_drawer_version(", init_source)
+        self.assertNotIn("write_text", init_source)
+        self.assertIn('@_routes.get("/drawer/version")', routes_source)
+        self.assertIn("async function loadDrawerVersion", frontend_source)
+        self.assertIn("await loadDrawerVersion(DRAWER_VERSION)", frontend_source)
         self.assertIn(r'^version\s*=\s*"', init_source)
         version = pyproject.split('version = "', 1)[1].split('"', 1)[0]
         self.assertIn(f"DRAWER_VERSION = '{version}'", version_js)
+
+    def test_model_info_does_not_return_absolute_full_path(self):
+        routes_source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        frontend_source = (REPO_ROOT / "web" / "gadgets" / "modelviewer" / "modelviewer-gadget.js").read_text(encoding="utf-8")
+
+        self.assertNotIn('"fullPath"', routes_source)
+        self.assertIn('"path": filename.replace', routes_source)
+        self.assertNotIn('"label": f"Source', routes_source)
+        self.assertNotIn("#pathGroups", frontend_source)
+        self.assertNotIn("#openPathFilter", frontend_source)
+        self.assertNotIn("normalizePath(info.path || modelPath)", frontend_source)
 
     def test_context_menu_can_resync_file_metadata_from_disk(self):
         source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")

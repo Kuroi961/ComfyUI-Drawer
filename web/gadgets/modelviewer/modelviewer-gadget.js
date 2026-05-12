@@ -12,7 +12,7 @@
  *   - bridge for graph ops (getNodesByType, invokeWidgetCallback)
  *   - contextMenu for right-click actions
  *   - ContextMenuService.attachTrigger for long-press
- *   - showDialog / showAlert for Extra Paths
+ *   - showDialog / showAlert for confirmations and forms
  */
 import { GadgetBase } from '../../js/core/gadget-base.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
@@ -110,9 +110,6 @@ export class ModelViewerGadget extends GadgetBase {
     #searchOpen = false;
     #swipeDetach = null;
     #othersExpanded = false;
-    #pathGroups = [];       // [{path, models, label}]
-    #activePaths = null;    // Set of active base-path strings, null = show all
-    #modelPathMap = new Map(); // model → short path label (for card display)
     #thumbEpoch = Date.now(); // cache-bust epoch for grid thumbnails
     /** @type {Function[]} Cleanup functions scoped to the current grid render */
     #gridCleanups = [];
@@ -200,9 +197,6 @@ export class ModelViewerGadget extends GadgetBase {
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
                         <span>CivitAI Sync</span>
                     </button>
-                    <button class="mv-settings-btn" title="Extra Paths">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
-                    </button>
                     <button class="mv-search-trigger" title="${_t('modelviewer.searchTrigger')}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
@@ -241,8 +235,7 @@ export class ModelViewerGadget extends GadgetBase {
             itemCount: q('.mv-item-count'),
             prev: q('.mv-prev'),
             next: q('.mv-next'),
-            // Settings & Sync
-            settingsBtn: q('.mv-settings-btn'),
+            // Sync
             syncBtn: q('.mv-sync-btn'),
             syncStrip: q('.mv-sync-strip'),
             syncLabel: q('.mv-sync-label'),
@@ -300,8 +293,6 @@ export class ModelViewerGadget extends GadgetBase {
         el.prev.addEventListener('click', () => { this.#page--; this.#renderGrid(); });
         el.next.addEventListener('click', () => { this.#page++; this.#renderGrid(); });
 
-        // ── Settings ──
-        el.settingsBtn.addEventListener('click', () => this.#openPathFilter());
         el.syncBtn.addEventListener('click', () => this.#batchCivitaiSync());
 
         // ── Background context menu (right-click on empty grid area) ──
@@ -410,23 +401,12 @@ export class ModelViewerGadget extends GadgetBase {
         this.#el.grid.innerHTML = '';
         this.#thumbEpoch = Date.now();
         try {
-            // Try Drawer API for path-grouped data
             let allModels = [];
-            let pathGroups = [];
             try {
                 const pathResp = await this.bridge.fetchApi(`/drawer/models/paths/${encodeURIComponent(category)}`);
                 if (pathResp.ok) {
                     const groups = await pathResp.json();
-                    pathGroups = groups.map(g => {
-                        const models = g.models.map(m => normalizePath(m));
-                        // Label = full path minus the trailing category folder
-                        // e.g. "G:/ComfyHub2/models/loras" → "G:/ComfyHub2/models"
-                        const normPath = normalizePath(g.path);
-                        const lastSlash = normPath.lastIndexOf('/');
-                        const label = lastSlash > 0 ? normPath.slice(0, lastSlash) : normPath;
-                        return { path: g.path, models, label };
-                    });
-                    allModels = pathGroups.flatMap(g => g.models);
+                    allModels = groups.flatMap(g => (g.models || []).map(m => normalizePath(m)));
                 }
             } catch { /* ignore, fall through */ }
 
@@ -436,24 +416,6 @@ export class ModelViewerGadget extends GadgetBase {
                 if (!resp.ok) throw new Error(resp.statusText);
                 const models = await resp.json();
                 allModels = models.map(m => normalizePath(m));
-                pathGroups = [{ path: 'default', models: allModels, label: 'models' }];
-            }
-
-            this.#pathGroups = pathGroups;
-            // Build reverse lookup: model → short path label
-            this.#modelPathMap = new Map();
-            for (const g of pathGroups) {
-                for (const m of g.models) {
-                    this.#modelPathMap.set(m, g.label);
-                }
-            }
-            // Reset active paths only if path set changed
-            if (this.#activePaths !== null) {
-                const validPaths = new Set(pathGroups.map(g => g.path));
-                this.#activePaths = new Set(
-                    [...this.#activePaths].filter(p => validPaths.has(p))
-                );
-                if (this.#activePaths.size === 0) this.#activePaths = null;
             }
 
             this.#models = allModels
@@ -497,17 +459,6 @@ export class ModelViewerGadget extends GadgetBase {
     #applyFilter() {
         let list = this.#models;
 
-        // Path filter
-        if (this.#activePaths !== null && this.#pathGroups.length > 1) {
-            const allowed = new Set();
-            for (const g of this.#pathGroups) {
-                if (this.#activePaths.has(g.path)) {
-                    for (const m of g.models) allowed.add(m);
-                }
-            }
-            list = list.filter(m => allowed.has(m));
-        }
-
         if (this.#subfolder) {
             const prefix = this.#subfolder + (this.#subfolder.endsWith('/') ? '' : '/');
             list = list.filter(m => m.startsWith(prefix));
@@ -517,16 +468,6 @@ export class ModelViewerGadget extends GadgetBase {
             const q = this.#searchQuery;
             // In search mode: search all models, ignore subfolder
             list = this.#models.filter(m => m.toLowerCase().includes(q));
-            // Still apply path filter in search mode
-            if (this.#activePaths !== null && this.#pathGroups.length > 1) {
-                const allowed = new Set();
-                for (const g of this.#pathGroups) {
-                    if (this.#activePaths.has(g.path)) {
-                        for (const m of g.models) allowed.add(m);
-                    }
-                }
-                list = list.filter(m => allowed.has(m));
-            }
         }
 
         this.#filtered = list;
@@ -945,11 +886,6 @@ export class ModelViewerGadget extends GadgetBase {
             infoHtml += escapeHTML(displayName);
         }
         infoHtml += '</div>';
-
-        const pathLabel = this.#modelPathMap.get(modelPath);
-        if (pathLabel && this.#pathGroups.length > 1) {
-            infoHtml += `<div class="mv-card-meta"><span class="mv-card-path">${escapeHTML(pathLabel)}</span></div>`;
-        }
         mc.info.innerHTML = infoHtml;
 
         // Context menu
@@ -1518,7 +1454,6 @@ export class ModelViewerGadget extends GadgetBase {
                 const gb = (info.sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
                 addRow(_t('modelviewer.size'), info.sizeBytes > 1024 * 1024 * 1024 ? `${gb} GB` : `${mb} MB`);
             }
-            addRow(_t('modelviewer.path'), normalizePath(info.fullPath));
             if (info.modifiedAt) {
                 addRow(_t('modelviewer.modified'), info.modifiedAt.replace('T', ' ').slice(0, 16));
             }
@@ -1847,80 +1782,6 @@ export class ModelViewerGadget extends GadgetBase {
             t.setValue(t.origValue);
         }
         this.#showToast(_t('modelviewer.applyToNodesCount', { count: targets.length }));
-    }
-
-    /* ══════ Path Filter ══════ */
-
-    #openPathFilter() {
-        const showDialog = window.ComfyDrawer?.showDialog;
-        if (!showDialog) return;
-
-        const groups = this.#pathGroups;
-        if (groups.length === 0) {
-            window.ComfyDrawer?.showAlert?.(_t('common.error'));
-            return;
-        }
-
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'font-size:12px;';
-
-        const desc = document.createElement('p');
-        desc.style.cssText = 'color:rgba(255,255,255,.5); margin:0 0 12px;';
-        desc.textContent = _t('modelviewer.pathFilterDesc');
-        wrapper.appendChild(desc);
-
-        const checkboxes = [];
-        for (const g of groups) {
-            const isActive = this.#activePaths === null || this.#activePaths.has(g.path);
-            const row = document.createElement('label');
-            row.style.cssText = 'display:flex; align-items:flex-start; gap:8px; padding:6px 0; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.06);';
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.checked = isActive;
-            cb.style.cssText = 'accent-color:var(--cd-accent); width:16px; height:16px; margin-top:2px; flex-shrink:0;';
-
-            const info = document.createElement('div');
-            info.style.cssText = 'min-width:0;';
-
-            const pathLabel = document.createElement('div');
-            pathLabel.style.cssText = 'color:rgba(255,255,255,.85); font-weight:500; word-break:break-all;';
-            pathLabel.textContent = normalizePath(g.path);
-
-            const count = document.createElement('div');
-            count.style.cssText = 'color:rgba(255,255,255,.4); font-size:11px; margin-top:2px;';
-            count.textContent = _t('common.items', { count: g.models.length });
-
-            info.appendChild(pathLabel);
-            info.appendChild(count);
-            row.appendChild(cb);
-            row.appendChild(info);
-            wrapper.appendChild(row);
-
-            checkboxes.push({ cb, path: g.path });
-        }
-
-        showDialog({
-            title: 'Path Filter',
-            icon: FOLDER_BTN_SVG,
-            content: wrapper,
-            confirmLabel: _t('common.ok'),
-            cancelLabel: _t('common.cancel'),
-            showCancel: true,
-        }).then(confirmed => {
-            if (!confirmed) return;
-            const checked = checkboxes.filter(c => c.cb.checked);
-            if (checked.length === 0 || checked.length === groups.length) {
-                // All or none → show all
-                this.#activePaths = null;
-            } else {
-                this.#activePaths = new Set(checked.map(c => c.path));
-            }
-            this.#setSubfolder('');
-            this.#page = 0;
-            this.#applyFilter();
-            this.#renderGrid();
-        });
     }
 
     /* ══════ Swipe Navigation ══════ */

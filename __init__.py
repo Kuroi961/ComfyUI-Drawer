@@ -12,23 +12,18 @@ import re
 import sys
 
 
-def _sync_frontend_version():
-    """Keep the frontend runtime version in sync with pyproject.toml."""
+def get_drawer_version(default="0.0.0"):
+    """Read the package version without mutating frontend files at import time."""
     root = Path(__file__).resolve().parent
     pyproject = root / "pyproject.toml"
-    version_js = root / "web" / "js" / "version.js"
     try:
         text = pyproject.read_text(encoding="utf-8")
         match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
         if not match:
-            return
-        version = match.group(1)
-        version_js.write_text(f"export const DRAWER_VERSION = '{version}';\n", encoding="utf-8")
+            return default
+        return match.group(1)
     except OSError:
-        pass
-
-
-_sync_frontend_version()
+        return default
 
 from .drawer_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 from . import drawer_routes as _drawer_routes  # noqa: F401 - route registration side effects
@@ -42,6 +37,7 @@ register_metadata_panel_contributor = _drawer_routes.register_metadata_panel_con
 unregister_metadata_panel_contributor = _drawer_routes.unregister_metadata_panel_contributor
 register_dictionary_provider = _drawer_routes.register_dictionary_provider
 unregister_dictionary_provider = _drawer_routes.unregister_dictionary_provider
+DRAWER_VERSION = get_drawer_version()
 
 sys.modules.setdefault("comfyui_drawer", sys.modules[__name__])
 
@@ -57,4 +53,6 @@ __all__ = [
     "unregister_metadata_panel_contributor",
     "register_dictionary_provider",
     "unregister_dictionary_provider",
+    "DRAWER_VERSION",
+    "get_drawer_version",
 ]

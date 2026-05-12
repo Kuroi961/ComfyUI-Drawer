@@ -15,6 +15,7 @@ import threading
 import time
 import tempfile
 import uuid as _uuid
+from pathlib import Path
 
 try:
     from send2trash import send2trash as _send2trash
@@ -73,6 +74,7 @@ from .media_metadata import (
     read_media_meta_with_source as _read_media_meta_with_source,
 )
 from .prompt_processor import setup_prompt_processing
+from .request_guards import require_same_origin as _require_same_origin
 from .search_query import (
     extract_searchable_parts as _extract_searchable_parts,
     parse_search_scopes as _parse_search_scopes,
@@ -94,6 +96,22 @@ _routes = server.PromptServer.instance.routes
 
 sys.modules.setdefault("comfyui_drawer.drawer_routes", sys.modules[__name__])
 setup_metadata_extensions(server.PromptServer.instance)
+
+
+def _drawer_version(default="0.0.0"):
+    pyproject = Path(__file__).resolve().parent / "pyproject.toml"
+    try:
+        text = pyproject.read_text(encoding="utf-8")
+    except OSError:
+        return default
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else default
+
+
+@_routes.get("/drawer/version")
+async def get_drawer_version(request):
+    """Return the Python package version used by the current Drawer backend."""
+    return web.json_response({"version": _drawer_version()})
 
 
 @_routes.get("/drawer/changelog")
@@ -276,8 +294,8 @@ async def get_model_paths(request):
     """Return models grouped by their source base path for a given category.
 
     Response: [
-        { "path": "C:/ComfyUI/models/loras", "models": ["model1.safetensors", ...] },
-        { "path": "G:/ComfyHub2/models/loras", "models": ["SDXL/model2.safetensors", ...] },
+        { "id": "source-1", "models": ["model1.safetensors", ...] },
+        { "id": "source-2", "models": ["SDXL/model2.safetensors", ...] },
     ]
     """
     def scan(category):
@@ -291,14 +309,13 @@ async def get_model_paths(request):
         extensions = paths_and_exts[1]
 
         result = []
-        for base_path in base_paths:
-            norm_path = base_path.replace("\\", "/")
+        for idx, base_path in enumerate(base_paths, start=1):
             if not os.path.isdir(base_path):
                 continue
             files, _dirs = folder_paths.recursive_search(base_path, excluded_dir_names=[".git"])
             filtered = folder_paths.filter_files_extensions(files, extensions)
             result.append({
-                "path": norm_path,
+                "id": f"source-{idx}",
                 "models": [f.replace("\\", "/") for f in filtered],
             })
         return result
@@ -345,6 +362,7 @@ async def create_user_dict(request):
     """Create a new user dictionary.
     Body: { "title": "辞書名", "type": "dict"|"wildcard" }
     """
+    _require_same_origin(request)
     try:
         data = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -372,6 +390,7 @@ async def update_user_dict_meta(request):
     """Update dictionary metadata (title, enabled).
     Body: { "title": "...", "enabled": true/false }
     """
+    _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
     try:
         data = await _read_json_body(request)
@@ -394,6 +413,7 @@ async def update_user_dict_meta(request):
 @_routes.delete("/drawer/user-dicts/{dict_id}")
 async def delete_user_dict_full(request):
     """Delete an entire user dictionary (manifest entry + file)."""
+    _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
 
     manifest = _read_manifest()
@@ -437,6 +457,7 @@ async def get_user_dict_entries(request):
 @_routes.post("/drawer/user-dict/{dict_id}")
 async def post_user_dict_entries(request):
     """Add/update entries in a specific user dictionary."""
+    _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
     try:
         data = await _read_json_body(request)
@@ -485,6 +506,7 @@ async def post_user_dict_entries(request):
 @_routes.delete("/drawer/user-dict/{dict_id}")
 async def delete_user_dict_entries(request):
     """Delete entries from a specific user dictionary."""
+    _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
     try:
         data = await _read_json_body(request)
@@ -521,6 +543,7 @@ async def import_user_dict(request):
       - title: optional display name (defaults to filename)
       - type: optional "dict"|"wildcard" (auto-detected from extension)
     """
+    _require_same_origin(request)
     try:
         reader = await _multipart_reader(request)
     except web.HTTPBadRequest as e:
@@ -1099,6 +1122,7 @@ async def fs_thumb(request):
 @_routes.post("/drawer/fs/thumb-warm")
 async def fs_thumb_warm(request):
     """POST /drawer/fs/thumb-warm — best-effort thumbnail cache warming."""
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1214,6 +1238,7 @@ async def fs_index_estimate(request):
 @_routes.post("/drawer/fs/index-start")
 async def fs_index_start(request):
     """POST /drawer/fs/index-start — start a fresh search index build."""
+    _require_same_origin(request)
     _search_index.start_background_build(reset=True)
     return web.json_response(_search_index.status)
 
@@ -1221,6 +1246,7 @@ async def fs_index_start(request):
 @_routes.post("/drawer/fs/index-resume")
 async def fs_index_resume(request):
     """POST /drawer/fs/index-resume — resume the search index build."""
+    _require_same_origin(request)
     _search_index.start_background_build(reset=False)
     return web.json_response(_search_index.status)
 
@@ -1228,6 +1254,7 @@ async def fs_index_resume(request):
 @_routes.post("/drawer/fs/index-pause")
 async def fs_index_pause(request):
     """POST /drawer/fs/index-pause — pause the current search index build."""
+    _require_same_origin(request)
     _search_index.pause()
     return web.json_response(_search_index.status)
 
@@ -1235,6 +1262,7 @@ async def fs_index_pause(request):
 @_routes.post("/drawer/fs/index-sync")
 async def fs_index_sync(request):
     """POST /drawer/fs/index-sync — reconcile file changes without rebuilding metadata."""
+    _require_same_origin(request)
     started = _search_index.start_background_sync(user_initiated=True)
     return web.json_response({"ok": True, "started": started, **_search_index.status})
 
@@ -1246,6 +1274,7 @@ async def fs_index_refresh_metadata(request):
     Use after installing or changing metadata providers/index contributors when
     the existing DB rows should be reinterpreted without dropping the index DB.
     """
+    _require_same_origin(request)
     started = _search_index.start_background_metadata_refresh(user_initiated=True)
     return web.json_response({"ok": True, "started": started, **_search_index.status})
 
@@ -1253,6 +1282,7 @@ async def fs_index_refresh_metadata(request):
 @_routes.put("/drawer/fs/index-auto-sync")
 async def fs_index_auto_sync(request):
     """PUT /drawer/fs/index-auto-sync — enable/disable periodic file reconciliation."""
+    _require_same_origin(request)
     body = await _read_json_body(request, default={})
     enabled = _search_index.set_auto_sync_enabled(bool(body.get("enabled", False)))
     return web.json_response({"ok": True, "enabled": enabled, **_search_index.status})
@@ -1266,6 +1296,7 @@ async def fs_index_update(request):
     Allows external metadata providers to enrich empty search index rows.
     Existing metadata is preserved unless replace=true is supplied.
     """
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1356,6 +1387,7 @@ async def fs_index_generated(request):
     Add newly generated files to an already-ready search snapshot.
     Body: {"files": [{"root": "output", "subfolder": "...", "name": "..."}]}
     """
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1452,15 +1484,16 @@ def _trash_file(filepath):
         return False
 
 
-# -- Delete (output & temp only) --
+# -- Delete (output/input/temp; items are sent to trash) --
 
 @_routes.post("/drawer/fs/delete")
 async def fs_delete(request):
     """POST /drawer/fs/delete
     Body: {"root": "output", "files": [{"subfolder":"...","name":"..."}, ...]}
-    Restricted to output & temp roots for safety.
+    Restricted to output, input, and temp roots for safety.
     Files are sent to the OS trash/recycle bin (requires send2trash).
     """
+    _require_same_origin(request)
     if _send2trash is None:
         return web.json_response(
             {"error": "Delete unavailable: send2trash is not installed (pip install send2trash)"},
@@ -1584,6 +1617,7 @@ async def fs_move(request):
             conflict: "skip"|"rename"|"overwrite" }
     Moves files to destSubfolder within the same root.
     """
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1769,6 +1803,7 @@ async def fs_mkdir(request):
     Body: { root: "output", subfolder: "path/to/parent", name: "NewFolder" }
     Creates a new directory inside root/subfolder.
     """
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1812,6 +1847,7 @@ async def fs_rename(request):
     Body: { root: "output", subfolder: "2026-03", oldName: "old.png", newName: "new.png" }
     Renames a file or folder. Rejects if newName already exists.
     """
+    _require_same_origin(request)
     try:
         body = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -1884,8 +1920,15 @@ from io import BytesIO
 try:
     from PIL import Image
     from PIL.PngImagePlugin import PngInfo
+    from .image_safety import DrawerImageTooLarge, open_image_checked
     _HAS_PIL = True
 except ImportError:
+    class DrawerImageTooLarge(ValueError):
+        pass
+
+    def open_image_checked(*_args, **_kwargs):
+        raise ImportError("PIL/Pillow not installed")
+
     _HAS_PIL = False
 
 _MAX_GRID_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -1990,6 +2033,7 @@ async def _save_grid(request):
       - save_metadata: bool
       - workflow_json: optional workflow JSON string (for metadata embedding)
     """
+    _require_same_origin(request)
     if not _HAS_PIL:
         return web.json_response({"error": "PIL/Pillow not installed"}, status=500)
     if request.content_length and request.content_length > _MAX_GRID_UPLOAD_BYTES:
@@ -2020,7 +2064,9 @@ async def _save_grid(request):
 
     try:
         image_bytes = base64.b64decode(image_b64)
-        img = Image.open(BytesIO(image_bytes))
+        img = open_image_checked(BytesIO(image_bytes), copy=True)
+    except DrawerImageTooLarge as e:
+        return web.json_response({"error": str(e)}, status=413)
     except Exception as e:
         return web.json_response({"error": f"Invalid image data: {e}"}, status=400)
 
@@ -2099,10 +2145,9 @@ async def _save_grid(request):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  ModelViewer API — Model thumbnails + custom_model_paths.yaml management
+#  ModelViewer API — Model thumbnails and sidecar metadata
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import yaml as _yaml
 import shutil as _shutil
 
 # Sidecar preview extensions searched for a model thumbnail, in priority order.
@@ -2215,7 +2260,7 @@ async def model_info(request):
     Response JSON:
       {
         "filename": "SDXL/foo.safetensors",
-        "fullPath": "G:/ComfyHub2/models/loras/SDXL/foo.safetensors",
+        "path": "SDXL/foo.safetensors",
         "sizeBytes": 123456789,
         "modifiedAt": "2024-01-15T10:30:00",
         "civitai": { ... } | null     // contents of .civitai.info if present
@@ -2262,7 +2307,7 @@ async def model_info(request):
     preview_file = _find_preview_path(model_path)
     return web.json_response({
         "filename": filename,
-        "fullPath": model_path.replace("\\", "/"),
+        "path": filename.replace("\\", "/"),
         "sizeBytes": size_bytes,
         "modifiedAt": modified_at,
         "civitai": civitai_data,
@@ -2283,6 +2328,7 @@ async def save_trigger_words(request):
     Expects JSON body: { "filename": "...", "triggerWords": ["word1", "word2"] }
     Saves to {model_path}.drawer.json alongside the model file.
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     try:
         body = await _read_json_body(request)
@@ -2319,6 +2365,7 @@ async def save_model_comment(request):
     Expects JSON body: { "filename": "...", "comment": "..." }
     Saves to {model_path}.drawer.json alongside the model file.
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     try:
         body = await _read_json_body(request)
@@ -2358,6 +2405,7 @@ async def delete_model_preview(request):
 
     Query param: ?filename=SDXL/foo.safetensors
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     filename = request.query.get("filename", "")
     if not filename:
@@ -2388,6 +2436,7 @@ async def upload_model_preview(request):
     Expects multipart form: filename (text) + image (file)
     Saves as {model_base}.preview.{ext}
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     if not _HAS_PIL:
         return web.json_response({"error": "PIL/Pillow not installed"}, status=500)
@@ -2427,9 +2476,9 @@ async def upload_model_preview(request):
         return web.json_response({"error": "filename and image required"}, status=400)
 
     try:
-        img = Image.open(BytesIO(image_data))
-        img.verify()
-        fmt = str(img.format or "").lower()
+        fmt = str(open_image_checked(BytesIO(image_data), verify=True) or "").lower()
+    except DrawerImageTooLarge as e:
+        return web.json_response({"error": str(e)}, status=413)
     except Exception as e:
         return web.json_response({"error": f"invalid image: {e}"}, status=400)
     if fmt == "jpeg":
@@ -2476,6 +2525,7 @@ async def delete_model(request):
     Removes: foo.safetensors, foo.safetensors.civitai.info, foo.safetensors.drawer.json,
              foo.preview.*, foo.png, foo.jpg, etc.
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     filename = request.query.get("filename", "")
     if not filename:
@@ -2550,6 +2600,7 @@ async def set_preview_from_output(request):
 
     JSON body: { "filename": "SDXL/foo.safetensors", "image": "subfolder/image.png" }
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     try:
         body = await _read_json_body(request)
@@ -2607,6 +2658,7 @@ async def create_model_folder(request):
     JSON body: { "subfolder": "SDXL", "name": "NewFolder" }
     Creates the folder relative to the first folder path for that category.
     """
+    _require_same_origin(request)
     category = request.match_info["category"]
     try:
         body = await _read_json_body(request)
@@ -2656,6 +2708,7 @@ async def civitai_sync(request):
     Expects JSON body: { "filename": "SDXL/foo.safetensors", "force": false }
     Saves the CivitAI response as {model_path}.civitai.info.
     """
+    _require_same_origin(request)
     import hashlib
     import aiohttp as _aiohttp
     import asyncio
@@ -2901,6 +2954,7 @@ async def civitai_batch_sync(request):
       progress  { index, total, filename, status, message }
       complete  { total, synced, skipped, failed }
     """
+    _require_same_origin(request)
     import hashlib
     import aiohttp as _aiohttp
     import asyncio
@@ -3127,120 +3181,6 @@ async def civitai_batch_sync(request):
     return response
 
 
-def _custom_model_paths_yaml():
-    """Locate custom_model_paths.yaml (same logic as main.py)."""
-    comfy_root = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))))  # up from custom_nodes/ComfyUI-Drawer/
-    return os.path.join(comfy_root, "custom_model_paths.yaml")
-
-
-@_routes.get("/drawer/custom-paths")
-async def get_custom_paths(request):
-    """Read custom_model_paths.yaml and return as JSON."""
-    yaml_path = _custom_model_paths_yaml()
-    if not os.path.isfile(yaml_path):
-        return web.json_response({
-            "yamlPath": yaml_path,
-            "profiles": [],
-        })
-
-    try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            config = _yaml.safe_load(f) or {}
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
-
-    profiles = []
-    for name, conf in config.items():
-        if not isinstance(conf, dict):
-            continue
-        base_path = conf.get("base_path", "")
-        is_default = conf.get("is_default", False)
-        entries = []
-        for k, v in conf.items():
-            if k in ("base_path", "is_default"):
-                continue
-            # Values can be multiline (pipe-separated in YAML)
-            if isinstance(v, str):
-                for line in v.split("\n"):
-                    line = line.strip()
-                    if line:
-                        entries.append({"category": k, "path": line})
-            else:
-                entries.append({"category": k, "path": str(v)})
-        profiles.append({
-            "name": name,
-            "basePath": base_path,
-            "isDefault": bool(is_default),
-            "entries": entries,
-        })
-
-    return web.json_response({
-        "yamlPath": yaml_path,
-        "profiles": profiles,
-    })
-
-
-@_routes.post("/drawer/custom-paths")
-async def save_custom_paths(request):
-    """Save custom_model_paths.yaml from JSON.
-    Creates a .yaml.bak backup before overwriting.
-    Body: { "profiles": [...] }
-    """
-    try:
-        data = await _read_json_body(request)
-    except web.HTTPBadRequest as e:
-        return _json_error(e.text, 400)
-    profiles = data.get("profiles", [])
-
-    yaml_path = _custom_model_paths_yaml()
-
-    # Build YAML-compatible dict
-    config = {}
-    for prof in profiles:
-        if not isinstance(prof, dict):
-            continue
-        name = _body_str(prof, "name")
-        if not name:
-            continue
-        section = {}
-        base = _body_str(prof, "basePath")
-        if base:
-            section["base_path"] = base
-        if prof.get("isDefault"):
-            section["is_default"] = True
-        # Group entries by category — if multiple paths per category, use newline
-        cat_paths = {}
-        for entry in prof.get("entries", []):
-            if not isinstance(entry, dict):
-                continue
-            cat = _body_str(entry, "category")
-            path = _body_str(entry, "path")
-            if cat and path:
-                cat_paths.setdefault(cat, []).append(path)
-        for cat, paths in cat_paths.items():
-            section[cat] = "\n".join(paths) if len(paths) > 1 else paths[0]
-        config[name] = section
-
-    # Backup existing file
-    if os.path.isfile(yaml_path):
-        bak = yaml_path + ".bak"
-        try:
-            _shutil.copy2(yaml_path, bak)
-        except Exception as e:
-            logger.warning(f"[ModelViewer] Backup failed: {e}")
-
-    # Write YAML
-    try:
-        with open(yaml_path, "w", encoding="utf-8") as f:
-            _yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
-
-    logger.info(f"[ModelViewer] Saved custom_model_paths.yaml ({len(profiles)} profiles)")
-    return web.json_response({"ok": True})
-
-
 @_routes.post("/drawer/clear-cache")
 async def clear_drawer_cache(request):
     """Clear Drawer's own cache files:
@@ -3249,6 +3189,7 @@ async def clear_drawer_cache(request):
 
     Returns: { "ok": true, "deleted": <count>, "freedBytes": <bytes> }
     """
+    _require_same_origin(request)
     body = await _read_json_body(request, default={})
     clear_thumbnails = bool(body.get("thumbnails", True))
     clear_index = bool(body.get("index", True))
@@ -3313,6 +3254,7 @@ async def clear_drawer_cache(request):
 @_routes.post("/drawer/reboot")
 def drawer_reboot(request):
     """Restart the ComfyUI server process in-place."""
+    _require_same_origin(request)
     if request.headers.get("X-Comfy-Drawer-Action") != "reboot":
         return web.json_response({"error": "Forbidden"}, status=403)
 

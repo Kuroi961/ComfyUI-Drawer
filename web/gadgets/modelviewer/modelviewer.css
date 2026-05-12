@@ -64,29 +64,6 @@
         display: none;
     }
 
-    /* ── Settings button ── */
-    .gadget-modelviewer .mv-settings-btn {
-        background: var(--mv-bg-elevated);
-        border: 1px solid var(--mv-border);
-        border-radius: var(--mv-r-s);
-        color: var(--mv-text-3);
-        width: 38px;
-        height: 38px;
-        cursor: pointer;
-        flex-shrink: 0;
-        transition: color 0.15s, border-color 0.15s, background 0.15s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        font-size: 14px;
-    }
-
-    .gadget-modelviewer .mv-settings-btn:hover {
-        color: var(--mv-text-1);
-        border-color: var(--mv-accent-dim);
-    }
-
     /* ── Search trigger button (🔍) ── */
     .gadget-modelviewer .mv-search-trigger {
         background: var(--mv-bg-elevated);
@@ -214,7 +191,6 @@
         display: flex;
     }
 
-    .gadget-modelviewer .mv-toolbar-browse.search-open .mv-settings-btn,
     .gadget-modelviewer .mv-toolbar-browse.search-open .mv-search-trigger,
     .gadget-modelviewer .mv-toolbar-browse.search-open .mv-page-info {
         display: none;
@@ -1194,7 +1170,6 @@
         max-width: 150px;
     }
 
-    .gadget-modelviewer .mv-settings-btn,
     .gadget-modelviewer .mv-search-trigger {
         width: 44px;
         min-width: 44px;

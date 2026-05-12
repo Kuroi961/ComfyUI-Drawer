@@ -7,6 +7,14 @@ import struct
 import subprocess
 import zlib
 
+try:
+    from .image_safety import open_image_checked
+except ImportError:
+    try:
+        from image_safety import open_image_checked
+    except ImportError:
+        open_image_checked = None
+
 from .metadata_ext import read_provider_meta
 
 _VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.avi', '.mkv')
@@ -420,9 +428,9 @@ def _read_video_meta(filepath):
 def _read_exif_meta(filepath):
     """Read ComfyUI metadata from JPEG/WebP EXIF tags."""
     try:
-        from PIL import Image
-
-        with Image.open(filepath) as img:
+        if open_image_checked is None:
+            return None
+        with open_image_checked(filepath) as img:
             info = img.info or {}
             meta = {}
             for key in ("prompt", "workflow"):

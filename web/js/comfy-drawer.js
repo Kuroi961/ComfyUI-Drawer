@@ -87,6 +87,17 @@ const DYNAMIC_INPUT_NODES = {
     },
 };
 
+async function loadDrawerVersion(fallback) {
+    try {
+        const resp = await fetch(api.apiURL('/drawer/version'), { cache: 'no-store' });
+        if (!resp.ok) return fallback;
+        const data = await resp.json();
+        return typeof data?.version === 'string' && data.version ? data.version : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 function setupDynamicInputs(node) {
     const nodeType = node.comfyClass ?? node.type;
     const cfg = DYNAMIC_INPUT_NODES[nodeType];
@@ -182,6 +193,8 @@ app.registerExtension({
     },
 
     async setup() {
+        const drawerVersion = await loadDrawerVersion(DRAWER_VERSION);
+
         // DrawerSeed: monkeypatch queuePrompt to randomize unlocked seeds
         if (!app.__comfyDrawerQueuePromptWrapped) {
             const origQueuePrompt = app.queuePrompt.bind(app);
@@ -1420,7 +1433,7 @@ app.registerExtension({
             maskService: MaskService,
 
             /** Version for compatibility checks */
-            version: DRAWER_VERSION,
+            version: drawerVersion,
         };
 
         window.ComfyDrawer = drawerAPI;

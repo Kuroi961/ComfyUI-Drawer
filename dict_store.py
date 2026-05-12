@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 
 import folder_paths
@@ -66,11 +67,26 @@ def read_manifest() -> list[dict]:
         os.makedirs(ddir, exist_ok=True)
 
         if os.path.exists(mpath):
-            with open(mpath, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
+            try:
+                with open(mpath, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                if not isinstance(manifest, list):
+                    raise ValueError("manifest must be a list")
+            except Exception:
+                backup = f"{mpath}.broken.{int(time.time())}"
+                try:
+                    os.replace(mpath, backup)
+                except OSError:
+                    pass
+                manifest = []
+                _write_manifest_locked(manifest)
+            original_len = len(manifest)
             for d in manifest:
-                if "type" not in d:
+                if isinstance(d, dict) and "type" not in d:
                     d["type"] = "dict"
+            manifest = [d for d in manifest if isinstance(d, dict)]
+            if len(manifest) != original_len:
+                _write_manifest_locked(manifest)
             return manifest
 
         legacy = os.path.join(folder_paths.get_user_directory(), "user_dict.csv")
