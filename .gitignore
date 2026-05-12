@@ -29,3 +29,6 @@ data/user_dicts/
 
 # Agent working directories
 .agent/
+
+# Internal development notes (not for public release)
+TODO.md
