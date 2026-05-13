@@ -232,11 +232,16 @@ try {
 
 | Area | Rule |
 |---|---|
-| Gallery/media deletion | Use `send2trash` (recycle bin); do not permanently delete browsed media from `/drawer/fs/delete` |
+| Gallery/media deletion | Use `send2trash` (recycle bin); do not permanently delete browsed media from `/drawer/fs/delete`. `fs_move` overwrites also go through `send2trash`. |
 | Internal cleanup | Plugin-owned cache, previews, sidecars, and explicit destructive maintenance endpoints may use permanent deletion; keep validation and user confirmation at the caller |
-| Path validation | Backend `_safe_path()` + `_ALLOWED_ROOTS` for traversal prevention |
+| Path validation | Backend `_safe_path()` + `_ALLOWED_ROOTS` for traversal prevention. Backend helpers that list directories must refuse symlinks (`os.path.islink`) before recursing or trashing, since `_safe_path` only protects callers — not transitive `os.listdir`/`os.walk` results. |
 | File moves | Validate both source and destination within allowed roots |
-| User input | `encodeURIComponent()` for URL params, `escapeHTML()` for innerHTML |
+| Image bytes from untrusted sources | Always go through `image_safety.open_image_checked(..., verify=True)` before treating bytes as an image (uploads, output→preview copies, CivitAI downloads, etc.). Plain extension checks are insufficient. |
+| External downloads | Cap size with `_download_preview_to_file` (or an equivalent streaming reader with a hard byte limit), validate `Content-Type`, write to a temp path, then `os.replace`. Never `read()` an external response into memory without a cap. |
+| User input | `encodeURIComponent()` for URL params, `escapeHTML()` for innerHTML, `URL` constructor + scheme allowlist for any string that becomes a `href`/`window.open` target (reject `javascript:`/`data:`/cross-origin). |
+| Markdown / rich text | When converting Markdown or user content to HTML, filter link schemes after entity-escaping — the browser decodes entities before scheme parsing, so escaping `:` is not enough. Allow only `http(s):`, `mailto:`, anchor (`#…`) and relative paths. |
+| Right-click suppression | Always exempt editable targets (`input`, `textarea`, `select`, `[contenteditable="true"]`) so the browser's Paste/spell-check menu is preserved (see "Dialogs & Native Menus"). |
+| Process restart | Endpoints that replace the running process (`os.execv`) must be `async`, send the response, then schedule the exec on a background task. A synchronous `def` handler never delivers the response to the client. |
 | Metadata | Sidecar file sync is NOT Drawer's responsibility. Emit `fs:*` mutation events via Bus (`fs:moved`, `fs:renamed`, `fs:deleted`, `fs:created`) |
 
 ---

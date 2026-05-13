@@ -3,6 +3,7 @@
 import csv
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -13,6 +14,16 @@ import folder_paths
 
 
 _USER_DICT_LOCK = threading.Lock()
+# Dictionary IDs are generated as uuid4()[:8] (8 hex chars) for the legacy
+# migration and via uuid4() elsewhere. Anything outside this character class
+# could collide with reserved Windows names, alternate streams (`name:foo`),
+# drive letters (`c:`), or filesystem control chars, so we refuse it
+# rather than try to sanitise.
+_VALID_DICT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class InvalidDictId(ValueError):
+    """Raised when a dictionary id contains unsafe characters."""
 
 
 def _atomic_write_text(path, writer, *, newline=None):
@@ -44,10 +55,17 @@ def manifest_path() -> str:
 
 
 def dict_file_path(dict_id: str, dtype: str = "dict") -> str:
-    """Return file path for a dictionary. CSV for dict, TXT for wildcard."""
-    safe_id = dict_id.replace("/", "").replace("\\", "").replace("..", "")
+    """Return file path for a dictionary. CSV for dict, TXT for wildcard.
+
+    Raises ``InvalidDictId`` when the id contains anything outside the
+    safe character class. The previous best-effort ``replace`` calls were
+    insufficient — Windows drive letters (``c:``) and alternate streams
+    (``name:foo``) survived sanitisation and could escape the dict dir.
+    """
+    if not isinstance(dict_id, str) or not _VALID_DICT_ID_RE.match(dict_id):
+        raise InvalidDictId(f"Invalid dictionary id: {dict_id!r}")
     ext = ".txt" if dtype == "wildcard" else ".csv"
-    return os.path.join(dicts_dir(), f"{safe_id}{ext}")
+    return os.path.join(dicts_dir(), f"{dict_id}{ext}")
 
 
 def get_dict_type(dict_id: str) -> str:

@@ -1170,6 +1170,26 @@ app.registerExtension({
         }
 
         /**
+         * Return true when `raw` is a same-origin http(s) URL that is safe
+         * to hand to `window.open` or `<a href>`. Rejects `javascript:`,
+         * `data:`, cross-origin URLs, and anything that fails URL parsing.
+         *
+         * Media URLs surface from server metadata (filenames embedded in
+         * workflows, third-party providers, etc.) so the context-menu
+         * actions cannot trust them blindly.
+         */
+        function isSafeMediaUrl(raw) {
+            if (typeof raw !== 'string' || !raw) return false;
+            try {
+                const u = new URL(raw, location.origin);
+                if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+                return u.origin === location.origin;
+            } catch {
+                return false;
+            }
+        }
+
+        /**
          * Platform-level media action: upload a media URL into ComfyUI input
          * and apply it to a LoadImage/LoadImageMask node.
          * Kept here because the action is registered by the platform and may
@@ -1218,7 +1238,11 @@ app.registerExtension({
                 icon: 'external-link',
                 order: 10,
                 compact: true,
-                action: (ctx) => window.open(ctx.src, '_blank'),
+                visible: (ctx) => isSafeMediaUrl(ctx?.src),
+                action: (ctx) => {
+                    if (!isSafeMediaUrl(ctx?.src)) return;
+                    window.open(ctx.src, '_blank', 'noopener,noreferrer');
+                },
             },
             // 'Send to LoadImage' entries are dynamically registered below
             {
@@ -1255,10 +1279,13 @@ app.registerExtension({
                 icon: 'download',
                 order: 30,
                 compact: true,
+                visible: (ctx) => isSafeMediaUrl(ctx?.src),
                 action: (ctx) => {
+                    if (!isSafeMediaUrl(ctx?.src)) return;
                     const a = document.createElement('a');
                     a.href = ctx.src;
                     a.download = ctx.name || ctx.label || 'image';
+                    a.rel = 'noopener';
                     document.body.appendChild(a);
                     a.click();
                     a.remove();

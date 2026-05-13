@@ -392,6 +392,8 @@ async def update_user_dict_meta(request):
     """
     _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
+    if not _USER_DICT_ID_RE.match(dict_id):
+        return web.json_response({"error": "invalid dictionary id"}, status=400)
     try:
         data = await _read_json_body(request)
     except web.HTTPBadRequest as e:
@@ -401,7 +403,11 @@ async def update_user_dict_meta(request):
     for d in manifest:
         if d["id"] == dict_id:
             if "title" in data:
-                d["title"] = data["title"].strip()
+                # Use _body_str so non-string titles (null/int/bool) become
+                # an empty string instead of raising AttributeError on .strip().
+                new_title = _body_str(data, "title", d.get("title", ""))
+                if new_title:
+                    d["title"] = new_title
             if "enabled" in data:
                 d["enabled"] = bool(data["enabled"])
             _write_manifest(manifest)
@@ -415,6 +421,8 @@ async def delete_user_dict_full(request):
     """Delete an entire user dictionary (manifest entry + file)."""
     _require_same_origin(request)
     dict_id = request.match_info["dict_id"]
+    if not _USER_DICT_ID_RE.match(dict_id):
+        return web.json_response({"error": "invalid dictionary id"}, status=400)
 
     manifest = _read_manifest()
     target = None
@@ -426,12 +434,22 @@ async def delete_user_dict_full(request):
         return web.json_response({"error": "not found"}, status=404)
 
     dtype = target.get("type", "dict")
+    try:
+        fpath = _dict_file_path(dict_id, dtype)
+    except ValueError:
+        return web.json_response({"error": "invalid dictionary id"}, status=400)
+
+    # Delete the data file first; only update the manifest if that succeeds,
+    # so a Windows file-lock cannot leave a manifest entry pointing at an
+    # orphan file.
+    if os.path.exists(fpath):
+        try:
+            os.remove(fpath)
+        except OSError as e:
+            return web.json_response({"error": f"delete failed: {e.strerror or e}"}, status=500)
+
     new_manifest = [d for d in manifest if d["id"] != dict_id]
     _write_manifest(new_manifest)
-
-    fpath = _dict_file_path(dict_id, dtype)
-    if os.path.exists(fpath):
-        os.remove(fpath)
 
     return web.json_response({"ok": True})
 
@@ -1564,24 +1582,42 @@ def _auto_rename(dest_dir, name):
             return new_name
         counter += 1
 
-def _merge_dirs(src_dir, dst_dir, rel_dir=""):
+_MERGE_DIRS_MAX_DEPTH = 16
+
+
+def _merge_dirs(src_dir, dst_dir, rel_dir="", _depth=0):
     """Recursively merge src_dir into dst_dir.
     - Files: if conflict, auto-rename the incoming file.
     - Folders: recurse into matching subfolders.
+    - Symlinks/junctions are refused — they could re-enter outside the root
+      or create cycles. Depth is capped to avoid pathological loops.
     Returns (moved_count, renamed_list, error_list).
     """
     import shutil
     moved = 0
     renamed = []
     errors = []
+    if _depth > _MERGE_DIRS_MAX_DEPTH:
+        errors.append(f"Merge depth limit exceeded at {rel_dir or '.'}")
+        return moved, renamed, errors
+    if os.path.islink(src_dir) or os.path.islink(dst_dir):
+        errors.append(f"Refused to merge symlinked directory: {rel_dir or '.'}")
+        return moved, renamed, errors
     for item_name in os.listdir(src_dir):
         item_src = os.path.join(src_dir, item_name)
         item_dst = os.path.join(dst_dir, item_name)
+        # Never follow symlinks into either side — they could escape the root.
+        if os.path.islink(item_src):
+            errors.append(f"Skipped symlink at source: {item_name}")
+            continue
+        if os.path.lexists(item_dst) and os.path.islink(item_dst):
+            errors.append(f"Skipped symlink at destination: {item_name}")
+            continue
         if os.path.exists(item_dst):
             # Both are directories → recurse
             if os.path.isdir(item_src) and os.path.isdir(item_dst):
                 child_rel = _format_storage_rel("/".join(p for p in (rel_dir, item_name) if p))
-                m, r, e = _merge_dirs(item_src, item_dst, child_rel)
+                m, r, e = _merge_dirs(item_src, item_dst, child_rel, _depth=_depth + 1)
                 moved += m
                 renamed.extend(r)
                 errors.extend(e)
@@ -1759,11 +1795,13 @@ async def fs_move(request):
                     renamed.extend(r)
                     errors.extend(e)
                     continue
-                # File → overwrite
-                try:
-                    os.remove(dst_path)
-                except Exception as e:
-                    errors.append(f"Cannot overwrite {name}: {e}")
+                # File → overwrite. CONVENTIONS: gallery-browsed media must
+                # go through the recycle bin, never `os.remove`.
+                if _send2trash is None:
+                    errors.append(f"Cannot overwrite {name}: send2trash not installed")
+                    continue
+                if not _trash_file(dst_path):
+                    errors.append(f"Cannot overwrite {name}: trash failed")
                     continue
         try:
             shutil.move(src_path, dst_path)
@@ -1955,6 +1993,87 @@ async def _read_limited_stream(stream, limit):
     return b"".join(chunks)
 
 
+# Allowed CivitAI preview Content-Types. Restricts what we accept from the
+# upstream API so a hostile mirror cannot dump arbitrary binaries next to
+# user models. mp4/webm are kept because CivitAI legitimately stores
+# animated previews; bytes are still size-capped and not image-verified.
+_ALLOWED_PREVIEW_CONTENT_TYPES = (
+    "image/png", "image/jpeg", "image/jpg", "image/webp",
+    "video/mp4", "video/webm",
+)
+_MAX_PREVIEW_DOWNLOAD_BYTES = 32 * 1024 * 1024
+
+
+async def _download_preview_to_file(url, dest_path, *,
+                                    max_bytes=_MAX_PREVIEW_DOWNLOAD_BYTES,
+                                    timeout_seconds=30):
+    """Download an image/video preview to dest_path with safety guards.
+
+    - Hard size cap on the response stream (no unbounded read()).
+    - Content-Type allowlist (rejects HTML/JS/etc. masquerading as a preview).
+    - Image bytes are verified through open_image_checked(verify=True) so
+      attackers cannot plant non-image binaries that the UI will later trust.
+    - Writes to a temp file beside dest_path and atomic-replaces, so a
+      half-finished download never wins as a corrupt preview.
+
+    Returns (ok: bool, error: str|None).
+    """
+    import aiohttp
+    is_video = dest_path.lower().endswith((".mp4", ".webm"))
+    buf = io.BytesIO()
+    received = 0
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
+                if resp.status != 200:
+                    return False, f"http_{resp.status}"
+                content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                if content_type and content_type not in _ALLOWED_PREVIEW_CONTENT_TYPES:
+                    return False, "bad_content_type"
+                async for chunk in resp.content.iter_chunked(64 * 1024):
+                    received += len(chunk)
+                    if received > max_bytes:
+                        return False, "too_large"
+                    buf.write(chunk)
+    except asyncio.TimeoutError:
+        return False, "timeout"
+    except Exception as e:
+        return False, f"network:{e}"
+
+    data = buf.getvalue()
+    if not data:
+        return False, "empty"
+    if not is_video:
+        try:
+            open_image_checked(BytesIO(data), verify=True)
+        except DrawerImageTooLarge:
+            return False, "image_too_large"
+        except Exception:
+            return False, "not_image"
+
+    dest_dir = os.path.dirname(dest_path)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=os.path.basename(dest_path) + ".",
+            suffix=".tmp",
+            dir=dest_dir,
+        )
+    except OSError as e:
+        return False, f"prepare_failed:{e}"
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_path, dest_path)
+        return True, None
+    except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False, f"write_failed:{e}"
+
+
 def _atomic_write_text(path, writer, *, newline=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
@@ -2073,14 +2192,18 @@ async def _save_grid(request):
     # Expand variables in prefix
     filename_prefix = _expand_vars(filename_prefix)
 
-    # Resolve output path
-    output_dir = folder_paths.get_output_directory()
-    subfolder = os.path.dirname(os.path.normpath(filename_prefix))
-    basename = os.path.basename(os.path.normpath(filename_prefix))
-    full_folder = os.path.join(output_dir, subfolder)
-
-    # Security: prevent path traversal
-    if os.path.commonpath((output_dir, os.path.abspath(full_folder))) != output_dir:
+    # Resolve output path. Normalise to forward-slash form first so the
+    # split is consistent across Windows/POSIX, then go through _safe_path
+    # which resolves symlinks and refuses anything outside the realpath
+    # of the output directory.
+    output_dir = os.path.realpath(folder_paths.get_output_directory())
+    normalized = os.path.normpath(filename_prefix).replace("\\", "/").strip("/")
+    subfolder = os.path.dirname(normalized)
+    basename = os.path.basename(normalized)
+    if not basename or not _is_plain_name(basename):
+        return web.json_response({"error": "Invalid filename prefix"}, status=400)
+    full_folder = _safe_path(output_dir, subfolder) if subfolder else output_dir
+    if full_folder is None:
         return web.json_response({"error": "Path traversal not allowed"}, status=403)
 
     os.makedirs(full_folder, exist_ok=True)
@@ -2549,33 +2672,64 @@ async def delete_model(request):
     else:
         return web.json_response({"error": "Failed to move model to trash"}, status=500)
 
-    # Delete sidecar files
-    base_no_ext = os.path.splitext(model_path)[0]
+    # Sidecars specific to this exact model filename (suffixes append to the
+    # full basename, not the stem, so they cannot collide with siblings).
     sidecar_patterns = [
         model_path + ".civitai.info",
         model_path + ".drawer.json",
     ]
-    # Preview files: foo.preview.*, foo.png, foo.jpg, foo.jpeg, foo.webp
+
+    # Shared-stem previews (foo.preview.*, foo.png, foo.jpg, ...) belong to
+    # ALL models that share the stem (e.g. foo.safetensors + foo.ckpt).
+    # Only sweep them up when this is the last model with that stem in the
+    # directory — otherwise we would orphan the sibling's preview.
     model_dir = os.path.dirname(model_path)
-    model_stem = os.path.splitext(os.path.basename(model_path))[0]
-    for f in os.listdir(model_dir):
-        f_lower = f.lower()
-        f_stem = os.path.splitext(f)[0]
-        # Match foo.preview.* or foo.png/jpg/jpeg/webp
-        if f_stem.lower() == model_stem.lower() and f_lower.endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            sidecar_patterns.append(os.path.join(model_dir, f))
-        elif f_lower.startswith(model_stem.lower() + '.preview.'):
-            sidecar_patterns.append(os.path.join(model_dir, f))
-        elif f == os.path.basename(model_path) + '.civitai.info':
-            sidecar_patterns.append(os.path.join(model_dir, f))
-        elif f == os.path.basename(model_path) + '.drawer.json':
-            sidecar_patterns.append(os.path.join(model_dir, f))
+    model_basename = os.path.basename(model_path)
+    model_stem = os.path.splitext(model_basename)[0]
+    _SHARED_PREVIEW_EXTS = (
+        '.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm',
+        '.info', '.json', '.yaml', '.yml', '.txt',
+    )
+    has_sibling = False
+    try:
+        for f in os.listdir(model_dir):
+            if f == model_basename:
+                continue
+            f_stem, f_ext = os.path.splitext(f)
+            if f_stem != model_stem:
+                continue
+            # foo.preview.png has stem "foo.preview" — already excluded.
+            # Anything left whose extension is NOT a known sidecar type is
+            # treated as another model file sharing the stem.
+            if f_ext.lower() in _SHARED_PREVIEW_EXTS:
+                continue
+            has_sibling = True
+            break
+    except OSError:
+        # If we cannot enumerate the directory, err on the side of caution
+        # and skip the shared-stem cleanup.
+        has_sibling = True
+
+    if not has_sibling:
+        base_no_ext = os.path.splitext(model_path)[0]
+        for ext in _THUMB_PREVIEW_EXTS:
+            candidate = base_no_ext + ext
+            if os.path.isfile(candidate):
+                sidecar_patterns.append(candidate)
+        for ext in ('.png', '.jpg', '.jpeg', '.webp'):
+            candidate = base_no_ext + ext
+            if os.path.isfile(candidate):
+                sidecar_patterns.append(candidate)
 
     seen = set()
     for path in sidecar_patterns:
-        if path in seen or not os.path.isfile(path):
+        if path in seen:
             continue
         seen.add(path)
+        # Skip non-files and symlinks: send2trash on a symlink can affect
+        # the target rather than the link on some platforms.
+        if not os.path.isfile(path) or os.path.islink(path):
+            continue
         if _trash_file(path):
             deleted.append(os.path.basename(path))
         else:
@@ -2627,6 +2781,19 @@ async def set_preview_from_output(request):
     image_ext = os.path.splitext(image_path)[1].lower()
     if image_ext not in ('.png', '.jpg', '.jpeg', '.webp'):
         return web.json_response({"error": "unsupported image format"}, status=400)
+
+    # Defence in depth: the extension check above is necessary but not
+    # sufficient — the bytes must also pass Pillow's header verification
+    # before we copy them into the model sidecar location (where the UI
+    # will treat them as a trusted preview).
+    if not _HAS_PIL:
+        return web.json_response({"error": "PIL/Pillow not installed"}, status=500)
+    try:
+        open_image_checked(image_path, verify=True)
+    except DrawerImageTooLarge as e:
+        return web.json_response({"error": str(e)}, status=413)
+    except Exception:
+        return web.json_response({"error": "not a valid image"}, status=400)
 
     base_no_ext = os.path.splitext(model_path)[0]
     preview_path = base_no_ext + ".preview" + image_ext
@@ -2741,7 +2908,6 @@ async def civitai_sync(request):
             # Check if preview is missing — download if so
             has_preview = _find_preview_path(model_path) is not None
             if not has_preview:
-                import aiohttp as _aiohttp
                 images = existing.get("images", [])
                 if images:
                     first_img = images[0]
@@ -2758,15 +2924,12 @@ async def civitai_sync(request):
                             ext = ".jpeg"
                         base_no_ext = os.path.splitext(model_path)[0]
                         preview_path = base_no_ext + ".preview" + ext
-                        try:
-                            async with _aiohttp.ClientSession() as session:
-                                async with session.get(img_url, timeout=_aiohttp.ClientTimeout(total=30)) as img_resp:
-                                    if img_resp.status == 200:
-                                        img_data = await img_resp.read()
-                                        with open(preview_path, "wb") as pf:
-                                            pf.write(img_data)
-                        except Exception as e:
-                            logger.warning(f"[Drawer] Failed to download preview (cached path): {e}")
+                        ok_dl, dl_err = await _download_preview_to_file(img_url, preview_path)
+                        if not ok_dl:
+                            logger.warning(
+                                "[Drawer] Failed to download preview (cached path): %s",
+                                dl_err,
+                            )
 
             return web.json_response({"ok": True, "civitai": existing, "cached": True})
         except Exception:
@@ -2899,10 +3062,9 @@ async def civitai_sync(request):
             "message": "CivitAIにこのモデルの情報が見つかりませんでした",
         })
 
-    # --- Step 3: Save .civitai.info ---
+    # --- Step 3: Save .civitai.info (atomic) ---
     try:
-        with open(civitai_path, "w", encoding="utf-8") as f:
-            json.dump(civitai_data, f, ensure_ascii=False, indent=2)
+        _write_json_file_atomic(civitai_path, civitai_data)
     except Exception as e:
         logger.warning(f"[Drawer] Failed to save .civitai.info: {e}")
 
@@ -2924,15 +3086,9 @@ async def civitai_sync(request):
             base_no_ext = os.path.splitext(model_path)[0]
             preview_path = base_no_ext + ".preview" + ext
             if not os.path.isfile(preview_path):
-                try:
-                    async with _aiohttp.ClientSession() as session:
-                        async with session.get(img_url, timeout=_aiohttp.ClientTimeout(total=30)) as img_resp:
-                            if img_resp.status == 200:
-                                img_data = await img_resp.read()
-                                with open(preview_path, "wb") as pf:
-                                    pf.write(img_data)
-                except Exception as e:
-                    logger.warning(f"[Drawer] Failed to download preview: {e}")
+                ok_dl, dl_err = await _download_preview_to_file(img_url, preview_path)
+                if not ok_dl:
+                    logger.warning("[Drawer] Failed to download preview: %s", dl_err)
 
     return web.json_response({
         "ok": True,
@@ -3121,14 +3277,14 @@ async def civitai_batch_sync(request):
                     })
                     continue
 
-                # Save .civitai.info
+                # Save .civitai.info (atomic)
                 try:
-                    with open(civitai_path, "w", encoding="utf-8") as f:
-                        json.dump(civitai_data, f, ensure_ascii=False, indent=2)
+                    _write_json_file_atomic(civitai_path, civitai_data)
                 except Exception:
                     pass
 
-                # Download preview if missing
+                # Download preview if missing — size-capped, image-verified,
+                # atomic-replaced (see _download_preview_to_file).
                 if not _find_preview_path(model_path):
                     images = civitai_data.get("images", [])
                     if images:
@@ -3142,14 +3298,7 @@ async def civitai_batch_sync(request):
                                 else ".jpeg"
                             base_no_ext = os.path.splitext(model_path)[0]
                             preview_path = base_no_ext + ".preview" + ext
-                            try:
-                                async with session.get(img_url, timeout=_aiohttp.ClientTimeout(total=30)) as img_resp:
-                                    if img_resp.status == 200:
-                                        img_data = await img_resp.read()
-                                        with open(preview_path, "wb") as pf:
-                                            pf.write(img_data)
-                            except Exception:
-                                pass
+                            await _download_preview_to_file(img_url, preview_path)
 
                 synced += 1
                 model_name = civitai_data.get("model", {}).get("name", short_name)
@@ -3252,8 +3401,13 @@ async def clear_drawer_cache(request):
 
 
 @_routes.post("/drawer/reboot")
-def drawer_reboot(request):
-    """Restart the ComfyUI server process in-place."""
+async def drawer_reboot(request):
+    """Restart the ComfyUI server process in-place.
+
+    The reboot is scheduled on a background task so the response can flush
+    to the client before exec replaces the process. A synchronous handler
+    that calls os.execv() never sends the response.
+    """
     _require_same_origin(request)
     if request.headers.get("X-Comfy-Drawer-Action") != "reboot":
         return web.json_response({"error": "Forbidden"}, status=403)
@@ -3270,19 +3424,32 @@ def drawer_reboot(request):
             return [sys.executable, "-m", module, *argv[1:]]
         return [sys.executable, *argv]
 
-    # Some launch wrappers replace stdout with an object that must be detached
-    # before exec, otherwise the replacement process can inherit a broken stream.
-    try:
-        sys.stdout.close_log()
-    except Exception:
-        pass
-
-    cli_session = os.environ.get("__COMFY_CLI_SESSION__")
-    if cli_session:
-        open(cli_session + ".reboot", "w").close()
-        exit(0)
-
-    print("\nRestarting... [Drawer]\n\n")
     cmds = build_restart_argv()
-    print(f"Command: {cmds}", flush=True)
-    return os.execv(sys.executable, cmds)
+    cli_session = os.environ.get("__COMFY_CLI_SESSION__")
+
+    async def _exec_after_response():
+        # Give the response a chance to reach the client before we exec.
+        await asyncio.sleep(0.4)
+        # Some launch wrappers replace stdout with an object that must be
+        # detached before exec, otherwise the replacement process can
+        # inherit a broken stream.
+        try:
+            sys.stdout.close_log()
+        except Exception:
+            pass
+        if cli_session:
+            try:
+                with open(cli_session + ".reboot", "w"):
+                    pass
+            except OSError as e:
+                logger.warning("[Drawer] failed to mark CLI reboot: %s", e)
+            os._exit(0)
+        logger.info("[Drawer] Restarting...")
+        logger.info("[Drawer] Command: %s", cmds)
+        try:
+            os.execv(sys.executable, cmds)
+        except Exception as e:
+            logger.error("[Drawer] os.execv failed: %s", e)
+
+    asyncio.create_task(_exec_after_response())
+    return web.json_response({"ok": True, "restarting": True})

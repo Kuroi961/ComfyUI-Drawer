@@ -1168,9 +1168,13 @@ class SearchIndex:
             root_path = getter()
         except Exception:
             return False
-        full = os.path.join(root_path, subfolder, name) if subfolder else \
-               os.path.join(root_path, name)
-        if not os.path.isfile(full):
+        # Path-traversal guard: a frontend or third-party caller must not be
+        # able to address a file outside the allowed root by sending `..`
+        # segments in subfolder/name. _safe_path resolves symlinks and
+        # refuses anything that escapes the root.
+        full = self._safe_path(root_path, subfolder, name) if subfolder else \
+               self._safe_path(root_path, name)
+        if full is None or not os.path.isfile(full):
             return False
         try:
             st = os.stat(full)

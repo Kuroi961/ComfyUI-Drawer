@@ -122,14 +122,36 @@ class UserDictionaryStoreTests(unittest.TestCase):
             finally:
                 folder_paths.get_user_directory = original_get_user_directory
 
-    def test_dict_file_path_strips_path_separators(self):
+    def test_dict_file_path_rejects_unsafe_ids(self):
+        """dict_file_path must refuse anything outside [A-Za-z0-9_-].
+
+        The old behavior silently replaced `/`, `\\`, `..` and returned a
+        sanitized path. That left Windows drive letters (`c:foo`) and
+        alternate streams (`name:foo`) intact, both of which can escape the
+        dict directory on Windows. The hardened contract is to reject the
+        id outright.
+        """
         original_get_user_directory = folder_paths.get_user_directory
         with tempfile.TemporaryDirectory() as tmp:
             folder_paths.get_user_directory = lambda: tmp
             try:
-                path = dict_store.dict_file_path("../bad\\id", "dict")
-                self.assertTrue(path.startswith(os.path.join(tmp, "drawer_dicts")))
-                self.assertEqual(os.path.basename(path), "badid.csv")
+                for bad in (
+                    "../bad\\id",
+                    "..",
+                    "name:foo",
+                    "c:bad",
+                    "with/slash",
+                    "with\\backslash",
+                    "",
+                    "name with space",
+                ):
+                    with self.assertRaises((ValueError, dict_store.InvalidDictId)):
+                        dict_store.dict_file_path(bad, "dict")
+
+                # Valid ids still produce a path under drawer_dicts/
+                good = dict_store.dict_file_path("abc12345", "dict")
+                self.assertTrue(good.startswith(os.path.join(tmp, "drawer_dicts")))
+                self.assertEqual(os.path.basename(good), "abc12345.csv")
             finally:
                 folder_paths.get_user_directory = original_get_user_directory
 
@@ -151,6 +173,123 @@ class UserDictionaryStoreTests(unittest.TestCase):
                 self.assertTrue(backups)
             finally:
                 folder_paths.get_user_directory = original_get_user_directory
+
+
+class MediaMetadataHardeningTests(unittest.TestCase):
+    def test_iTXt_zlib_decompress_is_size_capped(self):
+        """C10: iTXt 'parameters' bomb (high-ratio zlib) must be skipped.
+
+        Regression for the case where the decompressed payload would exceed
+        _MAX_META_CHUNK_BYTES. The chunk must be silently dropped, not used
+        to inflate gigabytes into memory during routine indexing.
+        """
+        import struct
+        import zlib
+
+        media_metadata = _load_repo_module("media_metadata")
+
+        # Build a payload that decompresses to ~64 MiB of 'A' — far above the
+        # 16 MiB cap. Compressed size stays tiny.
+        big_payload = b"A" * (64 * 1024 * 1024)
+        compressed = zlib.compress(big_payload, level=9)
+        # iTXt body: keyword \x00 compFlag(1) compMethod(1) langTag \x00 transKey \x00 textData
+        keyword = b"parameters"
+        body = keyword + b"\x00" + b"\x01" + b"\x00" + b"" + b"\x00" + b"" + b"\x00" + compressed
+        chunk = b"iTXt" + body
+        # Build a minimal PNG: signature + IHDR + iTXt + IEND
+        png_sig = b"\x89PNG\r\n\x1a\n"
+        ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0)
+        ihdr_chunk = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + struct.pack(">I", 0)
+        itxt_chunk = struct.pack(">I", len(body)) + chunk + struct.pack(">I", 0)
+        iend_chunk = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", 0)
+        png_bytes = png_sig + ihdr_chunk + itxt_chunk + iend_chunk
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fp:
+            fp.write(png_bytes)
+            path = fp.name
+        try:
+            chunks = media_metadata._read_png_text_chunks(path)
+            # The high-ratio chunk should be refused — the keyword must not
+            # appear in the result. If decompression were uncapped this
+            # would either OOM or succeed.
+            self.assertNotIn("parameters", chunks)
+        finally:
+            os.unlink(path)
+
+
+class RouteHardeningSiblingDeleteTests(unittest.TestCase):
+    """C1: delete_model must keep sibling-stem previews when another model
+    file with the same stem still exists in the directory.
+    """
+
+    def test_delete_model_keeps_shared_stem_previews_for_siblings(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # The hardened branch keeps shared-stem previews when has_sibling
+        # remains True. We assert the source contains the guard rather than
+        # exercising the route (which requires aiohttp).
+        self.assertIn("has_sibling = False", source)
+        self.assertIn("if not has_sibling:", source)
+        self.assertIn("_SHARED_PREVIEW_EXTS", source)
+
+    def test_delete_model_refuses_symlinked_sidecars(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("os.path.islink(path)", source)
+
+
+class MergeDirsHardeningTests(unittest.TestCase):
+    """C5: _merge_dirs must refuse symlinks and cap recursion depth."""
+
+    def test_merge_dirs_has_depth_limit_and_symlink_guard(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("_MERGE_DIRS_MAX_DEPTH", source)
+        self.assertIn("os.path.islink(src_dir)", source)
+        self.assertIn("os.path.islink(item_src)", source)
+        self.assertIn("Refused to merge symlinked directory", source)
+
+
+class CivitaiDownloadHardeningTests(unittest.TestCase):
+    """C2: external CivitAI downloads must use the size-capped helper."""
+
+    def test_civitai_paths_use_download_helper(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("_download_preview_to_file", source)
+        # Allowed content types are restricted, not arbitrary
+        self.assertIn("_ALLOWED_PREVIEW_CONTENT_TYPES", source)
+        # The dangerous unbounded read pattern is gone
+        self.assertNotIn('await img_resp.read()\n', source)
+
+
+class FsMoveOverwriteTests(unittest.TestCase):
+    """C7: fs_move overwrite must use the recycle bin, not os.remove."""
+
+    def test_fs_move_overwrite_uses_trash_file(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # In the overwrite branch, look for the _trash_file call and no
+        # raw os.remove on dst_path.
+        # Find the conflict=="overwrite" block heuristically.
+        marker = 'CONVENTIONS: gallery-browsed media must'
+        self.assertIn(marker, source)
+        # Ensure os.remove(dst_path) is no longer present in the move route.
+        self.assertNotIn("os.remove(dst_path)", source)
+
+
+class SearchIndexInputValidationTests(unittest.TestCase):
+    """C8: search_index.update_searchable must validate paths via _safe_path."""
+
+    def test_update_searchable_uses_safe_path(self):
+        source = (REPO_ROOT / "search_index.py").read_text(encoding="utf-8")
+        # The relevant snippet uses self._safe_path now, not raw os.path.join.
+        self.assertIn("self._safe_path(root_path, subfolder, name)", source)
+
+
+class DrawerRebootIsAsyncTests(unittest.TestCase):
+    """C6: /drawer/reboot must be an async handler with deferred exec."""
+
+    def test_drawer_reboot_is_async(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("async def drawer_reboot(request):", source)
+        self.assertIn("_exec_after_response", source)
+        self.assertIn("asyncio.create_task(_exec_after_response", source)
 
 
 class RequestGuardTests(unittest.TestCase):

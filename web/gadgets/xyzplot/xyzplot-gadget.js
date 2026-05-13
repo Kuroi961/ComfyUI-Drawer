@@ -1686,49 +1686,59 @@ export class XYZPlotGadget extends GadgetBase {
     // ── Lock the queue: prevent external prompts during sweep ──
     // NOTE: This is a justified escape hatch — monkey-patching queuePrompt
     // requires direct app access. See ARCHITECTURE.md "Bridge Boundary".
+    //
+    // The patch is installed INSIDE the try block so the `finally` that
+    // restores it is the unique owner of the cleanup. If we install above
+    // the try and anything between throws (e.g. progress DOM lookups), the
+    // queue stays permanently locked.
     const appRef = this.bridge.app;
-    const origQueuePrompt = appRef.queuePrompt.bind(appRef);
-    this.#origQueuePrompt = origQueuePrompt;
-    appRef.queuePrompt = (...args) => {
-      console.warn("[XYZ Plot] Queue blocked — sweep in progress");
-      return Promise.resolve();
-    };
-
-    // ── Guard: cancel sweep if a workflow is loaded/opened ──
-    // Listen for drawer:graph-configured (fired by LGraph.configure hook)
-    // instead of monkey-patching loadGraphData which can interfere with serialization.
-    const onGraphConfigured = () => {
-      console.warn("[XYZ Plot] Workflow changed during sweep — cancelling");
-      this.cancelled = true;
-      this.bridge.interrupt();
-    };
-    document.addEventListener('drawer:graph-configured', onGraphConfigured);
-
-    // -- Block D&D workflow loading during sweep --
-    // OS-level file drops (dragging .json from file explorer) fire on document,
-    // so we intercept at capture phase before ComfyUI's listeners can handle them.
-    const blockDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; };
-    const blockFileDrop = (e) => { e.preventDefault(); e.stopPropagation(); };
-    document.addEventListener('dragover', blockDragOver, true);
-    document.addEventListener('drop',     blockFileDrop,  true);
-
-    // Use gadget-local progress bar
-    const progressEl = this.#q("xyz-progress");
-    const progressFill = this.#q("xyz-progress-fill");
-    const progressPct = this.#q("xyz-progress-pct");
-    const progressText = this.#q("xyz-progress-text");
-    const statusEl = this.#statusEl;
-    if (progressEl) progressEl.classList.add('active');
-    progressFill.style.width = "0%";
-    progressPct.textContent = `0 / ${total} `;
-    progressText.textContent = "XYZ Plot starting...";
-    if (statusEl) statusEl.textContent = `Running ${total} jobs...`;
-    this.#q("xyz-grid").innerHTML = "";
-
-    // ── Render initial grid with all cells as ⏳ ──
-    this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel);
+    let origQueuePrompt = null;
+    let onGraphConfigured = null;
+    let blockDragOver = null;
+    let blockFileDrop = null;
 
     try {
+      origQueuePrompt = appRef.queuePrompt.bind(appRef);
+      this.#origQueuePrompt = origQueuePrompt;
+      appRef.queuePrompt = (...args) => {
+        console.warn("[XYZ Plot] Queue blocked — sweep in progress");
+        return Promise.resolve();
+      };
+
+      // ── Guard: cancel sweep if a workflow is loaded/opened ──
+      // Listen for drawer:graph-configured (fired by LGraph.configure hook)
+      // instead of monkey-patching loadGraphData which can interfere with serialization.
+      onGraphConfigured = () => {
+        console.warn("[XYZ Plot] Workflow changed during sweep — cancelling");
+        this.cancelled = true;
+        this.bridge.interrupt();
+      };
+      document.addEventListener('drawer:graph-configured', onGraphConfigured);
+
+      // -- Block D&D workflow loading during sweep --
+      // OS-level file drops (dragging .json from file explorer) fire on document,
+      // so we intercept at capture phase before ComfyUI's listeners can handle them.
+      blockDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; };
+      blockFileDrop = (e) => { e.preventDefault(); e.stopPropagation(); };
+      document.addEventListener('dragover', blockDragOver, true);
+      document.addEventListener('drop',     blockFileDrop,  true);
+
+      // Use gadget-local progress bar
+      const progressEl = this.#q("xyz-progress");
+      const progressFill = this.#q("xyz-progress-fill");
+      const progressPct = this.#q("xyz-progress-pct");
+      const progressText = this.#q("xyz-progress-text");
+      const statusEl = this.#statusEl;
+      if (progressEl) progressEl.classList.add('active');
+      progressFill.style.width = "0%";
+      progressPct.textContent = `0 / ${total} `;
+      progressText.textContent = "XYZ Plot starting...";
+      if (statusEl) statusEl.textContent = `Running ${total} jobs...`;
+      this.#q("xyz-grid").innerHTML = "";
+
+      // ── Render initial grid with all cells as ⏳ ──
+      this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel);
+
       for (const zVal of zValues) {
         for (const yVal of yValues) {
           for (const xVal of xValues) {
@@ -1789,11 +1799,21 @@ export class XYZPlotGadget extends GadgetBase {
       finishedNaturally = !this.cancelled && completed === total;
     } finally {
       // ── Unlock the queue & remove graph change guard ──
-      appRef.queuePrompt = origQueuePrompt;
+      // Each cleanup is guarded individually because we may enter `finally`
+      // after a partial setup (e.g. queuePrompt assigned but listener not).
+      if (origQueuePrompt) {
+        appRef.queuePrompt = origQueuePrompt;
+      }
       this.#origQueuePrompt = null;
-      document.removeEventListener('drawer:graph-configured', onGraphConfigured);
-      document.removeEventListener('dragover', blockDragOver, true);
-      document.removeEventListener('drop',     blockFileDrop,  true);
+      if (onGraphConfigured) {
+        document.removeEventListener('drawer:graph-configured', onGraphConfigured);
+      }
+      if (blockDragOver) {
+        document.removeEventListener('dragover', blockDragOver, true);
+      }
+      if (blockFileDrop) {
+        document.removeEventListener('drop', blockFileDrop, true);
+      }
       window.__xyzSweepActive = false;
       document.dispatchEvent(new CustomEvent('drawer:xyz-sweep-state', {
         detail: { active: false, completed, total, cancelled: this.cancelled },

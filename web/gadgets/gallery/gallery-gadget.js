@@ -1684,11 +1684,19 @@ export class GalleryGadget extends GadgetBase {
             }
             this.#refreshIndexStatus();
         } catch (e) {
-            if (e.name === 'AbortError') return; // intentional cancellation
+            if (e.name === 'AbortError') {
+                // Intentional cancellation. Still drop the loading overlay
+                // — otherwise a quick root-switch leaves it pinned forever.
+                if (!this.#initialLoadComplete) {
+                    this.#initialLoadComplete = true;
+                    this.#setInitialLoading(false);
+                }
+                return;
+            }
             if (!this.#isCurrentRequest(seq)) return;
             if (!this.#initialLoadComplete) {
                 this.#initialLoadComplete = true;
-                this.container.classList.remove('gg-initial-loading');
+                this.#setInitialLoading(false);
             }
             this.#setStatus(_t('common.error') + ': ' + e.message);
         }
@@ -1769,8 +1777,13 @@ export class GalleryGadget extends GadgetBase {
         }
         s.searchLoadingMore = true;
         this.#renderLoadMoreState();
+        // Capture the current request sequence so a new search arriving
+        // mid-fetch can invalidate this load-more response. Without this
+        // guard, stale results would be appended to the new query's list.
+        const seq = this.#requestSeq;
         try {
             const data = await this.#apiSearch(s.query, s.path, s.searchOffset);
+            if (!this.#isCurrentRequest(seq)) return;
             if (s.mode !== 'search' || data.query !== s.query) return;
             const incoming = data.files || [];
             const seen = new Set(s.rawFiles.map(file => `${file.subfolder || ''}/${file.name}`));
