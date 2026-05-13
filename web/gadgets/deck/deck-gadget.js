@@ -3078,9 +3078,11 @@ export class DeckGadget extends GadgetBase {
       s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
       // Italic
       s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
-      // Links [text](url) — only safe schemes; otherwise emit text only.
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, text, url) => {
-        if (!isSafeHref(url)) return text;
+      // Links [text](url) — only safe schemes; otherwise emit the original
+      // Markdown source as plain text so the user can see what was rejected
+      // (rather than a stray "click)" with the trailing paren orphaned).
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, text, url) => {
+        if (!isSafeHref(url)) return full;
         return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
       });
       // Auto-link bare URLs (scheme already constrained by the regex)
