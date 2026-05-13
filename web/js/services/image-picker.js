@@ -139,8 +139,12 @@ export function openImagePicker(opts = {}) {
             if (e.target === backdrop) close(null);
         });
 
-        // Suppress browser context menu inside picker
-        backdrop.addEventListener('contextmenu', (e) => e.preventDefault());
+        // Suppress browser context menu inside picker, but per CONVENTIONS
+        // never block it on editable controls — users still need Paste etc.
+        backdrop.addEventListener('contextmenu', (e) => {
+            if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+            e.preventDefault();
+        });
 
         // Escape key
         function onKey(e) {

@@ -113,6 +113,8 @@ export class ModelViewerGadget extends GadgetBase {
     #thumbEpoch = Date.now(); // cache-bust epoch for grid thumbnails
     /** @type {Function[]} Cleanup functions scoped to the current grid render */
     #gridCleanups = [];
+    /** @type {Set<number>} Deferred-cleanup timer IDs (sync strip, toasts) */
+    #deferredTimers = new Set();
 
     /* ── DOM refs ── */
     #el = {};
@@ -166,6 +168,26 @@ export class ModelViewerGadget extends GadgetBase {
         this.#gridCleanups = [];
         this.#ctxMenu?.unregisterByPrefix('mv:');
         this.#swipeDetach?.();
+        // Close any in-flight Server-Sent-Events stream so it doesn't keep
+        // running after the gadget is gone. The handlers reference `this.#el`
+        // and would NPE without this.
+        if (this.#syncEventSource) {
+            try { this.#syncEventSource.close(); } catch { /* ignore */ }
+            this.#syncEventSource = null;
+        }
+        // Clear any pending UI-cleanup timers (sync strip hide, toasts)
+        for (const id of this.#deferredTimers) clearTimeout(id);
+        this.#deferredTimers.clear();
+    }
+
+    /** Schedule a timer whose only job is UI cleanup, tracked for onDestroy. */
+    #scheduleCleanupTimer(fn, delayMs) {
+        const id = setTimeout(() => {
+            this.#deferredTimers.delete(id);
+            try { fn(); } catch (e) { console.warn('[ComfyDrawer:modelviewer] cleanup timer failed:', e); }
+        }, delayMs);
+        this.#deferredTimers.add(id);
+        return id;
     }
 
     /* ══════ DOM ══════ */
@@ -966,8 +988,11 @@ export class ModelViewerGadget extends GadgetBase {
         el.syncBarInner.classList.add('done');
         el.syncLabel.textContent = _t('modelviewer.civitaiBatchComplete', { synced, failed });
         el.syncCount.textContent = '';
-        setTimeout(() => {
-            el.syncStrip.classList.remove('active');
+        this.#scheduleCleanupTimer(() => {
+            // Guard against destroy mid-timer
+            if (this.#el && this.#el.syncStrip) {
+                this.#el.syncStrip.classList.remove('active');
+            }
         }, 5000);
     }
 
@@ -1041,7 +1066,11 @@ export class ModelViewerGadget extends GadgetBase {
             this.#syncEventSource = null;
             el.syncBtn.classList.remove('syncing');
             el.syncBtn.disabled = false;
-            setTimeout(() => el.syncStrip.classList.remove('active'), 3000);
+            this.#scheduleCleanupTimer(() => {
+                if (this.#el && this.#el.syncStrip) {
+                    this.#el.syncStrip.classList.remove('active');
+                }
+            }, 3000);
         };
     }
 
@@ -1935,7 +1964,11 @@ export class ModelViewerGadget extends GadgetBase {
         });
         el.textContent = msg;
         document.body.appendChild(el);
-        setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2000);
+        // Track both timers so onDestroy can stop them and remove the toast.
+        this.#scheduleCleanupTimer(() => {
+            el.style.opacity = '0';
+            this.#scheduleCleanupTimer(() => el.remove(), 300);
+        }, 2000);
     }
 
     /**

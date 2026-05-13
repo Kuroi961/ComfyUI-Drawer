@@ -68,8 +68,17 @@ def _read_png_text_chunks(filepath):
                                 if sep3 >= 0:
                                     text_data = rest[sep3 + 1:]
                                     if comp_flag:
+                                        # Cap the decompressed size so a
+                                        # high-ratio zlib bomb in an iTXt
+                                        # chunk cannot fill memory during
+                                        # routine indexing.
                                         try:
-                                            text_data = zlib.decompress(text_data)
+                                            decompressor = zlib.decompressobj()
+                                            text_data = decompressor.decompress(
+                                                text_data, _MAX_META_CHUNK_BYTES,
+                                            )
+                                            if decompressor.unconsumed_tail:
+                                                continue  # would exceed cap
                                         except zlib.error:
                                             continue
                                     result[keyword] = text_data.decode("utf-8", errors="ignore")

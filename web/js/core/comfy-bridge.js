@@ -87,23 +87,34 @@ export class ComfyBridge {
         return widget?.value;
     }
 
-    /** Get widget options for a node widget (e.g. list of available images) */
+    /** Get widget options for a node widget (e.g. list of available images).
+     * ComfyUI combo widgets may store `options.values` as an array OR a
+     * function that returns one. Resolve both shapes uniformly.
+     */
     getWidgetOptions(nodeId, widgetName) {
         const node = this.getNodeById(nodeId);
         if (!node?.widgets) return [];
         const widget = node.widgets.find(w => w.name === widgetName);
-        return widget?.options?.values ?? [];
+        const values = widget?.options?.values;
+        if (typeof values === 'function') {
+            try { return values() ?? []; } catch { return []; }
+        }
+        return values ?? [];
     }
 
-    /** Add value to widget options if not present */
+    /** Add value to widget options if not present.
+     * Returns false when the widget exposes `values` as a function — we
+     * cannot safely mutate a function-form options list.
+     */
     addWidgetOption(nodeId, widgetName, value) {
         const node = this.getNodeById(nodeId);
         if (!node?.widgets) return false;
         const widget = node.widgets.find(w => w.name === widgetName);
-        if (!widget?.options?.values) return false;
-        if (!widget.options.values.includes(value)) {
-            widget.options.values.push(value);
-        }
+        if (!widget?.options) return false;
+        const values = widget.options.values;
+        if (typeof values === 'function') return false; // function-form is read-only here
+        if (!Array.isArray(values)) return false;
+        if (!values.includes(value)) values.push(value);
         return true;
     }
 
@@ -116,15 +127,20 @@ export class ComfyBridge {
         if (!this.#app || typeof this.#app.loadGraphData !== 'function') {
             throw new Error('ComfyUI app.loadGraphData not available');
         }
-        // Ensure required arrays exist (use-everywhere hook expects nodes/links)
-        if (!workflowData.nodes) workflowData.nodes = [];
-        if (!workflowData.links) workflowData.links = [];
+        // Work on a shallow clone so we don't mutate the caller's object
+        // (which may be frozen or reused). use-everywhere expects nodes/links
+        // arrays to exist on whatever we pass in.
+        const data = (workflowData && typeof workflowData === 'object')
+            ? { ...workflowData }
+            : {};
+        if (!data.nodes) data.nodes = [];
+        if (!data.links) data.links = [];
 
         // Pass name as 4th arg so ComfyUI's afterLoadNewGraph() sets the tab
         // title natively. ComfyUI V2 handles this correctly on its own.
         // Signature: loadGraphData(data, clean, restoreView, workflowName, options)
         const baseName = name ? name.replace(/\.[^.]+$/, '') : null;
-        await this.#app.loadGraphData(workflowData, true, true, baseName);
+        await this.#app.loadGraphData(data, true, true, baseName);
     }
 
     /**
@@ -256,7 +272,7 @@ export class ComfyBridge {
      * @returns {string} Full URL (resolved via apiURL)
      */
     getImageUrl(filename, subfolder = '', type = 'output', options = {}) {
-        let url = `/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}&type=${type}`;
+        let url = `/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}&type=${encodeURIComponent(type)}`;
         if (options.bustCache) url += `&t=${Date.now()}`;
         return this.apiURL(url);
     }

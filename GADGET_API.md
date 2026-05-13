@@ -411,9 +411,17 @@ openLightbox(items, 0, {
 });
 ```
 
-MediaItem: `{ src, type: 'image'|'video'|'audio', label?, details?, info?, name?, subfolder?, source?, data? }`
+MediaItem: `{ src, type: 'image'|'video'|'audio', label?, details?, info?, infoHTML?, name?, subfolder?, source?, data? }`
 
 > `name`/`subfolder`/`source` auto-parsed from `src` URL if missing.
+
+| Field | Render mode |
+|---|---|
+| `label`, `details` | Plain text. Escaped via `escapeHTML()` before insertion. |
+| `info` | Plain text. Escaped via `escapeHTML()` before insertion. Prefer this for any value originating from a file, the graph, or a third-party metadata provider. |
+| `infoHTML` | **Trusted HTML escape hatch.** Inserted as-is. Callers are responsible for escaping every untrusted value before assembling the string. Use only when you control the entire HTML fragment. |
+
+`src` is rendered as `<img>`/`<video>`/`<audio>` and is also passed to `window.open` for "Open in new tab" / "Download" actions. The platform refuses `src` values that are not same-origin `http(s):` URLs in those actions (so `javascript:`/`data:` URLs cannot reach `window.open`). Gadgets that build `src` from server metadata should still prefer same-origin `/view?...` or `/drawer/fs/view?...` URLs.
 
 ---
 

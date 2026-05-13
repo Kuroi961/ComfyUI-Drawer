@@ -18,7 +18,15 @@
  *   onKey:           (key, item, index) => void  // unhandled key callback
  *   onClose:         () => void        // called when lightbox closes
  *
- * Items: Array<{ src, type: 'image'|'video'|'audio', label?, info?, data? }>
+ * Items: Array<{ src, type: 'image'|'video'|'audio', label?, info?, infoHTML?, data? }>
+ *
+ *   info       — Plain-text secondary info; rendered safely via escapeHTML.
+ *                Use this for anything that may have come from a file, the
+ *                graph, or a third-party metadata provider.
+ *   infoHTML   — Trusted HTML escape hatch. Use ONLY when the caller has
+ *                already escaped every untrusted value (e.g. assembled the
+ *                string from escapeHTML() outputs). Untrusted strings here
+ *                are XSS — prefer `info`.
  */
 
 import { ContextMenuService } from './context-menu.js';
@@ -278,7 +286,12 @@ function renderInfo(item, mediaMeta = '') {
   if (item.details) {
     parts.push(`<div class="cd-lightbox-info-row cd-lightbox-info-secondary">${escapeHTML(item.details)}</div>`);
   } else if (item.info) {
-    parts.push(`<div class="cd-lightbox-custom-info">${item.info}</div>`);
+    // Plain-text path — always escaped. Untrusted strings should land here.
+    parts.push(`<div class="cd-lightbox-info-row cd-lightbox-info-secondary">${escapeHTML(item.info)}</div>`);
+  } else if (item.infoHTML) {
+    // Trusted HTML escape hatch. Callers are responsible for escaping every
+    // untrusted value baked into this string.
+    parts.push(`<div class="cd-lightbox-custom-info">${item.infoHTML}</div>`);
   }
   parts.push(`<div class="cd-lightbox-info-row cd-lightbox-info-secondary cd-lightbox-media-meta">${escapeHTML(mediaMeta || '')}</div>`);
   el.info.innerHTML = parts.join('');
@@ -299,7 +312,17 @@ function go(delta) {
 
 function openInNewTab() {
   const item = items[index];
-  if (item) window.open(item.src, '_blank');
+  if (!item || typeof item.src !== 'string') return;
+  // Reject anything that is not a same-origin http(s) URL — `javascript:`
+  // and `data:` schemes can execute in the parent context.
+  try {
+    const u = new URL(item.src, location.origin);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+    if (u.origin !== location.origin) return;
+  } catch {
+    return;
+  }
+  window.open(item.src, '_blank', 'noopener,noreferrer');
 }
 
 
@@ -308,7 +331,9 @@ function openInNewTab() {
 
 /**
  * Open the shared lightbox.
- * @param {Array<{src: string, type: 'image'|'video'|'audio', label?: string, info?: string, data?: *}>} mediaItems
+ * @param {Array<{src: string, type: 'image'|'video'|'audio', label?: string, info?: string, infoHTML?: string, data?: *}>} mediaItems
+ *   `info` is rendered as plain text (escaped). `infoHTML` is a trusted-HTML
+ *   escape hatch — caller is responsible for escaping untrusted values.
  * @param {number} startIndex
  * @param {object} [options]
  * @param {boolean} [options.autoplay] - Auto-play video/audio

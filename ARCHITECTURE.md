@@ -104,9 +104,22 @@ Gadgets should use `ComfyBridge` for ComfyUI graph, queue, file, setting, and ev
 | Queueing normal/partial prompts | Bridge API (`queuePromptSimple`, `queuePartial`) |
 | ComfyUI settings | Bridge API (`getSetting`, `setSetting`, `addSetting`) |
 | Platform startup monkey-patches | Intentional escape hatch in `comfy-drawer.js` |
-| XYZ Plot queue lock | Intentional escape hatch; temporarily wraps `app.queuePrompt` to block external queueing during a sweep |
+| XYZ Plot queue lock | Intentional escape hatch; temporarily wraps `app.queuePrompt` to block external queueing during a sweep. The wrap MUST be installed inside the same `try { ... } finally { ... }` whose finally restores it — otherwise an early throw leaves the queue permanently locked. |
 
 New repeated gadget access to `bridge.app` should usually become a focused Bridge method. One-off compatibility hooks may stay as escape hatches when they are documented near the call site.
+
+## Security Boundary
+
+Drawer mutates local files and proxies external downloads on behalf of the browser. Several invariants must hold across the platform:
+
+| Concern | Invariant |
+|---|---|
+| Filesystem | All paths from request bodies go through `safe_path()` (in Python) / are validated against `ALLOWED_ROOTS` before any `os.listdir` / `shutil.move` / `_trash_file`. `os.listdir`/`os.walk` results may contain symlinks — refuse them (`os.path.islink`) before recursing or trashing. |
+| Image bytes | Anything Drawer accepts as an image (uploads, output→preview copies, CivitAI downloads) must pass `image_safety.open_image_checked(..., verify=True)`. Extension checks alone are insufficient. |
+| External HTTP | Drawer's outbound HTTP (CivitAI, etc.) must size-cap the response stream, validate `Content-Type`, write to a temp file, and `os.replace`. Unbounded `await resp.read()` is forbidden. |
+| Deletion | Gallery-browsed media (`fs_delete`, `fs_move` overwrite, etc.) goes to `send2trash`. Permanent `os.remove` is reserved for plugin-owned caches and sidecars whose author confirmed the destructive action. |
+| State-changing routes | All POST/PUT/PATCH/DELETE routes call `require_same_origin(request)` near the top. Browsers cannot be assumed to enforce CORS for everyone — ComfyUI is regularly launched with custom origins enabled. |
+| Frontend URL surfaces | Any `src`/`href`/`window.open` argument originating from server metadata is sanitized with the `URL` constructor + scheme allowlist (same-origin `http(s)` only) before reaching the browser. |
 
 ## Gallery Metadata Boundary
 

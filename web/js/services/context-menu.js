@@ -446,8 +446,13 @@ export class ContextMenuService {
      * @returns {function} Cleanup function
      */
     static attachTrigger(el, handler) {
-        // Right-click
+        // Right-click. Per CONVENTIONS we MUST leave the native menu alone
+        // when the user right-clicks an editable control — otherwise their
+        // Paste / spell-check menu disappears.
+        const isEditableTarget = (target) =>
+            !!target?.closest?.('input, textarea, select, [contenteditable="true"]');
         const onContext = (e) => {
+            if (isEditableTarget(e.target)) return;
             e.preventDefault();
             e.stopPropagation();
             handler(e);

@@ -20,6 +20,7 @@
  *       — Public wrapper: window.ComfyDrawer.attachDictAutocomplete(textarea, opts?)
  */
 import { apiFetch } from '../core/api-utils.js';
+import { escapeHTML } from '../utils.js';
 
 // ── Dict entry shape: { t: string, c: number, n: number, orig?: string } ──
 
@@ -698,27 +699,37 @@ export function attachDictAutocomplete(dict, textarea, opts = {}) {
             // Determine what gets inserted on selection
             const insertText = m.insertText || (m.orig || m.t).replace(/_/g, ' ');
             item.className = `dc-item dc-cat-${m.c}${m.partial ? ' dc-partial' : ''}`;
+            // User dictionaries and third-party providers contribute the
+            // `t`, `displayText`, `insertText`, `providerLabel` fields.
+            // Any of these can carry HTML, so every interpolation into
+            // innerHTML must go through escapeHTML.
             if (m.c === -2) {
                 // Wildcard entry
-                const display = m.t;
+                const display = escapeHTML(m.t);
                 item.innerHTML = `<span class="dc-name">🎲 __${display}__</span><span class="dc-count">wildcard</span>`;
             } else if (m.c === -3) {
                 // Node type dictionary entry
-                const display = m.displayText || m.insertText || m.t;
+                const display = escapeHTML(m.displayText || m.insertText || m.t);
                 item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">node</span>`;
             } else if (m.c === -4) {
                 // Third-party dictionary entry
-                const display = m.displayText || m.insertText || m.t;
-                item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">${m.providerLabel || 'third-party'}</span>`;
+                const display = escapeHTML(m.displayText || m.insertText || m.t);
+                const label = escapeHTML(m.providerLabel || 'third-party');
+                item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">${label}</span>`;
             } else if (m.c === -1) {
                 // User dictionary entry
-                const display = m.t.replace(/_/g, ' ');
-                const insertDisplay = m.insertText ? ` → ${m.insertText}` : '';
+                const display = escapeHTML(m.t.replace(/_/g, ' '));
+                const insertDisplay = m.insertText ? ` → ${escapeHTML(m.insertText)}` : '';
                 item.innerHTML = `<span class="dc-name">★ ${display}${insertDisplay}</span><span class="dc-count">user</span>`;
             } else if (m.orig) {
-                item.innerHTML = `<span class="dc-name"><span style="opacity:0.5">${m.t.replace(/_/g, ' ')}</span> → ${m.orig.replace(/_/g, ' ')}</span><span class="dc-count">${m.n.toLocaleString()}</span>`;
+                const aliasText = escapeHTML(m.t.replace(/_/g, ' '));
+                const canonical = escapeHTML(m.orig.replace(/_/g, ' '));
+                const count = escapeHTML(m.n.toLocaleString());
+                item.innerHTML = `<span class="dc-name"><span style="opacity:0.5">${aliasText}</span> → ${canonical}</span><span class="dc-count">${count}</span>`;
             } else {
-                item.innerHTML = `<span class="dc-name">${m.t.replace(/_/g, ' ')}</span><span class="dc-count">${m.n.toLocaleString()}</span>`;
+                const display = escapeHTML(m.t.replace(/_/g, ' '));
+                const count = escapeHTML(m.n.toLocaleString());
+                item.innerHTML = `<span class="dc-name">${display}</span><span class="dc-count">${count}</span>`;
             }
             item.addEventListener('mousedown', (e) => {
                 e.preventDefault();

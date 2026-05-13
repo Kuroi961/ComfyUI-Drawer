@@ -3029,9 +3029,25 @@ export class DeckGadget extends GadgetBase {
   /**
    * Lightweight Markdown → HTML renderer.
    * Supports: headers, bold, italic, links, inline code, code blocks, lists, line breaks.
+   *
+   * Link safety: only http(s), mailto, anchor (#...) and relative paths are
+   * accepted as `[text](url)` hrefs. Anything else (e.g. `javascript:`,
+   * `data:`) becomes plain text. Browsers decode HTML entities BEFORE scheme
+   * parsing, so escaping `:` is not enough — the scheme must be filtered.
    */
   #renderMarkdown(md) {
     const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // esc() only touches &/</> so the only entity we need to undo for the
+    // scheme check is &amp;.
+    const isSafeHref = (raw) => {
+      const decoded = String(raw || '').replace(/&amp;/g, '&').trim();
+      if (!decoded) return false;
+      if (decoded.startsWith('#') || decoded.startsWith('/')) return true;
+      if (/^\.\.?\//.test(decoded)) return true;
+      if (/^https?:\/\//i.test(decoded)) return true;
+      if (/^mailto:/i.test(decoded)) return true;
+      return false;
+    };
 
     // Process code blocks first (```...```)
     const codeBlocks = [];
@@ -3062,10 +3078,14 @@ export class DeckGadget extends GadgetBase {
       s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
       // Italic
       s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
-      // Links [text](url)
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-      // Auto-link bare URLs
-      s = s.replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g, '$1<a href="$2">$2</a>');
+      // Links [text](url) — only safe schemes; otherwise emit text only.
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, text, url) => {
+        if (!isSafeHref(url)) return text;
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      });
+      // Auto-link bare URLs (scheme already constrained by the regex)
+      s = s.replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g,
+                    '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
       return s;
     };
 
