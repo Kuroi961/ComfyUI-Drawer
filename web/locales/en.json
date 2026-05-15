@@ -351,7 +351,15 @@
     "reconnecting": "WebSocket reconnecting — aborting",
     "completeToast": "XYZ Plot complete ({count} images)",
     "saveGridFailed": "Failed to save grid",
-    "zipMode": "Zip"
+    "zipMode": "Zip",
+    "sweepCautionTitle": "About XYZ Sweep",
+    "sweepCautionIntro": "XYZ Plot drives the parameters of the currently open workflow and queues a series of generations continuously.",
+    "sweepCautionDontTouch": "<b>Do not touch the parameters</b> while a sweep is running. Edits during the sweep can cause unexpected behaviour.",
+    "sweepCautionWorkflowChange": "If a <b>workflow is loaded</b> mid-sweep, the sweep aborts for safety.",
+    "sweepCautionAxisGuess": "Axis values that come from suggestions do not guarantee the sweep will complete cleanly under every node graph.",
+    "sweepCautionCanvasLock": "The ComfyUI canvas is locked while a sweep is in progress.",
+    "sweepCautionDontShowAgain": "Don't show this again",
+    "sweepStart": "Start Sweep"
   },
   "maskeditor": {
     "loadImage": "Load image",

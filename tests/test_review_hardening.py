@@ -536,16 +536,23 @@ class GadgetLabelSafetyTests(unittest.TestCase):
 
 
 class DialogHistoryHygieneTests(unittest.TestCase):
-    """L2: dialog must pop its synthetic history entry on dismiss so
-    opening N dialogs and closing them via the UI does not leave N stale
-    entries in the browser's back stack.
+    """Dialog history pollution was previously "fixed" by calling
+    history.back() on dismiss, but that triggered DrawerShell's own
+    popstate handler and cascade-closed the drawer. The accepted design
+    (documented in both dialog.js and drawer-shell.js) is to leave the
+    synthetic entry stale. This test pins that contract so a future
+    refactor doesn't re-introduce the cascade regression.
     """
 
-    def test_dialog_pops_pushed_history_on_dismiss(self):
+    def test_dialog_does_not_call_history_back_on_dismiss(self):
         source = (REPO_ROOT / "web" / "js" / "services" / "dialog.js").read_text(encoding="utf-8")
-        self.assertIn("let _pushedHistory = false;", source)
-        self.assertIn("_pushedHistory = true;", source)
-        self.assertIn("history.back()", source)
+        # Mentions of `history.back()` in COMMENTS are fine (documenting
+        # the deliberate avoidance). What we're guarding against is an
+        # *active call*. A statement-form call would be followed by `;`.
+        import re
+        # Strip line comments first so the regex doesn't match doc text.
+        stripped = re.sub(r'//[^\n]*', '', source)
+        self.assertNotRegex(stripped, r'history\.back\(\)\s*;')
 
 
 class EscapeHTMLConsolidationTests(unittest.TestCase):
@@ -642,6 +649,22 @@ class LocaleParityTests(unittest.TestCase):
         zh = self._flatten(json.loads((REPO_ROOT / "web" / "locales" / "zh.json").read_text(encoding="utf-8")))
         self.assertEqual(set(en), set(ja), f"en/ja diff: {sorted(set(en) ^ set(ja))[:5]}")
         self.assertEqual(set(en), set(zh), f"en/zh diff: {sorted(set(en) ^ set(zh))[:5]}")
+
+    def test_xyzplot_sweep_caution_strings_are_localised(self):
+        en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
+        # The hardcoded Japanese warning text in xyzplot-gadget.js is gone;
+        # all eight keys live in en/ja/zh now.
+        for k in (
+            "sweepCautionTitle", "sweepCautionIntro",
+            "sweepCautionDontTouch", "sweepCautionWorkflowChange",
+            "sweepCautionAxisGuess", "sweepCautionCanvasLock",
+            "sweepCautionDontShowAgain", "sweepStart",
+        ):
+            self.assertIn(k, en["xyzplot"], f"missing: xyzplot.{k}")
+        source = (REPO_ROOT / "web" / "gadgets" / "xyzplot" / "xyzplot-gadget.js").read_text(encoding="utf-8")
+        # No more hardcoded Japanese sentences in the source.
+        self.assertNotIn("次回以降表示しない", source)
+        self.assertNotIn("XYZ Sweep について", source)
 
     def test_gallery_temp_warning_strings_are_localised(self):
         en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))

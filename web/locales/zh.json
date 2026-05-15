@@ -351,7 +351,15 @@
     "reconnecting": "WebSocket 重连中 — 正在中止",
     "completeToast": "XYZ Plot 已完成（{count} 张）",
     "saveGridFailed": "网格保存失败",
-    "zipMode": "Zip"
+    "zipMode": "Zip",
+    "sweepCautionTitle": "关于 XYZ Sweep",
+    "sweepCautionIntro": "XYZ Plot 会操作当前打开的工作流参数并连续地把它们加入队列。",
+    "sweepCautionDontTouch": "扫描期间<b>请勿操作参数</b>，否则可能引发不可预期的行为。",
+    "sweepCautionWorkflowChange": "如果扫描期间<b>载入了新的工作流</b>，为了安全将中止扫描。",
+    "sweepCautionAxisGuess": "出现在候选列表中的轴并不保证在所有节点结构下都能完成扫描。",
+    "sweepCautionCanvasLock": "扫描期间 ComfyUI 画布将被锁定。",
+    "sweepCautionDontShowAgain": "不再显示",
+    "sweepStart": "Start Sweep"
   },
   "maskeditor": {
     "loadImage": "加载图片",

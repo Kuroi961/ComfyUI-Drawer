@@ -351,7 +351,15 @@
     "reconnecting": "WebSocket再接続 — 反復中断",
     "completeToast": "XYZ Plot が完了しました（{count}枚）",
     "saveGridFailed": "グリッドの保存に失敗しました",
-    "zipMode": "Zip"
+    "zipMode": "Zip",
+    "sweepCautionTitle": "XYZ Sweep について",
+    "sweepCautionIntro": "XYZ Plot は現在開いているワークフローのパラメータを操作し、連続的にキューするガジェットです。",
+    "sweepCautionDontTouch": "スイープ中は<b>パラメータを操作しないでください</b>。予期せぬ動作を引き起こす可能性があります。",
+    "sweepCautionWorkflowChange": "スイープ中に<b>ワークフローが開かれた場合</b>、安全のためスイープを停止します。",
+    "sweepCautionAxisGuess": "候補に表示される軸でも、すべてのノード構成でスイープの完遂を保証するものではありません。",
+    "sweepCautionCanvasLock": "ComfyUIのキャンバスはスイープ中ロックされます。",
+    "sweepCautionDontShowAgain": "次回以降表示しない",
+    "sweepStart": "Start Sweep"
   },
   "maskeditor": {
     "loadImage": "画像を読み込む",

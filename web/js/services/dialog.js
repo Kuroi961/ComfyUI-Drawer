@@ -358,25 +358,16 @@ export function showDialog(options = {}) {
         // ── History API — back button closes dialog, not drawer ──
         // We push a synthetic history entry so the back gesture closes the
         // dialog instead of navigating away. On programmatic dismiss we
-        // call history.back() to pop that entry, so opening N dialogs and
-        // closing them via the UI no longer leaves N stale entries in the
-        // browser's history. `_pushedHistory` records whether *we* added
-        // the entry, so we never pop someone else's history on shared
-        // tabs / popstate-driven dismisses.
-        let _pushedHistory = false;
-        try {
-            history.pushState({ comfyDrawerDialog: true }, '');
-            _pushedHistory = true;
-        } catch (e) {
-            // Some embeddings (sandbox / file://) reject pushState. Skip.
-            _pushedHistory = false;
-        }
+        // intentionally leave the entry stale (we do NOT call
+        // history.back()) — DrawerShell uses the same pattern for the
+        // same reason: calling history.back() here triggers the drawer's
+        // own popstate handler and cascades into closing the drawer
+        // itself. The stale entry is harmless and prevents that.
+        // See drawer-shell.js `#popHistory` for the matching note.
+        history.pushState({ comfyDrawerDialog: true }, '');
 
         const onPopState = () => {
             window.removeEventListener('popstate', onPopState);
-            // The popstate consumed our synthetic entry; do not call back()
-            // again from dismiss().
-            _pushedHistory = false;
             dismiss(null, /* fromPopState */ true);
         };
         window.addEventListener('popstate', onPopState, { signal: abortCtrl.signal });
@@ -408,17 +399,13 @@ export function showDialog(options = {}) {
             if (bus) bus.off('drawer:back-button', onBackButton);
 
             // Clean up history entry (only if not triggered by popstate).
-            // We DO want to pop our synthetic entry on programmatic dismiss
-            // so the browser history doesn't accumulate one stale entry per
-            // dialog open. history.back() fires popstate synchronously in
-            // some browsers, so unregister our listener first to avoid the
-            // re-entrant dismiss it would otherwise trigger.
+            // We leave the synthetic entry stale on purpose — calling
+            // history.back() here triggers DrawerShell's popstate handler
+            // which would cascade-close the drawer (regression observed
+            // when this was attempted). See the matching comment on
+            // pushState above.
             if (!fromPopState) {
                 window.removeEventListener('popstate', onPopState);
-                if (_pushedHistory) {
-                    _pushedHistory = false;
-                    try { history.back(); } catch { /* ignore */ }
-                }
             }
 
             // Restore focus to whatever owned it before the dialog opened.

@@ -1957,35 +1957,42 @@ export class XYZPlotGadget extends GadgetBase {
       return;
     }
 
+    // Locale strings carry trusted <b>\u2026</b> markup so they go through
+    // innerHTML as-is. No user-controlled content is interpolated.
     const result = await showDialog({
-      title: 'XYZ Sweep \u306b\u3064\u3044\u3066',
+      title: _t('xyzplot.sweepCautionTitle'),
       variant: 'warning',
       showCancel: true,
-      cancelLabel: 'Cancel',
-      confirmLabel: 'Start Sweep',
+      cancelLabel: _t('common.cancel'),
+      confirmLabel: _t('xyzplot.sweepStart'),
       content: (bodyEl) => {
-        bodyEl.innerHTML = `
-          <p style="margin:0 0 10px">
-            XYZ Plot \u306f\u73fe\u5728\u958b\u3044\u3066\u3044\u308b\u30ef\u30fc\u30af\u30d5\u30ed\u30fc\u306e\u30d1\u30e9\u30e1\u30fc\u30bf\u3092\u64cd\u4f5c\u3057\u3001\u9023\u7d9a\u7684\u306b\u30ad\u30e5\u30fc\u3059\u308b\u30ac\u30b8\u30a7\u30c3\u30c8\u3067\u3059\u3002
-          </p>
-          <p style="margin:0 0 8px">
-            &bull; \u30b9\u30a4\u30fc\u30d7\u4e2d\u306f<b>\u30d1\u30e9\u30e1\u30fc\u30bf\u3092\u64cd\u4f5c\u3057\u306a\u3044\u3067\u304f\u3060\u3055\u3044</b>\u3002\u4e88\u671f\u305b\u306c\u52d5\u4f5c\u3092\u5f15\u304d\u8d77\u3053\u3059\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002
-          </p>
-          <p style="margin:0 0 8px">
-            &bull; \u30b9\u30a4\u30fc\u30d7\u4e2d\u306b<b>\u30ef\u30fc\u30af\u30d5\u30ed\u30fc\u304c\u958b\u304b\u308c\u305f\u5834\u5408</b>\u3001\u5b89\u5168\u306e\u305f\u3081\u30b9\u30a4\u30fc\u30d7\u3092\u505c\u6b62\u3057\u307e\u3059\u3002
-          </p>
-          <p style="margin:0 0 8px">
-            &bull; \u5019\u88dc\u306b\u8868\u793a\u3055\u308c\u308b\u8ef8\u3067\u3082\u3001\u3059\u3079\u3066\u306e\u30ce\u30fc\u30c9\u69cb\u6210\u3067\u30b9\u30a4\u30fc\u30d7\u306e\u5b8c\u9042\u3092\u4fdd\u8a3c\u3059\u308b\u3082\u306e\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002
-          </p>
-          <p style="margin:0 0 16px; font-size:12px">
-            &bull; ComfyUI\u306e\u30ad\u30e3\u30f3\u30d0\u30b9\u306f\u30b9\u30a4\u30fc\u30d7\u4e2d\u30ed\u30c3\u30af\u3055\u308c\u307e\u3059\u3002
-          </p>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
-            <input type="checkbox" id="xyzg-caution-skip" style="accent-color:var(--cd-accent)">
-            \u6b21\u56de\u4ee5\u964d\u8868\u793a\u3057\u306a\u3044
-          </label>
-        `;
-        return () => ({ skip: bodyEl.querySelector('#xyzg-caution-skip')?.checked ?? false });
+        const intro = document.createElement('p');
+        intro.style.margin = '0 0 10px';
+        intro.innerHTML = _t('xyzplot.sweepCautionIntro');
+        const items = [
+          'xyzplot.sweepCautionDontTouch',
+          'xyzplot.sweepCautionWorkflowChange',
+          'xyzplot.sweepCautionAxisGuess',
+        ];
+        const itemEls = items.map((key) => {
+          const p = document.createElement('p');
+          p.style.margin = '0 0 8px';
+          p.innerHTML = '\u2022 ' + _t(key);
+          return p;
+        });
+        const lock = document.createElement('p');
+        lock.style.cssText = 'margin:0 0 16px; font-size:12px';
+        lock.innerHTML = '\u2022 ' + _t('xyzplot.sweepCautionCanvasLock');
+        const label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = 'xyzg-caution-skip';
+        checkbox.style.accentColor = 'var(--cd-accent)';
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(' ' + _t('xyzplot.sweepCautionDontShowAgain')));
+        bodyEl.append(intro, ...itemEls, lock, label);
+        return () => ({ skip: checkbox.checked });
       },
     });
 
