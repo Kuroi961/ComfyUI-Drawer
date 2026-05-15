@@ -144,6 +144,7 @@ https://github.com/user-attachments/assets/dcb8cfd6-3a74-4cb3-8694-e9cd9c7f6282
 - 可将任意节点的任意 widget 指定为 X/Y/Z 轴并连续生成
 - 文本 widget 会自动使用 Prompt S/R（Search & Replace）模式
 - Bypass 轴 — 可将单个节点 ON/OFF、Deck 分组开关、分组互斥、节点互斥作为扫描维度
+- **Zip 模式** — 将相邻两轴绑定为同步步进，避免笛卡尔积（例如将 X+Y 设为 Zip，同时扫描 `(模型, LoRA)` 组合）
 - 自动生成带轴标签的合成网格图，并保存到 output
 
 **技术细节：**
@@ -154,6 +155,7 @@ https://github.com/user-attachments/assets/dcb8cfd6-3a74-4cb3-8694-e9cd9c7f6282
 | **种子固定** | 扫描开始时保存所有 widget 的快照。每次迭代前先恢复快照，再叠加轴上的值 |
 | **DrawerSeed 联动** | 扫描前只随机化一次。扫描期间通过 `window.__xyzSweepActive` 抑制 DrawerSeed 的 queue hook 随机化 |
 | **batch_size 强制** | 非扫描目标的 `batch_size` widget 会强制为 `1`，`control_after_generate` 会强制为 `fixed` |
+| **Zip 模式** | 每对相邻轴之间显示"Zip"复选框。启用后两轴同步步进。X+Y 各 3 个值启用 Zip → 生成 3 张而非 9 张。值数量不一致时用空操作补齐，并在预检查时提示 |
 | **预检查** | 扫描前验证 widget 类型和值范围；不匹配时显示警告 |
 | **服务器断开检测** | 监听 WebSocket 的 `status` / `reconnecting` 事件，服务器断开时立即中止扫描 |
 | **工作流嵌入** | 将工作流 JSON 作为 PNG PngInfo 或 JPEG/WebP EXIF 嵌入合成图 |

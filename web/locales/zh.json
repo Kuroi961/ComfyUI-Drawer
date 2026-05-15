@@ -343,7 +343,8 @@
     "serverDisconnected": "服务器断开 — 正在中止",
     "reconnecting": "WebSocket 重连中 — 正在中止",
     "completeToast": "XYZ Plot 已完成（{count} 张）",
-    "saveGridFailed": "网格保存失败"
+    "saveGridFailed": "网格保存失败",
+    "zipMode": "Zip"
   },
   "maskeditor": {
     "loadImage": "加载图片",

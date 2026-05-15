@@ -199,6 +199,8 @@ export class XYZPlotGadget extends GadgetBase {
           values: this.#q(`xyz-${axis}-values`)?.value || "",
         };
       }
+      state.zipXY = this.#q('xyz-zip-xy')?.checked ?? false;
+      state.zipYZ = this.#q('xyz-zip-yz')?.checked ?? false;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) { /* ignore */ }
   }
@@ -340,6 +342,8 @@ export class XYZPlotGadget extends GadgetBase {
         this.#q(`xyz-${axis}-values`).dispatchEvent(new Event("input", { bubbles: true }));
       }
     }
+    if (state.zipXY != null) { const el = this.#q('xyz-zip-xy'); if (el) el.checked = !!state.zipXY; }
+    if (state.zipYZ != null) { const el = this.#q('xyz-zip-yz'); if (el) el.checked = !!state.zipYZ; }
   }
 
   // Node types that only carry routing metadata — no sweepable parameters
@@ -868,9 +872,9 @@ export class XYZPlotGadget extends GadgetBase {
 
     // Axis sections
     content.appendChild(this.#buildAxisSection("x", "X Axis"));
-    content.appendChild(this.#buildSwapRow("xy", "X ↔ Y"));
+    content.appendChild(this.#buildSwapRow("xy", "X ↔ Y", "xyz-zip-xy"));
     content.appendChild(this.#buildAxisSection("y", "Y Axis"));
-    content.appendChild(this.#buildSwapRow("yz", "Y ↔ Z"));
+    content.appendChild(this.#buildSwapRow("yz", "Y ↔ Z", "xyz-zip-yz"));
     content.appendChild(this.#buildAxisSection("z", "Z Axis"));
 
     // ── Blacklist panel ──
@@ -962,10 +966,15 @@ export class XYZPlotGadget extends GadgetBase {
     return sec;
   }
 
-  #buildSwapRow(id, label) {
+  #buildSwapRow(id, label, zipId) {
     const row = document.createElement("div");
     row.className = "xyzg-swap-row";
-    row.innerHTML = `<button class="xyzg-swap-btn" id="xyz-swap-${id}" title="${label}">${label}</button>`;
+    row.innerHTML = `
+      <button class="xyzg-swap-btn" id="xyz-swap-${id}" title="${label}">${label}</button>
+      <label class="xyzg-zip-label">
+        <input type="checkbox" class="xyzg-zip-check" id="${zipId}">
+        <span>${_t('xyzplot.zipMode')}</span>
+      </label>`;
     return row;
   }
 
@@ -1005,6 +1014,8 @@ export class XYZPlotGadget extends GadgetBase {
 
     root.querySelector("#xyz-swap-xy").addEventListener("click", () => { this.#swapAxes("x", "y"); autoSave(); });
     root.querySelector("#xyz-swap-yz").addEventListener("click", () => { this.#swapAxes("y", "z"); autoSave(); });
+    root.querySelector("#xyz-zip-xy")?.addEventListener("change", autoSave);
+    root.querySelector("#xyz-zip-yz")?.addEventListener("change", autoSave);
   }
 
   // ── Swap two axes ─────────────────────────────────────────────────────
@@ -1602,6 +1613,13 @@ export class XYZPlotGadget extends GadgetBase {
     if (zRes === null) return;
     const { node: zNode, widget: zWidget, values: zValues, search: zSearch } = zRes;
 
+    // ── Zip mode flags ──
+    const zipXY = this.#q('xyz-zip-xy')?.checked ?? false;
+    const zipYZ = this.#q('xyz-zip-yz')?.checked ?? false;
+    // Effective only when both axes in the pair are configured
+    const effectiveZipXY = zipXY && xWidget !== null && yWidget !== null;
+    const effectiveZipYZ = zipYZ && yWidget !== null && zWidget !== null;
+
     const fmtName = (n) => n === "__bypass__" ? "Bypass" : n;
     const fmtLabel = (axis, widget) => {
       if (widget?.__bypass__) {
@@ -1630,7 +1648,23 @@ export class XYZPlotGadget extends GadgetBase {
       ...(zWidget && !this.#isVirtualAxisWidget(zWidget) ? this.#validateAxisValues("Z", zWidget, zValues, zSearch) : []),
     ];
 
-    const total = xValues.length * yValues.length * zValues.length;
+    if (effectiveZipXY && xValues.length !== yValues.length) {
+      warnings.push(`Zip X+Y: X has ${xValues.length} value(s) but Y has ${yValues.length} — the shorter axis uses null (no-op) for missing steps.`);
+    }
+    if (effectiveZipYZ && yValues.length !== zValues.length) {
+      warnings.push(`Zip Y+Z: Y has ${yValues.length} value(s) but Z has ${zValues.length} — the shorter axis uses null (no-op) for missing steps.`);
+    }
+
+    let total;
+    if (effectiveZipXY && effectiveZipYZ) {
+      total = Math.max(xValues.length, yValues.length, zValues.length);
+    } else if (effectiveZipXY) {
+      total = Math.max(xValues.length, yValues.length) * zValues.length;
+    } else if (effectiveZipYZ) {
+      total = xValues.length * Math.max(yValues.length, zValues.length);
+    } else {
+      total = xValues.length * yValues.length * zValues.length;
+    }
 
     if (warnings.length > 0) {
       const msg = `Validation warnings:\n\n${warnings.join("\n")}\n\nTotal jobs: ${total}\nProceed anyway?`;
@@ -1697,6 +1731,13 @@ export class XYZPlotGadget extends GadgetBase {
     let blockDragOver = null;
     let blockFileDrop = null;
 
+    // Declared outside try so finally can reference them
+    const progressEl   = this.#q("xyz-progress");
+    const progressFill = this.#q("xyz-progress-fill");
+    const progressPct  = this.#q("xyz-progress-pct");
+    const progressText = this.#q("xyz-progress-text");
+    const statusEl     = this.#statusEl;
+
     try {
       origQueuePrompt = appRef.queuePrompt.bind(appRef);
       this.#origQueuePrompt = origQueuePrompt;
@@ -1722,79 +1763,68 @@ export class XYZPlotGadget extends GadgetBase {
       blockFileDrop = (e) => { e.preventDefault(); e.stopPropagation(); };
       document.addEventListener('dragover', blockDragOver, true);
       document.addEventListener('drop',     blockFileDrop,  true);
-
-      // Use gadget-local progress bar
-      const progressEl = this.#q("xyz-progress");
-      const progressFill = this.#q("xyz-progress-fill");
-      const progressPct = this.#q("xyz-progress-pct");
-      const progressText = this.#q("xyz-progress-text");
-      const statusEl = this.#statusEl;
       if (progressEl) progressEl.classList.add('active');
       progressFill.style.width = "0%";
-      progressPct.textContent = `0 / ${total} `;
+      progressPct.textContent = `0/${total}`;
       progressText.textContent = "XYZ Plot starting...";
       if (statusEl) statusEl.textContent = `Running ${total} jobs...`;
       this.#q("xyz-grid").innerHTML = "";
 
       // ── Render initial grid with all cells as ⏳ ──
-      this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel);
+      this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel, effectiveZipXY, effectiveZipYZ);
 
-      for (const zVal of zValues) {
-        for (const yVal of yValues) {
-          for (const xVal of xValues) {
-            if (this.cancelled) break;
-
-            // ★ Restore ALL widgets to pinned snapshot (fixed seeds)
-            this.#restoreAllWidgets(pinnedSnapshot);
-
-            // ★ Apply axis values
-            if (xWidget && xVal !== null) {
-              this.#applyAxisValue(xWidget, xNode, xVal, xSearch, pinnedSnapshot);
-            }
-            if (yWidget && yVal !== null) {
-              this.#applyAxisValue(yWidget, yNode, yVal, ySearch, pinnedSnapshot);
-            }
-            if (zWidget && zVal !== null) {
-              this.#applyAxisValue(zWidget, zNode, zVal, zSearch, pinnedSnapshot);
-            }
-
-            // Safety: force batch_size=1 and control_after_generate="fixed"
-            // to keep standard KSampler seeds stable across sweep iterations.
-            // DrawerSeed mode is NOT forced — its queuePrompt hook is disabled
-            // via the __xyzSweepActive flag, so mode can stay as-is for
-            // correct metadata recording.
-            for (const node of this.bridge.allNodes) {
-              if (!node.widgets) continue;
-              for (const w of node.widgets) {
-                if (w.name === "batch_size" && !sweepWidgets.includes(w) && w.value !== 1) {
-                  w.value = 1;
-                }
-                if (w.name === "control_after_generate" && !sweepWidgets.includes(w)) {
-                  w.value = "fixed";
-                }
-              }
-            }
-
-            const parts = [];
-            if (xVal !== null) parts.push(`X=${xVal}`);
-            if (yVal !== null) parts.push(`Y=${yVal}`);
-            if (zVal !== null) parts.push(`Z=${zVal}`);
-            progressText.textContent =
-              `XYZ ${completed + 1}/${total}: ${parts.join(' | ')}`;
-            progressFill.style.width =
-              Math.round((completed / total) * 100) + "%";
-            progressPct.textContent =
-              `${completed}/${total}`;
-
-            const images = await this.#queueAndWaitForImages();
-            this.results.push({ x: xVal, y: yVal, z: zVal, images });
-            completed++;
-
-            this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel);
-          }
-          if (this.cancelled) break;
-        }
+      const sweepSteps = this.#buildSweepSteps(xValues, yValues, zValues, effectiveZipXY, effectiveZipYZ);
+      for (const { x: xVal, y: yVal, z: zVal } of sweepSteps) {
         if (this.cancelled) break;
+
+        // ★ Restore ALL widgets to pinned snapshot (fixed seeds)
+        this.#restoreAllWidgets(pinnedSnapshot);
+
+        // ★ Apply axis values
+        if (xWidget && xVal !== null) {
+          this.#applyAxisValue(xWidget, xNode, xVal, xSearch, pinnedSnapshot);
+        }
+        if (yWidget && yVal !== null) {
+          this.#applyAxisValue(yWidget, yNode, yVal, ySearch, pinnedSnapshot);
+        }
+        if (zWidget && zVal !== null) {
+          this.#applyAxisValue(zWidget, zNode, zVal, zSearch, pinnedSnapshot);
+        }
+
+        // Safety: force batch_size=1 and control_after_generate="fixed"
+        // to keep standard KSampler seeds stable across sweep iterations.
+        // DrawerSeed mode is NOT forced — its queuePrompt hook is disabled
+        // via the __xyzSweepActive flag, so mode can stay as-is for
+        // correct metadata recording.
+        for (const node of this.bridge.allNodes) {
+          if (!node.widgets) continue;
+          for (const w of node.widgets) {
+            if (w.name === "batch_size" && !sweepWidgets.includes(w) && w.value !== 1) {
+              w.value = 1;
+            }
+            if (w.name === "control_after_generate" && !sweepWidgets.includes(w)) {
+              w.value = "fixed";
+            }
+          }
+        }
+
+        const parts = [];
+        if (xVal !== null) parts.push(`X=${xVal}`);
+        if (yVal !== null) parts.push(`Y=${yVal}`);
+        if (zVal !== null) parts.push(`Z=${zVal}`);
+        progressText.textContent =
+          `XYZ ${completed + 1}/${total}: ${parts.join(' | ')}`;
+
+        const images = await this.#queueAndWaitForImages();
+        this.results.push({ x: xVal, y: yVal, z: zVal, images });
+        completed++;
+
+        progressFill.style.width =
+          Math.round((completed / total) * 100) + "%";
+        progressPct.textContent =
+          `${completed}/${total}`;
+
+        this.#renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel, effectiveZipXY, effectiveZipYZ);
       }
       finishedNaturally = !this.cancelled && completed === total;
     } finally {
@@ -1845,7 +1875,11 @@ export class XYZPlotGadget extends GadgetBase {
 
       // Build composite image(s) when done
       if (completed > 0 && !this.cancelled) {
-        await this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson);
+        try {
+          await this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, effectiveZipXY, effectiveZipYZ);
+        } catch (e) {
+          console.error('[ComfyDrawer:XYZPlot] Composite image failed:', e);
+        }
       }
       if (finishedNaturally) {
         this.#showToast(_t('xyzplot.completeToast', { count: completed }));
@@ -1856,6 +1890,40 @@ export class XYZPlotGadget extends GadgetBase {
   cancel() {
     this.cancelled = true;
     this.bridge.interrupt();
+  }
+
+  // ── Build flat list of (x,y,z) steps for the sweep ──────────────────
+  #buildSweepSteps(xValues, yValues, zValues, zipXY, zipYZ) {
+    const steps = [];
+    if (zipXY && zipYZ) {
+      const len = Math.max(xValues.length, yValues.length, zValues.length);
+      for (let i = 0; i < len; i++) {
+        steps.push({ x: xValues[i] ?? null, y: yValues[i] ?? null, z: zValues[i] ?? null });
+      }
+    } else if (zipXY) {
+      const xyLen = Math.max(xValues.length, yValues.length);
+      for (const zVal of zValues) {
+        for (let i = 0; i < xyLen; i++) {
+          steps.push({ x: xValues[i] ?? null, y: yValues[i] ?? null, z: zVal });
+        }
+      }
+    } else if (zipYZ) {
+      const yzLen = Math.max(yValues.length, zValues.length);
+      for (const xVal of xValues) {
+        for (let i = 0; i < yzLen; i++) {
+          steps.push({ x: xVal, y: yValues[i] ?? null, z: zValues[i] ?? null });
+        }
+      }
+    } else {
+      for (const zVal of zValues) {
+        for (const yVal of yValues) {
+          for (const xVal of xValues) {
+            steps.push({ x: xVal, y: yVal, z: zVal });
+          }
+        }
+      }
+    }
+    return steps;
   }
 
   #showToast(msg) {
@@ -2001,7 +2069,11 @@ export class XYZPlotGadget extends GadgetBase {
   }
 
   // ── Render result grid (per-Z page) ───────────────────────────────────
-  #renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel) {
+  #renderGrid(xValues, yValues, zValues, xLabel, yLabel, zLabel, zipXY = false, zipYZ = false) {
+    if (zipXY || zipYZ) {
+      this.#renderGridZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, zipXY, zipYZ);
+      return;
+    }
     const container = this.#q("xyz-grid");
     const hasX = xValues.length > 1 || xValues[0] !== null;
     const hasY = yValues.length > 1 || yValues[0] !== null;
@@ -2079,12 +2151,13 @@ export class XYZPlotGadget extends GadgetBase {
     }
 
     container.innerHTML = html;
+    this.#mountMediaCards(container);
+  }
 
-    // Populate placeholder cells with createMediaCard
+  // ── Mount MediaCards into placeholder cells ───────────────────────────
+  #mountMediaCards(container) {
     const placeholders = [...container.querySelectorAll('.xyz-cell-placeholder')];
     const ctxMenu = this.#contextMenu;
-
-    // Build lightbox items from all placeholders
     const lbItems = placeholders.map((ph, i) => ({
       src: ph.dataset.url,
       type: ph.dataset.media || 'image',
@@ -2093,7 +2166,6 @@ export class XYZPlotGadget extends GadgetBase {
       subfolder: ph.dataset.subfolder || '',
       source: ph.dataset.source || 'temp',
     }));
-
     placeholders.forEach((ph, idx) => {
       const mc = createMediaCard({
         src: ph.dataset.url,
@@ -2114,11 +2186,125 @@ export class XYZPlotGadget extends GadgetBase {
           }, e.clientX, e.clientY);
         } : null,
       });
-      // Style for table cell: full-width, no fixed height
       mc.element.style.width = '100%';
-      mc.info.style.display = 'none'; // No info row for grid cells
+      mc.info.style.display = 'none';
       ph.replaceWith(mc.element);
     });
+  }
+
+  // ── Render grid in Zip mode ───────────────────────────────────────────
+  #renderGridZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, zipXY, zipYZ) {
+    const container = this.#q("xyz-grid");
+    const makeImgURL = (f) =>
+      this.bridge.getImageUrl(f.filename, f.subfolder || '', f.type || 'output', { bustCache: true });
+
+    const HOURGLASS = `<div style="color:var(--cd-text-dim);display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg></div>`;
+
+    const cellHtml = (result, cellId) => {
+      if (!result) return HOURGLASS;
+      if (result.images.length === 0) return `<div style="color:var(--cd-danger);font-size:11px">No output</div>`;
+      const img = result.images[0];
+      const url = makeImgURL(img);
+      const isVideo = /\.(mp4|webm|mkv)$/i.test(img.filename);
+      return `<div id="${cellId}" data-url="${escapeHTML(url)}" data-filename="${escapeHTML(img.filename)}" data-subfolder="${escapeHTML(img.subfolder || '')}" data-source="${escapeHTML(img.type || 'output')}" data-media="${isVideo ? 'video' : 'image'}" class="xyz-cell-placeholder"></div>`;
+    };
+
+    const AXIS_HDR = `color:var(--cd-accent);font-size:10px;font-weight:600;padding:6px 8px 3px;opacity:0.85`;
+    const TABLE    = `<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;table-layout:fixed">`;
+    let html = '';
+
+    if (zipXY && zipYZ) {
+      // All three zipped: single flat row of (X[i], Y[i], Z[i]) pairs
+      const len = Math.max(xValues.length, yValues.length, zValues.length);
+      const pairs = Array.from({ length: len }, (_, i) => ({
+        x: xValues[i] ?? null, y: yValues[i] ?? null, z: zValues[i] ?? null,
+      }));
+      html += `<div style="${AXIS_HDR};text-align:center">${escapeHTML(xLabel)} + ${escapeHTML(yLabel)} + ${escapeHTML(zLabel)} →</div>`;
+      html += TABLE;
+      html += `<tr>`;
+      for (const pair of pairs) {
+        const xp = pair.x !== null ? escapeHTML(truncate(String(pair.x), 14)) : '—';
+        const yp = pair.y !== null ? `<div style="color:var(--cd-text-dim);font-size:10px">${escapeHTML(truncate(String(pair.y), 14))}</div>` : '';
+        const zp = pair.z !== null ? `<div style="color:var(--cd-danger);font-size:10px;opacity:0.8">${escapeHTML(truncate(String(pair.z), 14))}</div>` : '';
+        html += `<th style="color:var(--cd-accent);font-size:11px;padding:4px 8px;text-align:center">${xp}${yp}${zp}</th>`;
+      }
+      html += `</tr><tr>`;
+      for (let i = 0; i < pairs.length; i++) {
+        const pair = pairs[i];
+        const result = this.results.find(r => r.x === pair.x && r.y === pair.y && r.z === pair.z);
+        html += `<td style="padding:4px;text-align:center;vertical-align:middle">${cellHtml(result, `xyz-cell-zip-${i}`)}</td>`;
+      }
+      html += `</tr></table></div>`;
+    } else if (zipXY) {
+      // X+Y zipped: columns = pairs, rows = Z
+      const xyLen = Math.max(xValues.length, yValues.length);
+      const xyPairs = Array.from({ length: xyLen }, (_, i) => ({ x: xValues[i] ?? null, y: yValues[i] ?? null }));
+      const hasZ = zValues.length > 1 || zValues[0] !== null;
+      // Axis name header — outside table so table-layout:fixed doesn't interfere
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px">`;
+      if (hasZ) html += `<span style="${AXIS_HDR}">${escapeHTML(zLabel)} ↓</span>`;
+      html += `<span style="${AXIS_HDR};flex:1;text-align:${hasZ ? 'right' : 'center'}">${escapeHTML(xLabel)} + ${escapeHTML(yLabel)} →</span>`;
+      html += `</div>`;
+      html += TABLE;
+      // Value header row
+      html += `<tr>`;
+      if (hasZ) html += `<th></th>`;
+      for (const pair of xyPairs) {
+        const xp = pair.x !== null ? escapeHTML(truncate(String(pair.x), 14)) : '—';
+        const yp = pair.y !== null ? `<div style="color:var(--cd-text-dim);font-size:10px">${escapeHTML(truncate(String(pair.y), 14))}</div>` : '';
+        html += `<th style="color:var(--cd-accent);font-size:11px;padding:4px 8px;text-align:center">${xp}${yp}</th>`;
+      }
+      html += `</tr>`;
+      // Data rows (one per Z value)
+      for (let zi = 0; zi < zValues.length; zi++) {
+        const zVal = zValues[zi];
+        html += `<tr>`;
+        if (hasZ) html += `<td style="color:var(--cd-text-dim);font-size:11px;padding:4px 8px;font-weight:600;vertical-align:middle" title="${escapeHTML(String(zVal ?? ''))}">${escapeHTML(truncate(String(zVal ?? ''), 14))}</td>`;
+        for (let pi = 0; pi < xyPairs.length; pi++) {
+          const pair = xyPairs[pi];
+          const result = this.results.find(r => r.x === pair.x && r.y === pair.y && r.z === zVal);
+          html += `<td style="padding:4px;text-align:center;vertical-align:middle">${cellHtml(result, `xyz-cell-zip-${zi}-${pi}`)}</td>`;
+        }
+        html += `</tr>`;
+      }
+      html += `</table></div>`;
+    } else {
+      // Y+Z zipped: rows = pairs, cols = X
+      const yzLen = Math.max(yValues.length, zValues.length);
+      const yzPairs = Array.from({ length: yzLen }, (_, i) => ({ y: yValues[i] ?? null, z: zValues[i] ?? null }));
+      const hasX = xValues.length > 1 || xValues[0] !== null;
+      // Axis name header — outside table
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px">`;
+      html += `<span style="${AXIS_HDR}">${escapeHTML(yLabel)} + ${escapeHTML(zLabel)} ↓</span>`;
+      if (hasX) html += `<span style="${AXIS_HDR}">${escapeHTML(xLabel)} →</span>`;
+      html += `</div>`;
+      html += TABLE;
+      // Value header row (X values)
+      if (hasX) {
+        html += `<tr><th></th>`;
+        for (const xv of xValues) {
+          html += `<th style="color:var(--cd-accent);font-size:11px;padding:4px 8px;text-align:center" title="${escapeHTML(String(xv ?? ''))}">${escapeHTML(truncate(String(xv ?? ''), 14))}</th>`;
+        }
+        html += `</tr>`;
+      }
+      // Data rows (one per Y+Z pair)
+      for (let pi = 0; pi < yzPairs.length; pi++) {
+        const pair = yzPairs[pi];
+        const yp = pair.y !== null ? escapeHTML(truncate(String(pair.y), 12)) : '—';
+        const zp = pair.z !== null ? `<div style="color:var(--cd-text-dim);font-size:10px">${escapeHTML(truncate(String(pair.z), 12))}</div>` : '';
+        html += `<tr>`;
+        html += `<td style="color:var(--cd-accent);font-size:11px;padding:4px 8px;font-weight:600;vertical-align:middle">${yp}${zp}</td>`;
+        for (let xi = 0; xi < xValues.length; xi++) {
+          const xv = xValues[xi];
+          const result = this.results.find(r => r.x === xv && r.y === pair.y && r.z === pair.z);
+          html += `<td style="padding:4px;text-align:center;vertical-align:middle">${cellHtml(result, `xyz-cell-zip-${pi}-${xi}`)}</td>`;
+        }
+        html += `</tr>`;
+      }
+      html += `</table></div>`;
+    }
+    container.innerHTML = html;
+    this.#mountMediaCards(container);
   }
 
   // ── Word-wrap text for canvas rendering ──────────────────────────────
@@ -2151,7 +2337,10 @@ export class XYZPlotGadget extends GadgetBase {
   }
 
   // ── Build composite image from results (per-Z page) ────────────────────
-  async #buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson = null) {
+  async #buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson = null, zipXY = false, zipYZ = false) {
+    if (zipXY || zipYZ) {
+      return this.#buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ);
+    }
     const hasX = xValues.length > 1 || xValues[0] !== null;
     const hasY = yValues.length > 1 || yValues[0] !== null;
     const hasZ = zValues.length > 1 || zValues[0] !== null;
@@ -2451,6 +2640,289 @@ export class XYZPlotGadget extends GadgetBase {
       container.appendChild(wrapper);
     }
 
+  }
+
+  // ── Build composite image in Zip mode ────────────────────────────────
+  async #buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ) {
+    const _cs = getComputedStyle(document.documentElement);
+    const _get = (v, fb) => { const r = _cs.getPropertyValue(v).trim(); return r || fb; };
+    const COLOR_BG     = _get('--cd-panel',  '#0e0e1a');
+    const COLOR_EMPTY  = _get('--cd-s2',     '#1a1a3a');
+    const COLOR_ACCENT = _get('--cd-accent', '#7c5cfc');
+
+    const makeImgURL = (f) =>
+      this.bridge.getImageUrl(f.filename, f.subfolder || '', f.type || 'output', { bustCache: true });
+
+    // Determine layout: colValues, rowValues, and result key per cell
+    let colCount, rowCount, getColLabel, getRowLabel, getResultKey;
+
+    if (zipXY && zipYZ) {
+      const len = Math.max(xValues.length, yValues.length, zValues.length);
+      colCount = len;
+      rowCount = 1;
+      getColLabel = (i) => [
+        xValues[i] != null ? String(xValues[i]) : null,
+        yValues[i] != null ? String(yValues[i]) : null,
+        zValues[i] != null ? String(zValues[i]) : null,
+      ].filter(Boolean).join(' / ');
+      getRowLabel = () => null;
+      getResultKey = (col, _row) => `${xValues[col] ?? null},${yValues[col] ?? null},${zValues[col] ?? null}`;
+    } else if (zipXY) {
+      const xyLen = Math.max(xValues.length, yValues.length);
+      colCount = xyLen;
+      rowCount = zValues.length;
+      getColLabel = (i) => {
+        const xp = xValues[i] != null ? String(xValues[i]) : '—';
+        const yp = yValues[i] != null ? String(yValues[i]) : '—';
+        return `${xp} / ${yp}`;
+      };
+      getRowLabel = (j) => zValues[j] != null ? String(zValues[j]) : null;
+      getResultKey = (col, row) => `${xValues[col] ?? null},${yValues[col] ?? null},${zValues[row] ?? null}`;
+    } else {
+      // zipYZ
+      const yzLen = Math.max(yValues.length, zValues.length);
+      colCount = xValues.length;
+      rowCount = yzLen;
+      getColLabel = (i) => xValues[i] != null ? String(xValues[i]) : '—';
+      getRowLabel = (j) => {
+        const yp = yValues[j] != null ? String(yValues[j]) : '—';
+        const zp = zValues[j] != null ? String(zValues[j]) : '—';
+        return `${yp} / ${zp}`;
+      };
+      getResultKey = (col, row) => `${xValues[col] ?? null},${yValues[row] ?? null},${zValues[row] ?? null}`;
+    }
+
+    // Load images into map keyed by result (x,y,z)
+    const imageMap = new Map();
+    const loadPromises = [];
+    for (const r of this.results) {
+      if (!r.images || r.images.length === 0) continue;
+      const img = r.images[0];
+      if (/\.(mp4|webm|mkv)$/i.test(img.filename)) continue;
+      const key = `${r.x},${r.y},${r.z}`;
+      const promise = new Promise((resolve) => {
+        const el = new Image();
+        el.crossOrigin = "anonymous";
+        el.onload = () => { imageMap.set(key, el); resolve(); };
+        el.onerror = () => resolve();
+        el.src = makeImgURL(img);
+      });
+      loadPromises.push(promise);
+    }
+    await Promise.all(loadPromises);
+    if (imageMap.size === 0) {
+      console.warn('[ComfyDrawer:XYZPlot] Zip composite: no images loaded — skipping composite');
+      return;
+    }
+
+    let cellW = 0, cellH = 0;
+    for (const img of imageMap.values()) {
+      cellW = Math.max(cellW, img.naturalWidth);
+      cellH = Math.max(cellH, img.naturalHeight);
+    }
+
+    const savePrefix = this.bridge.getSetting("ComfyDrawer.XYZ.SavePrefix", "ComfyDrawer/%date:yyyy-MM-dd%/xyz_plot");
+    const fmt = this.bridge.getSetting("ComfyDrawer.XYZ.Format", "png");
+    const saveMeta = this.bridge.getSetting("ComfyDrawer.XYZ.SaveMetadata", true);
+    const mimeType = fmt === "jpg" ? "image/jpeg" : fmt === "webp" ? "image/webp" : "image/png";
+
+    // Layout constants
+    const FONT_HEADER    = Math.max(24, Math.round(cellW * 0.05));
+    const FONT_LABEL     = Math.max(20, Math.round(cellW * 0.04));
+    const FONT_AXIS_NAME = Math.max(14, Math.round(FONT_HEADER * 0.55));
+    const LINE_HEIGHT = 1.3;
+    const PAD = 4;
+    const LABEL_W = rowCount > 1 ? Math.max(200, Math.round(cellW * 0.35)) : 0;
+
+    // Measure canvas for text wrapping
+    const measureCanvas = document.createElement("canvas");
+    let ctx = measureCanvas.getContext("2d");
+
+    // Pre-wrap column headers
+    const colWrapped = [];
+    let maxHeaderLines = 1;
+    for (let i = 0; i < colCount; i++) {
+      const lines = this.#wrapText(ctx, getColLabel(i), `bold ${FONT_HEADER}px sans-serif`, cellW - 16);
+      colWrapped.push(lines);
+      maxHeaderLines = Math.max(maxHeaderLines, lines.length);
+    }
+    const HEADER_H = Math.round(maxHeaderLines * FONT_HEADER * LINE_HEIGHT + 20);
+
+    // Pre-wrap row labels
+    const rowWrapped = [];
+    let maxLabelLines = 1;
+    if (rowCount > 1) {
+      for (let j = 0; j < rowCount; j++) {
+        const lbl = getRowLabel(j);
+        const lines = lbl ? this.#wrapText(ctx, lbl, `bold ${FONT_LABEL}px sans-serif`, LABEL_W - 24) : [''];
+        rowWrapped.push(lines);
+        maxLabelLines = Math.max(maxLabelLines, lines.length);
+      }
+    }
+
+    // Axis name strings (outside table in HTML; canvas needs explicit drawing)
+    let colAxisName, rowAxisName;
+    if (zipXY && zipYZ) {
+      colAxisName = `${xLabel} + ${yLabel} + ${zLabel} →`;
+      rowAxisName = null;
+    } else if (zipXY) {
+      colAxisName = `${xLabel} + ${yLabel} →`;
+      rowAxisName = rowCount > 1 ? `${zLabel} ↓` : null;
+    } else {
+      colAxisName = `${xLabel} →`;
+      rowAxisName = `${yLabel} + ${zLabel} ↓`;
+    }
+    const AXIS_NAME_H = (colAxisName || rowAxisName) ? (FONT_AXIS_NAME + 20) : 0;
+
+    const canvasW = LABEL_W + colCount * (cellW + PAD) + PAD;
+    const canvasH = AXIS_NAME_H + HEADER_H + rowCount * (cellH + PAD) + PAD;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = COLOR_BG;
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // Axis name labels
+    if (AXIS_NAME_H > 0) {
+      const axisY = AXIS_NAME_H / 2;
+      ctx.font = `${FONT_AXIS_NAME}px sans-serif`;
+      ctx.textBaseline = "middle";
+      if (rowAxisName && LABEL_W > 0) {
+        ctx.fillStyle = COLOR_ACCENT;
+        ctx.textAlign = "right";
+        ctx.fillText(rowAxisName, LABEL_W - 12, axisY, LABEL_W - 24);
+      }
+      if (colAxisName) {
+        ctx.fillStyle = COLOR_ACCENT;
+        ctx.textAlign = "center";
+        ctx.fillText(colAxisName, LABEL_W + (colCount * (cellW + PAD)) / 2, axisY, colCount * (cellW + PAD));
+      }
+    }
+
+    // Column headers
+    ctx.fillStyle = COLOR_ACCENT;
+    ctx.font = `bold ${FONT_HEADER}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (let i = 0; i < colCount; i++) {
+      const x = LABEL_W + PAD + i * (cellW + PAD) + cellW / 2;
+      const lines = colWrapped[i];
+      const blockH = lines.length * FONT_HEADER * LINE_HEIGHT;
+      const startY = AXIS_NAME_H + (HEADER_H - blockH) / 2;
+      for (let li = 0; li < lines.length; li++) {
+        ctx.fillText(lines[li], x, startY + li * FONT_HEADER * LINE_HEIGHT, cellW - 8);
+      }
+    }
+
+    // Row labels
+    if (rowCount > 1 && LABEL_W > 0) {
+      ctx.fillStyle = COLOR_ACCENT;
+      ctx.font = `bold ${FONT_LABEL}px sans-serif`;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      for (let j = 0; j < rowCount; j++) {
+        const lines = rowWrapped[j];
+        const cellMidY = AXIS_NAME_H + HEADER_H + PAD + j * (cellH + PAD) + cellH / 2;
+        const blockH = lines.length * FONT_LABEL * LINE_HEIGHT;
+        const startY = cellMidY - blockH / 2;
+        for (let li = 0; li < lines.length; li++) {
+          ctx.fillText(lines[li], LABEL_W - 12, startY + li * FONT_LABEL * LINE_HEIGHT, LABEL_W - 24);
+        }
+      }
+    }
+
+    // Draw images
+    const textDim = _get('--cd-text-dim', '#555577');
+    for (let j = 0; j < rowCount; j++) {
+      for (let i = 0; i < colCount; i++) {
+        const key = getResultKey(i, j);
+        const img = imageMap.get(key);
+        const x = LABEL_W + PAD + i * (cellW + PAD);
+        const y = AXIS_NAME_H + HEADER_H + PAD + j * (cellH + PAD);
+        if (img) {
+          const scale = Math.min(cellW / img.naturalWidth, cellH / img.naturalHeight);
+          const drawW = img.naturalWidth * scale;
+          const drawH = img.naturalHeight * scale;
+          ctx.drawImage(img, x + (cellW - drawW) / 2, y + (cellH - drawH) / 2, drawW, drawH);
+        } else {
+          ctx.fillStyle = COLOR_EMPTY;
+          ctx.fillRect(x, y, cellW, cellH);
+          ctx.fillStyle = textDim;
+          ctx.textAlign = "center";
+          ctx.font = `${FONT_LABEL}px sans-serif`;
+          ctx.fillText("No output", x + cellW / 2, y + cellH / 2);
+        }
+      }
+    }
+
+    const dataURL = canvas.toDataURL(mimeType, 0.95);
+    const gridContainer = this.#q("xyz-grid");
+
+    let saveResult = null;
+    try {
+      const resp = await this.bridge.fetchApi("/comfy-drawer/save_grid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_data: dataURL,
+          filename_prefix: savePrefix,
+          format: fmt,
+          quality: 95,
+          save_metadata: saveMeta,
+          workflow_json: capturedWorkflowJson,
+        }),
+      });
+      if (resp.ok) saveResult = await resp.json();
+    } catch (e) {
+      console.warn("[ComfyDrawer] Failed to save zip grid to server:", e);
+    }
+
+    const prev = gridContainer.querySelector('.xyz-composite-wrapper');
+    if (prev) prev.remove();
+    const wrapper = document.createElement("div");
+    wrapper.className = "xyz-composite-wrapper xyz-composite-z0";
+    wrapper.style.cssText = "margin-top:12px;";
+
+    let imgSrc = dataURL;
+    if (saveResult) {
+      imgSrc = this.bridge.getImageUrl(saveResult.filename, saveResult.subfolder || '', 'output', { bustCache: true });
+    }
+
+    const ctxMenu = this.#contextMenu;
+    const mc = createMediaCard({
+      src: imgSrc,
+      filename: saveResult?.filename || `xyz_plot.${fmt}`,
+      subfolder: saveResult?.subfolder || '',
+      type: 'output',
+      mediaType: 'image',
+      lazy: false,
+      thumbHeight: null,
+      lightbox: false,
+      draggable: true,
+      onClick: () => openLightbox([{ src: imgSrc, type: 'image', label: 'XYZ Plot Composite', name: saveResult?.filename || '', subfolder: saveResult?.subfolder || '', source: 'output' }], 0),
+      onContextMenu: (ctxMenu && saveResult) ? (e) => {
+        ctxMenu.show('media-file', { src: imgSrc, type: 'image', name: saveResult.filename, subfolder: saveResult.subfolder || '', source: 'output' }, e.clientX, e.clientY);
+      } : null,
+    });
+
+    if (saveResult) {
+      mc.element.dataset.mcFilename = saveResult.filename;
+      mc.element.dataset.mcSubfolder = saveResult.subfolder || '';
+    }
+
+    const savedColor = saveResult ? 'var(--cd-accent)' : 'var(--cd-danger)';
+    const savedText = saveResult
+      ? `Saved: ${escapeHTML(saveResult.subfolder ? saveResult.subfolder + "/" : "")}${escapeHTML(saveResult.filename)}`
+      : `Server save failed`;
+    mc.info.innerHTML = `<div style="color:${savedColor};font-size:12px">${savedText}</div>`;
+    mc.info.style.textAlign = 'center';
+    mc.info.style.padding = '8px 0';
+
+    wrapper.appendChild(mc.element);
+    gridContainer.appendChild(wrapper);
   }
 
   /* ═══ Settings Registration ═══ */

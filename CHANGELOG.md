@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add Zip mode to XYZ Plot: a "Zip" checkbox between each axis pair locks the two axes into lock-step iteration instead of a cartesian product, enabling sweeps like `(model, lora)` pairs that generate N images rather than N×M
+- Fix XYZ Plot composite image and completion toast not appearing after a sweep: progress-bar DOM references were scoped inside the `try` block and were inaccessible in the `finally` block, causing a `ReferenceError` that silently aborted post-sweep cleanup
+- Fix XYZ Plot progress fill and count not reflecting completion immediately after each generation
+- Add axis name labels (e.g. `Checkpoint + LoRA →`) to Zip mode grid composite images
+
 ## v2.1.6 - 2026-05-12
 
 - Add same-origin guards to all state-changing Drawer HTTP routes to block cross-origin browser requests

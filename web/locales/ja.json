@@ -345,7 +345,8 @@
     "serverDisconnected": "サーバー切断 — 反復中断",
     "reconnecting": "WebSocket再接続 — 反復中断",
     "completeToast": "XYZ Plot が完了しました（{count}枚）",
-    "saveGridFailed": "グリッドの保存に失敗しました"
+    "saveGridFailed": "グリッドの保存に失敗しました",
+    "zipMode": "Zip"
   },
   "maskeditor": {
     "loadImage": "画像を読み込む",

@@ -345,7 +345,8 @@
     "serverDisconnected": "Server disconnected — aborting",
     "reconnecting": "WebSocket reconnecting — aborting",
     "completeToast": "XYZ Plot complete ({count} images)",
-    "saveGridFailed": "Failed to save grid"
+    "saveGridFailed": "Failed to save grid",
+    "zipMode": "Zip"
   },
   "maskeditor": {
     "loadImage": "Load image",

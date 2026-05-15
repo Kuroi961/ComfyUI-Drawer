@@ -320,12 +320,35 @@
     font-size: 11px;
 }
 
-/* ── Swap buttons ── */
+/* ── Swap buttons + Zip toggle ── */
 .xyzg-swap-row {
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 10px;
     margin: 6px 0;
     min-height: 34px;
+}
+
+.xyzg-zip-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--cd-text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+.xyzg-zip-label:hover {
+    color: var(--cd-text);
+}
+
+.xyzg-zip-check {
+    accent-color: var(--cd-accent);
+    cursor: pointer;
+    width: 13px;
+    height: 13px;
 }
 
 .xyzg-clear-btn svg {

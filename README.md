@@ -144,6 +144,7 @@ No dedicated XYZ nodes or extra wiring are required; sweep the widgets and bypas
 - Assign any widget from any node to the X/Y/Z axes for sequential generation
 - Text widgets automatically use Prompt S/R (Search & Replace) mode
 - Bypass axes — use node ON/OFF, Deck group toggles, group switches, and node switches as sweep dimensions
+- **Zip mode** — pair two adjacent axes so they step in lock-step instead of producing a cartesian product (e.g. sweep `(model, lora)` pairs together on X+Y)
 - Automatically generates a labeled grid composite image and saves it to output
 
 **Technical details:**
@@ -154,6 +155,7 @@ No dedicated XYZ nodes or extra wiring are required; sweep the widgets and bypas
 | **Seed pinning** | A snapshot of all widget values is taken at sweep start. Before each iteration, the snapshot is restored, then axis values are applied on top |
 | **DrawerSeed integration** | DrawerSeed randomization is executed once just before the sweep. During the sweep, `window.__xyzSweepActive` suppresses DrawerSeed's queue hook randomization |
 | **batch_size enforcement** | Non-sweep `batch_size` widgets are forced to `1`. `control_after_generate` is forced to `fixed` |
+| **Zip mode** | A "Zip" checkbox between each axis pair locks them into lock-step iteration. X+Y zip with 3 values each → 3 generations instead of 9. Mismatched lengths are padded with no-ops and flagged in preflight |
 | **Preflight validation** | Widget type and value ranges are validated before the sweep starts; mismatches trigger a warning |
 | **Server disconnect detection** | WebSocket `status` / `reconnecting` events are monitored, and the sweep is aborted immediately if the server disconnects |
 | **Workflow embedding** | Embeds workflow JSON into composite images as PNG PngInfo or JPEG/WebP EXIF |
