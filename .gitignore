@@ -32,3 +32,7 @@ data/user_dicts/
 
 # Internal development notes (not for public release)
 TODO.md
+
+# Claude Code working directories — slash commands, worktrees, etc. are
+# personal tooling and not part of the project's public surface.
+.claude/

@@ -2,10 +2,75 @@
 
 ## Unreleased
 
+### XYZ Plot
+
 - Add Zip mode to XYZ Plot: a "Zip" checkbox between each axis pair locks the two axes into lock-step iteration instead of a cartesian product, enabling sweeps like `(model, lora)` pairs that generate N images rather than N×M
 - Fix XYZ Plot composite image and completion toast not appearing after a sweep: progress-bar DOM references were scoped inside the `try` block and were inaccessible in the `finally` block, causing a `ReferenceError` that silently aborted post-sweep cleanup
 - Fix XYZ Plot progress fill and count not reflecting completion immediately after each generation
 - Add axis name labels (e.g. `Checkpoint + LoRA →`) to Zip mode grid composite images
+- Install the XYZ Plot `app.queuePrompt` wrapper inside the same `try { … } finally { … }` that restores it, so an early throw during sweep setup cannot leave the queue permanently locked
+- Localise the XYZ Plot pre-sweep caution dialog so the title, body, buttons, and checkbox label follow the user's selected language
+
+### Security
+
+- Stop `delete_model` from sweeping a sibling's `foo.preview.*` / `foo.png` previews when another model file with the same stem still lives in the directory; symlinked sidecars are also skipped before send2trash
+- Replace three unbounded CivitAI preview downloads with a shared `_download_preview_to_file` helper that enforces a hard byte cap, a Content-Type allowlist, image verification via `open_image_checked`, and an atomic `os.replace`
+- Verify the source bytes via `open_image_checked(verify=True)` before copying an output image into a model's preview sidecar
+- Make `_save_grid` resolve `output_dir` through `realpath` and validate the filename prefix via `safe_path` + `is_plain_name`, replacing a brittle `commonpath` check that could raise on Windows drive boundaries
+- Refuse symlinks and cap recursion in `_merge_dirs`; skip symlinked entries during `fs_browse`, `summarize_tree`, `_search_filesystem_raw`, and `clear_drawer_cache` so a planted link inside `output`/`input`/`temp` cannot expose paths outside the allowed root
+- Route `fs_move` overwrite through `send2trash` instead of `os.remove` so gallery-browsed media never disappears permanently
+- Make `/drawer/reboot` async so the JSON response reaches the client before `os.execv` replaces the process
+- Validate `subfolder` / `name` through `safe_path` in `search_index.update_searchable` so the indexer cannot be tricked into addressing a file outside the allowed root
+- Reject unsafe dictionary IDs in `dict_store.dict_file_path` via `^[A-Za-z0-9_-]{1,64}$` allowlist (drops Windows drive letters, alternate streams, control chars); add format checks to `update_user_dict_meta` and `delete_user_dict_full`
+- Cap iTXt zlib decompression in `media_metadata` so a decompression-bomb PNG cannot inflate hundreds of MiB during indexing
+- Filter link schemes in Deck's Markdown renderer after HTML-entity escaping so `[click](javascript:…)` renders as plain text; only `http(s):`, `mailto:`, `#anchor`, and relative paths are accepted
+- Escape every user/third-party value (`m.t`, `m.orig`, `m.displayText`, `m.insertText`, `m.providerLabel`) before insertion into the dictionary autocomplete dropdown
+- Render `item.info` in the lightbox via `escapeHTML`; add `item.infoHTML` as the explicit trusted-HTML escape hatch and document the split in `GADGET_API.md`
+- Validate `ctx.src` / `item.src` against `new URL()` + same-origin `http(s)` allowlist in media context-menu actions and `openInNewTab` before reaching `window.open` / `<a href>`; pass `noopener,noreferrer`
+- Close ModelViewer's CivitAI sync `EventSource` and clear every tracked toast / sync-strip timer in `onDestroy` so stale handlers cannot fire against a destroyed gadget
+- Sanitize gadget tab and burger-menu labels via `textContent` (icon stays `innerHTML` for raw SVG) so a malicious third-party `gadget.label` cannot inject HTML
+
+### Correctness and performance
+
+- Run `fs_delete` / `fs_move` / `fs_rename` / `fs_mkdir` / `delete_model` / `clear_drawer_cache` blocking I/O on a worker thread via `asyncio.to_thread` so large filesystem operations don't stall the event loop
+- Resolve the previous `MaskService.open()` promise with `null` on re-entrant open and install a document-level Escape handler while the overlay is visible; remove the listener on close
+- Add a request-sequence check to Gallery `#loadMoreSearch` so a stale load-more response cannot append to a fresh query; drop the `gg-initial-loading` overlay on `AbortError` too
+- Handle ComfyUI's function-form `widget.options.values` in Bridge `getWidgetOptions` / `addWidgetOption`; encode the `type` parameter in `getImageUrl`; stop `loadWorkflow` from mutating the caller's `workflowData`
+- Stop `import_user_dict` from double-decoding the multipart body (aiohttp's `BodyPartReader` already decoded the transfer-encoding while streaming)
+- Make `update_user_dict_meta` accept non-string titles instead of crashing on `AttributeError`; make `delete_user_dict_full` validate the dict ID and delete the data file before clearing the manifest entry
+- Use `_write_json_file_atomic` for `.civitai.info` / `.drawer.json` sidecar writes
+- Scope the `comfy-drawer.js` modal-dialog `MutationObserver` to direct children of `document.body` (PrimeVue and `.comfy-modal` are always appended there), avoiding a fire on every DOM change anywhere
+
+### Accessibility
+
+- Add `role="dialog"` + `aria-modal="true"` + `aria-labelledby` to Dialog, Lightbox, MaskService, and ImagePicker
+- Trap Tab focus inside modal dialogs so it cannot leak into the canvas behind
+- Restore the previously-focused element on dialog dismiss
+- Update the lightbox `<img alt>` per item so screen readers announce the current item; label the prev/next/close buttons via `aria-label`
+- Exempt editable form controls (`input`, `textarea`, `select`, `[contenteditable]`) from `contextmenu` suppression so the browser Paste menu survives
+
+### Maintainability
+
+- Add `_internal_error(exc, where=…)` helper and route every `status=500` response through it; the client now receives a generic `"internal error"` message instead of the absolute server filesystem path from `OSError`/`PermissionError`
+- Replace per-gadget toast helpers with a shared platform `showToast` (`window.ComfyDrawer.showToast`) that stacks toasts inside a single `role="region"` `aria-live="polite"` container, follows theme tokens, and tracks fade-out timers; Gallery and ModelViewer delegate to it
+- Settings panel now passes a `cleanups` array through to action / color-palette / preset-theme builders and unsubscribes every `settings.onChange` listener on dialog dismiss; the per-setting `MutationObserver` workaround is gone
+- Consolidate per-file `escapeHTML` / `escapeText` duplicates onto the shared `utils.js` export (previous local copies skipped `"` and `'`)
+- Add explicit radix to every frontend `parseInt()` call (19 sites) and pin the rule with a regression test that walks parens to catch new offenders
+- Restore the original "leave history entry stale" dialog-dismiss pattern after a brief attempt at `history.back()` cascade-closed the drawer; the rationale is documented in `dialog.js` and `drawer-shell.js`
+
+### Internationalisation
+
+- Localise the metadata viewer dialog: 22 new `menu.meta*` keys cover the section titles, prompt / negative-prompt labels, A1111 / NovelAI overview headers, "Show labels" checkbox, node-type controls, third-party section header, and Raw JSON disclosure
+- Localise the Gallery Temp folder warning dialog and the "Cannot search in Temp folder" status message
+- Add `common.errorWith` placeholder so each language picks its own error separator (Gallery and ModelViewer now use `_t('common.errorWith', { message })`); zh uses a fullwidth colon
+- Wire Deck's Active / Bypass toggle label to the existing `deck.active` / `deck.bypass` keys
+- Fill in two missing `settings.searchIndexAutoSync*` strings in `zh.json`; en / ja / zh are now in full parity at 400 keys
+
+### Testing and tooling
+
+- Expand the regression suite from 52 to 105 unittest cases covering security hardening, async-I/O adoption, symlink-safe directory iteration, a11y attributes, focus trap, the toast service, escapeHTML consolidation, parseInt radix coverage, locale parity, and i18n key adoption
+- Stop tracking `.claude/` and add it to `.gitignore`; the directory is personal Claude Code tooling (slash commands, worktrees) and not part of the public node surface
+- Update `ARCHITECTURE.md`, `CONVENTIONS.md`, and `GADGET_API.md` to document the new boundary rules (image-bytes verification, external-download size cap, URL-scheme allowlist, Markdown link filtering, the `item.info` vs `item.infoHTML` split, async-reboot rule)
 
 ## v2.1.6 - 2026-05-12
 
