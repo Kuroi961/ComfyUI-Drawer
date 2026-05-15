@@ -71,6 +71,7 @@
 - Expand the regression suite from 52 to 105 unittest cases covering security hardening, async-I/O adoption, symlink-safe directory iteration, a11y attributes, focus trap, the toast service, escapeHTML consolidation, parseInt radix coverage, locale parity, and i18n key adoption
 - Stop tracking `.claude/` and add it to `.gitignore`; the directory is personal Claude Code tooling (slash commands, worktrees) and not part of the public node surface
 - Update `ARCHITECTURE.md`, `CONVENTIONS.md`, and `GADGET_API.md` to document the new boundary rules (image-bytes verification, external-download size cap, URL-scheme allowlist, Markdown link filtering, the `item.info` vs `item.infoHTML` split, async-reboot rule)
+- Refresh the bundled `drawer-sample-anima` and `drawer-sample-anima-advanced` example workflows
 
 ## v2.1.6 - 2026-05-12
 
