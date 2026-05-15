@@ -2244,14 +2244,19 @@ app.registerExtension({
         window.dispatchEvent(new CustomEvent('comfy-drawer:ready', { detail: drawerAPI }));
 
         // ── Auto-close drawer when ComfyUI shows a modal dialog ──
-        // ComfyUI uses PrimeVue dialogs (.p-dialog-mask) and legacy .comfy-modal
+        // ComfyUI uses PrimeVue dialogs (.p-dialog-mask) and legacy
+        // .comfy-modal. Both frameworks append the mask as a *direct child
+        // of document.body*, so we scope the observer with subtree: false
+        // (was subtree: true). The previous setting made the observer fire
+        // on every DOM mutation anywhere in the document — measurable CPU
+        // overhead during heavy widget churn — and was needed only because
+        // we also accepted nodes containing a dialog several layers deep,
+        // which neither framework actually produces.
         const isDialogNode = (node) => {
             if (node.nodeType !== 1) return false;
             if (node.classList?.contains('p-dialog-mask')) return true;
             if (node.classList?.contains('comfy-modal')) return true;
             if (node.tagName === 'DIALOG' && node.open) return true;
-            // Check if the node contains a PrimeVue dialog
-            if (node.querySelector?.('.p-dialog-mask, .comfy-modal, dialog[open]')) return true;
             return false;
         };
         const dialogObserver = new MutationObserver((mutations) => {
@@ -2262,7 +2267,7 @@ app.registerExtension({
                 }
             }
         });
-        dialogObserver.observe(document.body, { childList: true, subtree: true });
+        dialogObserver.observe(document.body, { childList: true, subtree: false });
         };
 
         const scheduleDrawerPlatform = () => {

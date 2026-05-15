@@ -610,10 +610,25 @@ const MaskService = (() => {
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
   }
 
+  // Document-level Escape handler registered while the overlay is visible.
+  // Captured outside `open()` so it is the same reference at install &
+  // remove time (closures created on every open would leak).
+  let _onDocumentKeyDown = null;
+
   // ── Public API ────────────────────────────────────────────────────────────
   function open({ url, filename, bridge } = {}) {
-    if (window.__xyzSweepActive) return;
+    if (window.__xyzSweepActive) return Promise.resolve(null);
     _bridge = bridge;
+
+    // Reentrant open: resolve the pending promise with null so the
+    // previous awaiter sees a cancellation rather than hanging forever,
+    // then start a fresh session. Without this, a double-tap on a
+    // LoadImageMask widget left the first caller permanently pending.
+    if (_resolveOpen) {
+      const prev = _resolveOpen;
+      _resolveOpen = null;
+      try { prev(null); } catch { /* ignore */ }
+    }
 
     if (!_overlay) _buildOverlay();
 
@@ -637,13 +652,34 @@ const MaskService = (() => {
 
     if (url) _loadImage(url, filename);
 
+    // Escape cancels the overlay. Use capture phase so the listener wins
+    // against other handlers that might `stopPropagation` first.
+    if (!_onDocumentKeyDown) {
+      _onDocumentKeyDown = (e) => {
+        if (e.key !== 'Escape') return;
+        if (!_overlay?.classList.contains('ms-visible')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        close(null);
+      };
+      document.addEventListener('keydown', _onDocumentKeyDown, true);
+    }
+
     return new Promise(resolve => { _resolveOpen = resolve; });
   }
 
   function close(result = null) {
     if (_overlay) _overlay.classList.remove('ms-visible');
     if (_brushCursor) _brushCursor.style.display = 'none';
-    if (_resolveOpen) { _resolveOpen(result); _resolveOpen = null; }
+    if (_onDocumentKeyDown) {
+      document.removeEventListener('keydown', _onDocumentKeyDown, true);
+      _onDocumentKeyDown = null;
+    }
+    if (_resolveOpen) {
+      const resolve = _resolveOpen;
+      _resolveOpen = null;
+      try { resolve(result); } catch { /* ignore */ }
+    }
   }
 
   return { open, close };

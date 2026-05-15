@@ -56,8 +56,19 @@ def summarize_tree(base_dir, allowed_exts=None):
             "topDirs": [],
         }
 
+    # os.walk defaults to followlinks=False (so symlinked dirs are not
+    # descended into) but the entries themselves still appear in
+    # dirnames/filenames. Drop symlinked subdirs from the walk so they
+    # don't even show up as children, and skip symlinked files so the
+    # tally never accounts for storage that physically lives outside
+    # base_dir.
     for dirpath, dirnames, filenames in os.walk(base_dir):
-        dirnames[:] = [d for d in dirnames if d not in STORAGE_SKIP_DIRS and not d.startswith(".")]
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in STORAGE_SKIP_DIRS
+            and not d.startswith(".")
+            and not os.path.islink(os.path.join(dirpath, d))
+        ]
         rel_dir = os.path.relpath(dirpath, base_dir)
         if rel_dir != ".":
             folder_count += 1
@@ -69,6 +80,8 @@ def summarize_tree(base_dir, allowed_exts=None):
             if allowed_exts and ext not in allowed_exts:
                 continue
             full = os.path.join(dirpath, filename)
+            if os.path.islink(full):
+                continue
             try:
                 size = os.path.getsize(full)
             except OSError:

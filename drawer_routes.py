@@ -583,10 +583,12 @@ async def import_user_dict(request):
                     file_data = await _read_limited_stream(part, _MAX_DICT_IMPORT_BYTES)
                 except ValueError:
                     return web.json_response({"error": "file too large"}, status=413)
-                if hasattr(part, "decode"):
-                    file_data = part.decode(file_data)
-                    if len(file_data) > _MAX_DICT_IMPORT_BYTES:
-                        return web.json_response({"error": "file too large"}, status=413)
+                # NOTE: do NOT call `part.decode(file_data)` here.
+                # aiohttp's BodyPartReader auto-decodes Content-Transfer-
+                # Encoding while reading the stream, so the bytes we just
+                # got are already final. A second `decode()` either no-ops
+                # (no encoding) or, if the part carries an encoding header,
+                # changes the type so the later text decode raises.
     except ValueError:
         return web.json_response({"error": "file too large"}, status=413)
     except Exception:
@@ -716,8 +718,17 @@ def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, offset=0
         return []
 
     results = []
+    # os.walk defaults to followlinks=False (so symlinked dirs are not
+    # descended into), but symlinked files still show up in `filenames`
+    # and would be opened by _read_media_meta below. Also drop any
+    # symlinked subdirectories from `dirnames` so they don't appear in
+    # the dirpath of a subsequent iteration via parent listing.
     for dirpath, dirnames, filenames in os.walk(search_root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        dirnames[:] = [
+            d for d in dirnames
+            if not d.startswith(".")
+            and not os.path.islink(os.path.join(dirpath, d))
+        ]
         rel = os.path.relpath(dirpath, root).replace("\\", "/")
         if rel == ".":
             rel = ""
@@ -726,6 +737,8 @@ def _search_filesystem_raw(root_name, root, query, subpath="", limit=0, offset=0
             if ext not in _MEDIA_EXTS:
                 continue
             full = os.path.join(dirpath, fname)
+            if os.path.islink(full):
+                continue
             name_match = _search_text_matches(fname, terms)
             scope_text = {}
             if include_metadata and (not name_match or any(s != "name" for s in scopes)):
@@ -843,27 +856,46 @@ async def fs_browse(request):
 
     def scan():
         folders, files = [], []
-        entries = os.listdir(target)
-        for entry in sorted(entries):
-            if entry.startswith("."):
-                continue
-            full = os.path.join(target, entry)
-            rel = (subpath + "/" + entry) if subpath else entry
-            rel = rel.replace("\\", "/")
-            if os.path.isdir(full):
-                folders.append({"name": entry, "path": rel})
-            elif os.path.isfile(full):
-                ext = os.path.splitext(entry)[1].lower()
-                if ext in _MEDIA_EXTS:
-                    try:
-                        st = os.stat(full)
-                    except OSError:
+        # scandir + follow_symlinks=False keeps the listing inside the
+        # allowed root. os.listdir + isdir would happily descend into a
+        # symlink that points outside output/input/temp.
+        try:
+            iterator = os.scandir(target)
+        except OSError:
+            return folders, [], 0, False
+        with iterator as it:
+            entries = sorted(it, key=lambda e: e.name)
+            for entry in entries:
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                # Refuse symlinks entirely — they could re-enter elsewhere.
+                try:
+                    if entry.is_symlink():
                         continue
-                    files.append({
-                        "name": entry, "path": rel, "subfolder": subpath,
-                        "size": st.st_size, "created": st.st_ctime,
-                        "type": _ftype(ext),
-                    })
+                except OSError:
+                    continue
+                rel = (subpath + "/" + name) if subpath else name
+                rel = rel.replace("\\", "/")
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    is_file = entry.is_file(follow_symlinks=False)
+                except OSError:
+                    continue
+                if is_dir:
+                    folders.append({"name": name, "path": rel})
+                elif is_file:
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext in _MEDIA_EXTS:
+                        try:
+                            st = entry.stat(follow_symlinks=False)
+                        except OSError:
+                            continue
+                        files.append({
+                            "name": name, "path": rel, "subfolder": subpath,
+                            "size": st.st_size, "created": st.st_ctime,
+                            "type": _ftype(ext),
+                        })
         sort_key, _sep, sort_dir = str(sort or "name-asc").partition("-")
         reverse = sort_dir == "desc"
         if sort_key == "date":
@@ -1533,34 +1565,44 @@ async def fs_delete(request):
         return web.json_response({"error": "files must be a list"}, status=400)
     if not files:
         return web.json_response({"error": "No files"}, status=400)
-    deleted = 0
-    deleted_folders = 0
-    deleted_files = []
-    deleted_folder_items = []
-    index_updated = 0
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-        subfolder = _body_str(item, "subfolder")
-        name = _body_str(item, "name")
-        if not _is_plain_name(name):
-            continue
-        media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
-        if media_path is None:
-            continue
-        if os.path.isfile(media_path):
-            if _trash_file(media_path):
-                deleted += 1
-                deleted_files.append({"subfolder": subfolder, "name": name})
-                _remove_gallery_thumbnail_cache(root, subfolder, name)
-                index_updated += _search_index.note_path_deleted(root_name, subfolder, name)
-        elif os.path.isdir(media_path):
-            # Folder deletion — send entire folder (with contents) to trash
-            if _trash_file(media_path):
-                deleted_folders += 1
-                deleted_folder_items.append({"subfolder": subfolder, "name": name})
-                _remove_gallery_thumbnail_cache(root, subfolder, name, is_dir=True)
-                index_updated += _search_index.note_path_deleted(root_name, subfolder, name, is_dir=True)
+
+    # The trash/index-update loop is blocking I/O. Push it onto a worker
+    # thread so a long delete (many files, slow disk, recycle-bin churn)
+    # does not stall the event loop and starve other Drawer requests.
+    def _do_delete():
+        deleted = 0
+        deleted_folders = 0
+        deleted_files = []
+        deleted_folder_items = []
+        index_updated = 0
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            subfolder = _body_str(item, "subfolder")
+            name = _body_str(item, "name")
+            if not _is_plain_name(name):
+                continue
+            media_path = _safe_path(root, subfolder, name) if subfolder else _safe_path(root, name)
+            if media_path is None:
+                continue
+            if os.path.isfile(media_path):
+                if _trash_file(media_path):
+                    deleted += 1
+                    deleted_files.append({"subfolder": subfolder, "name": name})
+                    _remove_gallery_thumbnail_cache(root, subfolder, name)
+                    index_updated += _search_index.note_path_deleted(root_name, subfolder, name)
+            elif os.path.isdir(media_path):
+                # Folder deletion — send entire folder (with contents) to trash
+                if _trash_file(media_path):
+                    deleted_folders += 1
+                    deleted_folder_items.append({"subfolder": subfolder, "name": name})
+                    _remove_gallery_thumbnail_cache(root, subfolder, name, is_dir=True)
+                    index_updated += _search_index.note_path_deleted(root_name, subfolder, name, is_dir=True)
+        return deleted, deleted_folders, deleted_files, deleted_folder_items, index_updated
+
+    deleted, deleted_folders, deleted_files, deleted_folder_items, index_updated = (
+        await asyncio.to_thread(_do_delete)
+    )
     return web.json_response({
         "deleted": deleted,
         "deleted_folders": deleted_folders,
@@ -1688,145 +1730,154 @@ async def fs_move(request):
     dest_dir = _safe_path(dest_root, dest_subfolder) if dest_subfolder else dest_root
     if dest_dir is None:
         return web.json_response({"error": "Invalid destination"}, status=400)
-    os.makedirs(dest_dir, exist_ok=True)
 
-    import shutil
-    moved = 0
-    skipped = 0
-    renamed = []
-    errors = []
-    index_updated = 0
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-        subfolder = _body_str(item, "subfolder")
-        name = _body_str(item, "name")
-        if not _is_plain_name(name):
-            continue
-        src_path = _safe_path(src_root, subfolder, name) if subfolder else _safe_path(src_root, name)
-        if src_path is None or not os.path.exists(src_path):
-            errors.append(f"Not found: {name}")
-            continue
-        is_dir = os.path.isdir(src_path)
-        dst_path = _safe_path(dest_root, dest_subfolder, name) if dest_subfolder else _safe_path(dest_root, name)
-        if dst_path is None:
-            errors.append(f"Invalid destination: {name}")
-            continue
-        try:
-            if os.path.normcase(os.path.abspath(src_path)) == os.path.normcase(os.path.abspath(dst_path)):
-                skipped += 1
+    # The move loop touches the filesystem heavily (makedirs, shutil.move,
+    # recursive merge, thumbnail cache moves, search-index updates). Run
+    # the whole thing on a worker thread so the event loop is free during
+    # large folder moves.
+    def _do_move():
+        import shutil
+        os.makedirs(dest_dir, exist_ok=True)
+
+        moved = 0
+        skipped = 0
+        renamed = []
+        errors = []
+        index_updated = 0
+        for item in files:
+            if not isinstance(item, dict):
                 continue
-        except Exception:
-            pass
-        if os.path.exists(dst_path):
-            if conflict == "skip":
-                skipped += 1
+            subfolder = _body_str(item, "subfolder")
+            name = _body_str(item, "name")
+            if not _is_plain_name(name):
                 continue
-            elif conflict == "rename":
-                new_name = _auto_rename(dest_dir, name)
-                dst_path = _safe_path(dest_root, dest_subfolder, new_name) if dest_subfolder else _safe_path(dest_root, new_name)
-                if dst_path is None:
-                    errors.append(f"Invalid destination: {new_name}")
+            src_path = _safe_path(src_root, subfolder, name) if subfolder else _safe_path(src_root, name)
+            if src_path is None or not os.path.exists(src_path):
+                errors.append(f"Not found: {name}")
+                continue
+            is_dir = os.path.isdir(src_path)
+            dst_path = _safe_path(dest_root, dest_subfolder, name) if dest_subfolder else _safe_path(dest_root, name)
+            if dst_path is None:
+                errors.append(f"Invalid destination: {name}")
+                continue
+            try:
+                if os.path.normcase(os.path.abspath(src_path)) == os.path.normcase(os.path.abspath(dst_path)):
+                    skipped += 1
                     continue
-                renamed.append({"original": name, "renamed": new_name})
-            elif conflict == "overwrite":
-                # Folder + Folder → recursive merge (non-destructive)
-                if os.path.isdir(src_path) and os.path.isdir(dst_path):
-                    m, r, e = _merge_dirs(src_path, dst_path)
-                    if m > 0:
-                        moved += 1
-                        dest_name = os.path.basename(dst_path)
-                        src_prefix = _format_storage_rel("/".join(p for p in (subfolder, name) if p))
-                        dest_prefix = _format_storage_rel("/".join(p for p in (dest_subfolder, dest_name) if p))
-                        for renamed_item in r:
-                            original_path = _format_storage_rel(renamed_item.get("originalPath", ""))
-                            renamed_path = _format_storage_rel(renamed_item.get("renamedPath", ""))
-                            original_dir, original_name = os.path.split(original_path)
-                            renamed_dir, renamed_name = os.path.split(renamed_path)
-                            if not original_name or not renamed_name:
-                                continue
+            except Exception:
+                pass
+            if os.path.exists(dst_path):
+                if conflict == "skip":
+                    skipped += 1
+                    continue
+                elif conflict == "rename":
+                    new_name = _auto_rename(dest_dir, name)
+                    dst_path = _safe_path(dest_root, dest_subfolder, new_name) if dest_subfolder else _safe_path(dest_root, new_name)
+                    if dst_path is None:
+                        errors.append(f"Invalid destination: {new_name}")
+                        continue
+                    renamed.append({"original": name, "renamed": new_name})
+                elif conflict == "overwrite":
+                    # Folder + Folder → recursive merge (non-destructive)
+                    if os.path.isdir(src_path) and os.path.isdir(dst_path):
+                        m, r, e = _merge_dirs(src_path, dst_path)
+                        if m > 0:
+                            moved += 1
+                            dest_name = os.path.basename(dst_path)
+                            src_prefix = _format_storage_rel("/".join(p for p in (subfolder, name) if p))
+                            dest_prefix = _format_storage_rel("/".join(p for p in (dest_subfolder, dest_name) if p))
+                            for renamed_item in r:
+                                original_path = _format_storage_rel(renamed_item.get("originalPath", ""))
+                                renamed_path = _format_storage_rel(renamed_item.get("renamedPath", ""))
+                                original_dir, original_name = os.path.split(original_path)
+                                renamed_dir, renamed_name = os.path.split(renamed_path)
+                                if not original_name or not renamed_name:
+                                    continue
+                                _move_gallery_thumbnail_cache(
+                                    src_root,
+                                    _format_storage_rel("/".join(p for p in (src_prefix, original_dir) if p)),
+                                    original_name,
+                                    dest_root,
+                                    _format_storage_rel("/".join(p for p in (dest_prefix, renamed_dir) if p)),
+                                    renamed_name,
+                                    is_dir=bool(renamed_item.get("isFolder")),
+                                )
                             _move_gallery_thumbnail_cache(
                                 src_root,
-                                _format_storage_rel("/".join(p for p in (src_prefix, original_dir) if p)),
-                                original_name,
+                                subfolder,
+                                name,
                                 dest_root,
-                                _format_storage_rel("/".join(p for p in (dest_prefix, renamed_dir) if p)),
-                                renamed_name,
-                                is_dir=bool(renamed_item.get("isFolder")),
-                            )
-                        _move_gallery_thumbnail_cache(
-                            src_root,
-                            subfolder,
-                            name,
-                            dest_root,
-                            dest_subfolder,
-                            dest_name,
-                            is_dir=True,
-                        )
-                        index_updated += _search_index.note_path_moved(
-                            src_root_name,
-                            subfolder,
-                            name,
-                            root_name,
-                            dest_subfolder,
-                            dest_name,
-                            is_dir=True,
-                        )
-                        for renamed_item in r:
-                            rename_rel_dir = _format_storage_rel(renamed_item.get("subfolder", ""))
-                            rename_subfolder = _format_storage_rel("/".join(
-                                p for p in (dest_prefix, rename_rel_dir) if p
-                            ))
-                            renamed_path = _safe_path(
-                                dest_root,
-                                rename_subfolder,
-                                renamed_item.get("renamed", ""),
+                                dest_subfolder,
+                                dest_name,
+                                is_dir=True,
                             )
                             index_updated += _search_index.note_path_moved(
+                                src_root_name,
+                                subfolder,
+                                name,
                                 root_name,
-                                rename_subfolder,
-                                renamed_item.get("original", ""),
-                                root_name,
-                                rename_subfolder,
-                                renamed_item.get("renamed", ""),
-                                is_dir=bool(renamed_item.get("isFolder")),
-                                dest_path=None if renamed_item.get("isFolder") else renamed_path,
+                                dest_subfolder,
+                                dest_name,
+                                is_dir=True,
                             )
-                    renamed.extend(r)
-                    errors.extend(e)
-                    continue
-                # File → overwrite. CONVENTIONS: gallery-browsed media must
-                # go through the recycle bin, never `os.remove`.
-                if _send2trash is None:
-                    errors.append(f"Cannot overwrite {name}: send2trash not installed")
-                    continue
-                if not _trash_file(dst_path):
-                    errors.append(f"Cannot overwrite {name}: trash failed")
-                    continue
-        try:
-            shutil.move(src_path, dst_path)
-            moved += 1
-            _move_gallery_thumbnail_cache(
-                src_root,
-                subfolder,
-                name,
-                dest_root,
-                dest_subfolder,
-                os.path.basename(dst_path),
-                is_dir=is_dir,
-            )
-            index_updated += _search_index.note_path_moved(
-                src_root_name,
-                subfolder,
-                name,
-                root_name,
-                dest_subfolder,
-                os.path.basename(dst_path),
-                is_dir=is_dir,
-                dest_path=None if is_dir else dst_path,
-            )
-        except Exception as e:
-            errors.append(f"Error moving {name}: {e}")
+                            for renamed_item in r:
+                                rename_rel_dir = _format_storage_rel(renamed_item.get("subfolder", ""))
+                                rename_subfolder = _format_storage_rel("/".join(
+                                    p for p in (dest_prefix, rename_rel_dir) if p
+                                ))
+                                renamed_path = _safe_path(
+                                    dest_root,
+                                    rename_subfolder,
+                                    renamed_item.get("renamed", ""),
+                                )
+                                index_updated += _search_index.note_path_moved(
+                                    root_name,
+                                    rename_subfolder,
+                                    renamed_item.get("original", ""),
+                                    root_name,
+                                    rename_subfolder,
+                                    renamed_item.get("renamed", ""),
+                                    is_dir=bool(renamed_item.get("isFolder")),
+                                    dest_path=None if renamed_item.get("isFolder") else renamed_path,
+                                )
+                        renamed.extend(r)
+                        errors.extend(e)
+                        continue
+                    # File → overwrite. CONVENTIONS: gallery-browsed media must
+                    # go through the recycle bin, never `os.remove`.
+                    if _send2trash is None:
+                        errors.append(f"Cannot overwrite {name}: send2trash not installed")
+                        continue
+                    if not _trash_file(dst_path):
+                        errors.append(f"Cannot overwrite {name}: trash failed")
+                        continue
+            try:
+                shutil.move(src_path, dst_path)
+                moved += 1
+                _move_gallery_thumbnail_cache(
+                    src_root,
+                    subfolder,
+                    name,
+                    dest_root,
+                    dest_subfolder,
+                    os.path.basename(dst_path),
+                    is_dir=is_dir,
+                )
+                index_updated += _search_index.note_path_moved(
+                    src_root_name,
+                    subfolder,
+                    name,
+                    root_name,
+                    dest_subfolder,
+                    os.path.basename(dst_path),
+                    is_dir=is_dir,
+                    dest_path=None if is_dir else dst_path,
+                )
+            except Exception as e:
+                errors.append(f"Error moving {name}: {e}")
+        return moved, skipped, renamed, errors, index_updated
+
+    moved, skipped, renamed, errors, index_updated = await asyncio.to_thread(_do_move)
     return web.json_response({
         "moved": moved, "skipped": skipped,
         "renamed": renamed, "errors": errors, "indexUpdated": index_updated,
@@ -1871,7 +1922,7 @@ async def fs_mkdir(request):
     if os.path.exists(target):
         return web.json_response({"error": "Already exists"}, status=409)
     try:
-        os.makedirs(target)
+        await asyncio.to_thread(os.makedirs, target)
         return web.json_response({"ok": True, "path": (subfolder + "/" + name).strip("/")})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -1919,7 +1970,7 @@ async def fs_rename(request):
         return web.json_response({"error": "Source not found"}, status=404)
     if os.path.exists(dst):
         return web.json_response({"error": "Name already exists"}, status=409)
-    try:
+    def _do_rename():
         is_dir = os.path.isdir(src)
         os.rename(src, dst)
         _move_gallery_thumbnail_cache(
@@ -1941,6 +1992,10 @@ async def fs_rename(request):
             is_dir=is_dir,
             dest_path=None if is_dir else dst,
         )
+        return index_updated
+
+    try:
+        index_updated = await asyncio.to_thread(_do_rename)
         return web.json_response({"ok": True, "renamed": True, "indexUpdated": index_updated})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -2663,84 +2718,90 @@ async def delete_model(request):
     if not model_path or not os.path.isfile(model_path):
         return web.json_response({"error": "not found"}, status=404)
 
-    deleted = []
-    errors = []
+    # The listdir + multiple send2trash calls are blocking I/O. Push the
+    # whole sequence to a worker thread so a model directory with many
+    # files (LoRA hubs, etc.) doesn't stall the event loop.
+    def _do_delete_model():
+        deleted = []
+        errors = []
 
-    # Delete the model file itself
-    if _trash_file(model_path):
-        deleted.append(os.path.basename(model_path))
-    else:
-        return web.json_response({"error": "Failed to move model to trash"}, status=500)
-
-    # Sidecars specific to this exact model filename (suffixes append to the
-    # full basename, not the stem, so they cannot collide with siblings).
-    sidecar_patterns = [
-        model_path + ".civitai.info",
-        model_path + ".drawer.json",
-    ]
-
-    # Shared-stem previews (foo.preview.*, foo.png, foo.jpg, ...) belong to
-    # ALL models that share the stem (e.g. foo.safetensors + foo.ckpt).
-    # Only sweep them up when this is the last model with that stem in the
-    # directory — otherwise we would orphan the sibling's preview.
-    model_dir = os.path.dirname(model_path)
-    model_basename = os.path.basename(model_path)
-    model_stem = os.path.splitext(model_basename)[0]
-    _SHARED_PREVIEW_EXTS = (
-        '.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm',
-        '.info', '.json', '.yaml', '.yml', '.txt',
-    )
-    has_sibling = False
-    try:
-        for f in os.listdir(model_dir):
-            if f == model_basename:
-                continue
-            f_stem, f_ext = os.path.splitext(f)
-            if f_stem != model_stem:
-                continue
-            # foo.preview.png has stem "foo.preview" — already excluded.
-            # Anything left whose extension is NOT a known sidecar type is
-            # treated as another model file sharing the stem.
-            if f_ext.lower() in _SHARED_PREVIEW_EXTS:
-                continue
-            has_sibling = True
-            break
-    except OSError:
-        # If we cannot enumerate the directory, err on the side of caution
-        # and skip the shared-stem cleanup.
-        has_sibling = True
-
-    if not has_sibling:
-        base_no_ext = os.path.splitext(model_path)[0]
-        for ext in _THUMB_PREVIEW_EXTS:
-            candidate = base_no_ext + ext
-            if os.path.isfile(candidate):
-                sidecar_patterns.append(candidate)
-        for ext in ('.png', '.jpg', '.jpeg', '.webp'):
-            candidate = base_no_ext + ext
-            if os.path.isfile(candidate):
-                sidecar_patterns.append(candidate)
-
-    seen = set()
-    for path in sidecar_patterns:
-        if path in seen:
-            continue
-        seen.add(path)
-        # Skip non-files and symlinks: send2trash on a symlink can affect
-        # the target rather than the link on some platforms.
-        if not os.path.isfile(path) or os.path.islink(path):
-            continue
-        if _trash_file(path):
-            deleted.append(os.path.basename(path))
+        # Delete the model file itself
+        if _trash_file(model_path):
+            deleted.append(os.path.basename(model_path))
         else:
-            errors.append(f"{os.path.basename(path)}: failed to move to trash")
+            return None, "Failed to move model to trash"
 
-    # Invalidate folder_paths cache so ComfyUI picks up the change
-    try:
-        folder_paths.invalidate_cache(category)
-    except Exception:
-        pass  # Some ComfyUI versions may not have this method
+        # Sidecars specific to this exact model filename (suffixes append
+        # to the full basename, not the stem, so they cannot collide with
+        # siblings).
+        sidecar_patterns = [
+            model_path + ".civitai.info",
+            model_path + ".drawer.json",
+        ]
 
+        # Shared-stem previews (foo.preview.*, foo.png, foo.jpg, ...)
+        # belong to ALL models that share the stem (e.g. foo.safetensors +
+        # foo.ckpt). Only sweep them up when this is the last model with
+        # that stem in the directory — otherwise we would orphan the
+        # sibling's preview.
+        model_dir = os.path.dirname(model_path)
+        model_basename = os.path.basename(model_path)
+        model_stem = os.path.splitext(model_basename)[0]
+        _SHARED_PREVIEW_EXTS = (
+            '.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm',
+            '.info', '.json', '.yaml', '.yml', '.txt',
+        )
+        has_sibling = False
+        try:
+            for f in os.listdir(model_dir):
+                if f == model_basename:
+                    continue
+                f_stem, f_ext = os.path.splitext(f)
+                if f_stem != model_stem:
+                    continue
+                if f_ext.lower() in _SHARED_PREVIEW_EXTS:
+                    continue
+                has_sibling = True
+                break
+        except OSError:
+            has_sibling = True
+
+        if not has_sibling:
+            base_no_ext = os.path.splitext(model_path)[0]
+            for ext in _THUMB_PREVIEW_EXTS:
+                candidate = base_no_ext + ext
+                if os.path.isfile(candidate):
+                    sidecar_patterns.append(candidate)
+            for ext in ('.png', '.jpg', '.jpeg', '.webp'):
+                candidate = base_no_ext + ext
+                if os.path.isfile(candidate):
+                    sidecar_patterns.append(candidate)
+
+        seen = set()
+        for path in sidecar_patterns:
+            if path in seen:
+                continue
+            seen.add(path)
+            # Skip non-files and symlinks: send2trash on a symlink can
+            # affect the target rather than the link on some platforms.
+            if not os.path.isfile(path) or os.path.islink(path):
+                continue
+            if _trash_file(path):
+                deleted.append(os.path.basename(path))
+            else:
+                errors.append(f"{os.path.basename(path)}: failed to move to trash")
+
+        # Invalidate folder_paths cache so ComfyUI picks up the change
+        try:
+            folder_paths.invalidate_cache(category)
+        except Exception:
+            pass  # Some ComfyUI versions may not have this method
+        return (deleted, errors), None
+
+    result, err = await asyncio.to_thread(_do_delete_model)
+    if err is not None:
+        return web.json_response({"error": err}, status=500)
+    deleted, errors = result
     return web.json_response({
         "ok": True,
         "deleted": deleted,
@@ -3345,47 +3406,62 @@ async def clear_drawer_cache(request):
     if not clear_thumbnails and not clear_index:
         return web.json_response({"error": "No cache targets selected"}, status=400)
 
-    deleted = 0
-    freed_bytes = 0
-    errors = []
-
     if clear_index:
         # Close SQLite before deleting files. On Windows, deleting an open DB can
         # silently fail or leave WAL/SHM files out of the accounting path.
         _search_index.clear_index()
 
-    # 1. Remove .thumbs/ cache directories from each FS root
-    if clear_thumbnails:
-        for root_name, root_fn in _ALLOWED_ROOTS.items():
-            try:
-                root_dir = root_fn()
-                thumb_dir = os.path.join(root_dir, ".thumbs")
-                if os.path.isdir(thumb_dir):
-                    for dirpath, _dirnames, filenames in os.walk(thumb_dir):
+    # The filesystem walk + rmtree + os.unlink calls below are heavy
+    # blocking I/O; run the whole sweep on a worker thread.
+    def _do_clear():
+        deleted = 0
+        freed_bytes = 0
+        errors = []
+
+        # 1. Remove .thumbs/ cache directories from each FS root. Walk with
+        # followlinks=False (default) but explicitly skip symlinked
+        # subdirectories so we never trash anything outside .thumbs/.
+        if clear_thumbnails:
+            for root_name, root_fn in _ALLOWED_ROOTS.items():
+                try:
+                    root_dir = root_fn()
+                    thumb_dir = os.path.join(root_dir, ".thumbs")
+                    if not os.path.isdir(thumb_dir) or os.path.islink(thumb_dir):
+                        continue
+                    for dirpath, dirnames, filenames in os.walk(thumb_dir):
+                        dirnames[:] = [
+                            d for d in dirnames
+                            if not os.path.islink(os.path.join(dirpath, d))
+                        ]
                         for f in filenames:
                             fp = os.path.join(dirpath, f)
+                            if os.path.islink(fp):
+                                continue
                             try:
                                 freed_bytes += os.path.getsize(fp)
                                 deleted += 1
                             except OSError:
                                 pass
                     _shutil.rmtree(thumb_dir, ignore_errors=True)
-            except Exception as e:
-                errors.append(f"{root_name}/.thumbs: {e}")
-
-    # 2. Remove search index DB
-    if clear_index:
-        db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
-        for suffix in ("", "-wal", "-shm"):
-            p = db_path + suffix
-            if os.path.isfile(p):
-                try:
-                    sz = os.path.getsize(p)
-                    os.unlink(p)
-                    freed_bytes += sz
-                    deleted += 1
                 except Exception as e:
-                    errors.append(f"index{suffix}: {e}")
+                    errors.append(f"{root_name}/.thumbs: {e}")
+
+        # 2. Remove search index DB
+        if clear_index:
+            db_path = os.path.join(folder_paths.get_user_directory(), "drawer_index.db")
+            for suffix in ("", "-wal", "-shm"):
+                p = db_path + suffix
+                if os.path.isfile(p):
+                    try:
+                        sz = os.path.getsize(p)
+                        os.unlink(p)
+                        freed_bytes += sz
+                        deleted += 1
+                    except Exception as e:
+                        errors.append(f"index{suffix}: {e}")
+        return deleted, freed_bytes, errors
+
+    deleted, freed_bytes, errors = await asyncio.to_thread(_do_clear)
 
     if errors:
         logger.warning(f"[Drawer] clear-cache partial errors: {errors[:3]}")

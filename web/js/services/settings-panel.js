@@ -74,12 +74,27 @@ export function openSettingsPanel() {
         return;
     }
 
+    // Collect lifetime-bound cleanup callbacks here so they run exactly
+    // once when the dialog dismisses. Without this, settings.onChange()
+    // subscriptions and refresh-interval timers accumulated forever — each
+    // settings re-open grew the listener array and pinned closures.
+    const cleanups = [];
+    const runCleanups = () => {
+        while (cleanups.length) {
+            const fn = cleanups.pop();
+            try { fn(); } catch (e) {
+                console.warn('[SettingsPanel] cleanup failed:', e);
+            }
+        }
+    };
+
     showDialog({
         title: _t('settings.title'),
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
         showCancel: false,
         confirmLabel: _t('common.close'),
         autoFocus: false,
+        onDismiss: runCleanups,
         content: (bodyEl) => {
             bodyEl.style.minWidth = '300px';
 
@@ -105,7 +120,7 @@ export function openSettingsPanel() {
                 // Settings in this section
                 for (const def of items) {
                     if (def.hidden) continue;
-                    const row = createSettingRow(def, settings);
+                    const row = createSettingRow(def, settings, cleanups);
                     bodyEl.appendChild(row);
                 }
             }
@@ -145,7 +160,7 @@ export function openSettingsPanel() {
  * @param {import('./settings.js').SettingsService} settings
  * @returns {HTMLElement}
  */
-function createSettingRow(def, settings) {
+function createSettingRow(def, settings, cleanups = []) {
     const row = document.createElement('div');
     row.className = 'cd-settings-row';
 
@@ -161,11 +176,11 @@ function createSettingRow(def, settings) {
         case 'color':
             return createColorPicker(row, def, settings);
         case 'color-palette':
-            return createColorPalette(row, def, settings);
+            return createColorPalette(row, def, settings, cleanups);
         case 'preset-theme':
-            return createPresetTheme(row, def, settings);
+            return createPresetTheme(row, def, settings, cleanups);
         case 'action':
-            return createAction(row, def, settings);
+            return createAction(row, def, settings, cleanups);
         default:
             row.textContent = `Unknown type: ${def.type}`;
             return row;
@@ -317,7 +332,7 @@ function createText(row, def, settings) {
    Action (button — one-shot operation)
    ═══════════════════════════════════════════════════════ */
 
-function createAction(row, def, settings) {
+function createAction(row, def, settings, cleanups = []) {
     row.innerHTML = `
         <div class="cd-settings-label-group">
             <span class="cd-settings-label">${escapeText(def.label)}</span>
@@ -340,33 +355,24 @@ function createAction(row, def, settings) {
         }
     };
     applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
+
+    // Hook bus events and the refresh timer to the dialog's lifetime via the
+    // shared `cleanups` array. The previous implementation attached a
+    // MutationObserver to document.body per action setting to detect "row
+    // removed" — wasteful (fires on every DOM mutation) and broke when the
+    // row stayed alive between dialog opens.
     const refreshEvents = Array.isArray(def.refreshEvents) ? def.refreshEvents : [];
-    const cleanups = refreshEvents
-        .map(event => window.ComfyDrawer?.bus?.on?.(event, () => {
+    for (const event of refreshEvents) {
+        const off = window.ComfyDrawer?.bus?.on?.(event, () => {
             applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
-        }))
-        .filter(Boolean);
-    let refreshTimer = null;
+        });
+        if (off) cleanups.push(off);
+    }
     if (Number(def.refreshInterval) > 0) {
-        refreshTimer = setInterval(() => {
+        const refreshTimer = setInterval(() => {
             applyButtonState().catch(e => console.error('[Settings] Button state error:', e));
         }, Number(def.refreshInterval));
-    }
-    if (cleanups.length) {
-        const observer = new MutationObserver(() => {
-            if (document.body.contains(row)) return;
-            for (const cleanup of cleanups) cleanup();
-            if (refreshTimer) clearInterval(refreshTimer);
-            observer.disconnect();
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    } else if (refreshTimer) {
-        const observer = new MutationObserver(() => {
-            if (document.body.contains(row)) return;
-            clearInterval(refreshTimer);
-            observer.disconnect();
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+        cleanups.push(() => clearInterval(refreshTimer));
     }
 
     btn.addEventListener('click', async () => {
@@ -455,7 +461,7 @@ function createColorPicker(row, def, settings) {
    Color Palette Row  (ベース / メイン / ディナイ in one row)
    ═══════════════════════════════════════════════════════ */
 
-function createColorPalette(row, def, settings) {
+function createColorPalette(row, def, settings, cleanups = []) {
     const palette = document.createElement('div');
     palette.className = 'cd-color-palette';
 
@@ -492,12 +498,15 @@ function createColorPalette(row, def, settings) {
             settings.set(colorDef.key, input.value);
         });
 
-        // React when preset selection changes the setting
-        settings.onChange(colorDef.key, (_key, value) => {
+        // React when preset selection changes the setting. The unsubscribe
+        // function is captured into `cleanups` so the listener does not
+        // accumulate across re-opens of the settings dialog.
+        const off = settings.onChange(colorDef.key, (_key, value) => {
             if (!value) return;
             swatch.style.background = value;
             try { input.value = value.length === 7 ? value : input.value; } catch {}
         });
+        if (off) cleanups.push(off);
 
         item.appendChild(swatch);
         item.appendChild(label);
@@ -512,7 +521,7 @@ function createColorPalette(row, def, settings) {
    Preset Theme Picker (visual swatch grid)
    ═══════════════════════════════════════════════════════ */
 
-function createPresetTheme(row, def, settings) {
+function createPresetTheme(row, def, settings, cleanups = []) {
     row.classList.add('cd-settings-row-vertical');
 
     const ACCENT_KEY        = 'ComfyDrawer.Theme.AccentColor';
@@ -686,9 +695,14 @@ function createPresetTheme(row, def, settings) {
     });
     grid.appendChild(customBtn);
 
-    settings.onChange(ACCENT_KEY, refreshUI);
-    settings.onChange(DANGER_KEY, refreshUI);
-    settings.onChange(SHELL_KEY,  refreshUI);
+    // Capture unsubscribes so closing the panel does not leave dangling
+    // listeners on SettingsService (every re-open used to add three more).
+    const offA = settings.onChange(ACCENT_KEY, refreshUI);
+    const offD = settings.onChange(DANGER_KEY, refreshUI);
+    const offS = settings.onChange(SHELL_KEY,  refreshUI);
+    if (offA) cleanups.push(offA);
+    if (offD) cleanups.push(offD);
+    if (offS) cleanups.push(offS);
 
     row.appendChild(grid);
     return row;

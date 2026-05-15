@@ -282,6 +282,130 @@ class SearchIndexInputValidationTests(unittest.TestCase):
         self.assertIn("self._safe_path(root_path, subfolder, name)", source)
 
 
+class ImportUserDictDoubleDecodeTests(unittest.TestCase):
+    """F4: import_user_dict must NOT double-decode the multipart body.
+
+    aiohttp's BodyPartReader auto-decodes the transfer-encoding while
+    streaming, so calling `part.decode(bytes)` a second time can either
+    no-op or, when the part carries a Content-Transfer-Encoding header,
+    change the bytes/str type so the later `.decode("utf-8")` raises.
+    """
+
+    def test_import_user_dict_does_not_double_decode(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # The dangerous `part.decode(file_data)` line is gone.
+        self.assertNotIn("file_data = part.decode(file_data)", source)
+        # The explanatory comment is still there as a guard for future edits.
+        self.assertIn("do NOT call `part.decode(file_data)`", source)
+
+
+class FsHandlersUseAsyncIOToThreadTests(unittest.TestCase):
+    """F5: state-changing fs handlers must run blocking I/O on a worker
+    thread so a long delete/move/rename does not stall the event loop.
+    """
+
+    def test_fs_delete_loop_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # The trash + thumbnail + index loop is wrapped in to_thread.
+        self.assertIn("await asyncio.to_thread(_do_delete)", source)
+
+    def test_fs_move_loop_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(_do_move)", source)
+
+    def test_fs_rename_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(_do_rename)", source)
+
+    def test_fs_mkdir_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(os.makedirs", source)
+
+    def test_delete_model_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(_do_delete_model)", source)
+
+    def test_clear_drawer_cache_runs_in_to_thread(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(_do_clear)", source)
+
+
+class SymlinkSafeIterationTests(unittest.TestCase):
+    """F6: directory iteration must skip symlinks so a link inside an
+    allowed root cannot expose paths outside it.
+    """
+
+    def test_fs_browse_uses_scandir_with_follow_symlinks_false(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # The fs_browse scanner switched from os.listdir + isdir to
+        # os.scandir + follow_symlinks=False and explicitly skips
+        # symlinked entries.
+        self.assertIn("os.scandir(target)", source)
+        self.assertIn("entry.is_dir(follow_symlinks=False)", source)
+        self.assertIn("entry.is_file(follow_symlinks=False)", source)
+        self.assertIn("entry.stat(follow_symlinks=False)", source)
+        self.assertIn("if entry.is_symlink()", source)
+
+    def test_search_filesystem_raw_skips_symlinks(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # _search_filesystem_raw drops symlinked subdirs from os.walk and
+        # skips symlinked files.
+        self.assertIn(
+            "not os.path.islink(os.path.join(dirpath, d))",
+            source,
+        )
+
+    def test_summarize_tree_skips_symlinks(self):
+        source = (REPO_ROOT / "fs_utils.py").read_text(encoding="utf-8")
+        self.assertIn("os.path.islink(full)", source)
+        self.assertIn(
+            "not os.path.islink(os.path.join(dirpath, d))",
+            source,
+        )
+
+    def test_clear_drawer_cache_skips_symlinks_in_thumbs(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # The thumbnail-cache walk under clear_drawer_cache also drops
+        # symlinks before computing freed_bytes / deleted counts.
+        self.assertIn("os.path.islink(thumb_dir)", source)
+
+
+class MaskServiceReentryTests(unittest.TestCase):
+    """F3: MaskService.open() must not leak a pending promise on re-entry,
+    and Escape should be a cancel handler.
+    """
+
+    def test_mask_service_resolves_previous_promise_on_reentry(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
+        self.assertIn("Reentrant open", source)
+        self.assertIn("try { prev(null); }", source)
+
+    def test_mask_service_installs_escape_handler(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
+        self.assertIn("_onDocumentKeyDown", source)
+        self.assertIn("if (e.key !== 'Escape') return;", source)
+
+
+class SettingsPanelCleanupTests(unittest.TestCase):
+    """F1/F2: the settings dialog must unsubscribe its onChange listeners
+    and avoid attaching a MutationObserver per action setting.
+    """
+
+    def test_open_settings_panel_runs_cleanups_on_dismiss(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "settings-panel.js").read_text(encoding="utf-8")
+        self.assertIn("onDismiss: runCleanups", source)
+        self.assertIn("const cleanups = [];", source)
+
+    def test_action_setting_no_longer_attaches_subtree_observer(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "settings-panel.js").read_text(encoding="utf-8")
+        # The MutationObserver-on-document.body workaround is gone from
+        # createAction. The shared `cleanups` array carries the work.
+        self.assertNotIn(
+            "observer.observe(document.body, { childList: true, subtree: true })",
+            source,
+        )
+
+
 class DrawerRebootIsAsyncTests(unittest.TestCase):
     """C6: /drawer/reboot must be an async handler with deferred exec."""
 
