@@ -822,14 +822,14 @@ app.registerExtension({
                 const sources = [];
                 if (meta?.a1111 && typeof meta.a1111 === 'object') {
                     sources.push({
-                        title: 'A1111 Overview',
+                        title: t('menu.metaA1111Overview'),
                         data: meta.a1111,
                         negativeKey: 'negative_prompt',
                     });
                 }
                 if (meta?.nai && typeof meta.nai === 'object') {
                     sources.push({
-                        title: 'NovelAI Overview',
+                        title: t('menu.metaNAIOverview'),
                         data: meta.nai,
                         negativeKey: 'negative_prompt',
                     });
@@ -842,8 +842,8 @@ app.registerExtension({
                     section.appendChild(title);
 
                     const data = sourceMeta.data;
-                    addTextBlock(section, 'Prompt', data.prompt);
-                    addTextBlock(section, 'Negative Prompt', data[sourceMeta.negativeKey] ?? data.uc);
+                    addTextBlock(section, t('menu.metaPrompt'), data.prompt);
+                    addTextBlock(section, t('menu.metaNegativePrompt'), data[sourceMeta.negativeKey] ?? data.uc);
 
                     if (data.settings && typeof data.settings === 'object') {
                         addSettingGrid(section, data.settings);
@@ -949,18 +949,20 @@ app.registerExtension({
                     const summary = document.createElement('section');
                     summary.className = 'cd-meta-section';
                     const summaryTitle = document.createElement('h3');
-                    summaryTitle.textContent = 'Summary';
+                    summaryTitle.textContent = t('menu.metaSummary');
                     summary.appendChild(summaryTitle);
-                    addRow(summary, 'File', name || ctx.name || 'media');
-                    addRow(summary, 'Location', [source, subfolder].filter(Boolean).join('/') || source);
+                    addRow(summary, t('menu.metaFile'), name || ctx.name || 'media');
+                    addRow(summary, t('menu.metaLocation'), [source, subfolder].filter(Boolean).join('/') || source);
                     addRow(
                         summary,
-                        'Workflow',
+                        t('menu.metaWorkflow'),
                         workflow
-                            ? `${nodes.length} nodes, ${groups.length} groups`
+                            ? t('menu.metaWorkflowNodes', { nodes: nodes.length, groups: groups.length })
                             : (promptNodes.length
-                                ? `${promptNodes.length} prompt nodes`
-                                : (canOpenWorkflowFromMeta(meta, { name, src: ctx.src }) ? 'Importable metadata' : 'Metadata only'))
+                                ? t('menu.metaPromptNodes', { count: promptNodes.length })
+                                : (canOpenWorkflowFromMeta(meta, { name, src: ctx.src })
+                                    ? t('menu.metaImportable')
+                                    : t('menu.metaOnly')))
                     );
                     wrap.appendChild(summary);
 
@@ -970,7 +972,7 @@ app.registerExtension({
                         const section = document.createElement('section');
                         section.className = 'cd-meta-section';
                         const title = document.createElement('h3');
-                        title.textContent = 'Workflow Overview';
+                        title.textContent = t('menu.metaWorkflowOverview');
                         section.appendChild(title);
 
                         const visibleControls = document.createElement('details');
@@ -1001,7 +1003,7 @@ app.registerExtension({
                         showLabelsInput.type = 'checkbox';
                         showLabelsInput.checked = localStorage.getItem(showLabelsKey) !== 'false';
                         const showLabelsText = document.createElement('span');
-                        showLabelsText.textContent = 'Show labels';
+                        showLabelsText.textContent = t('menu.metaShowLabels');
                         showLabelsRow.append(showLabelsInput, showLabelsText);
 
                         let selectedType = '';
@@ -1021,12 +1023,14 @@ app.registerExtension({
                             const allowed = getAllowedTypes();
                             const allowedPresent = [...allowed].filter(type => allNodeTypes.has(type)).sort();
                             visibleSummary.textContent = allowedPresent.length === 0
-                                ? 'Shown node types'
-                                : `${allowedPresent.length} shown node type${allowedPresent.length === 1 ? '' : 's'}`;
+                                ? t('menu.metaShownNodeTypesNone')
+                                : (allowedPresent.length === 1
+                                    ? t('menu.metaShownNodeTypes', { count: allowedPresent.length })
+                                    : t('menu.metaShownNodeTypesPlural', { count: allowedPresent.length }));
                             addSelect.replaceChildren();
                             const placeholder = document.createElement('option');
                             placeholder.value = '';
-                            placeholder.textContent = 'Add node type…';
+                            placeholder.textContent = t('menu.metaAddNodeType');
                             addSelect.appendChild(placeholder);
                             for (const [type, typeNodes] of [...allNodeTypes.entries()]
                                 .filter(([type]) => !allowed.has(type))
@@ -1043,7 +1047,7 @@ app.registerExtension({
                                 remove.type = 'button';
                                 remove.className = 'cd-meta-allowed-chip';
                                 remove.textContent = `${type} × ${allNodeTypes.get(type).length}`;
-                                remove.title = 'Click to hide from metadata view';
+                                remove.title = t('menu.metaHideFromView');
                                 remove.addEventListener('click', () => {
                                     const next = getAllowedTypes();
                                     next.delete(type);
@@ -1073,7 +1077,7 @@ app.registerExtension({
                                 selectType(visibleTypes[0][0]);
                             } else {
                                 selectedType = '';
-                                nodeList.value = 'Add node types above to show their metadata values.';
+                                nodeList.value = t('menu.metaEmptyHint');
                             }
                         };
 
@@ -1102,7 +1106,7 @@ app.registerExtension({
                         const section = document.createElement('section');
                         section.className = 'cd-meta-section';
                         const title = document.createElement('h3');
-                        title.textContent = contributed.title || 'Third-party Metadata';
+                        title.textContent = contributed.title || t('menu.metaThirdParty');
                         section.appendChild(title);
                         const rows = Array.isArray(contributed.rows) ? contributed.rows : [];
                         for (const row of rows) {
@@ -1117,7 +1121,7 @@ app.registerExtension({
                     const raw = document.createElement('details');
                     raw.className = 'cd-meta-section cd-meta-raw';
                     const rawSummary = document.createElement('summary');
-                    rawSummary.textContent = 'Raw JSON';
+                    rawSummary.textContent = t('menu.metaRawJson');
                     raw.appendChild(rawSummary);
                     addTextarea(raw, json);
                     wrap.appendChild(raw);

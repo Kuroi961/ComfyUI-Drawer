@@ -408,7 +408,7 @@ export class ModelViewerGadget extends GadgetBase {
                 this.#setStatus(_t('modelviewer.noCategoriesFound'));
             }
         } catch (e) {
-            this.#setStatus(_t('common.error') + ': ' + e.message);
+            this.#setStatus(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -448,7 +448,7 @@ export class ModelViewerGadget extends GadgetBase {
             this.#applyFilter();
             this.#renderGrid();
         } catch (e) {
-            this.#setStatus(_t('common.error') + ': ' + e.message);
+            this.#setStatus(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -1785,14 +1785,14 @@ export class ModelViewerGadget extends GadgetBase {
                     continue;
                 }
                 if (data.error) {
-                    this.#showToast(_t('common.error') + ': ' + data.error);
+                    this.#showToast(_t('common.errorWith', { message: data.error }));
                     return;
                 }
                 this.#showToast(_t('common.done'));
                 this.#loadModels(this.#activeCategory);
                 return;
             } catch (e) {
-                this.#showToast(_t('common.error') + ': ' + e.message);
+                this.#showToast(_t('common.errorWith', { message: e.message }));
                 return;
             }
         }

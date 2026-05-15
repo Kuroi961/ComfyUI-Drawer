@@ -1707,7 +1707,7 @@ export class GalleryGadget extends GadgetBase {
                 this.#initialLoadComplete = true;
                 this.#setInitialLoading(false);
             }
-            this.#setStatus(_t('common.error') + ': ' + e.message);
+            this.#setStatus(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -1767,7 +1767,7 @@ export class GalleryGadget extends GadgetBase {
         } catch (e) {
             if (e.name === 'AbortError') return; // intentional cancellation
             if (!this.#isCurrentRequest(seq)) return;
-            this.#setStatus(_t('common.error') + ': ' + e.message);
+            this.#setStatus(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -2830,14 +2830,14 @@ export class GalleryGadget extends GadgetBase {
             });
             const data = await r.json();
             if (data.error) {
-                this.#showToast(_t('common.error') + ': ' + data.error);
+                this.#showToast(_t('common.errorWith', { message: data.error }));
             } else if (data.renamed) {
                 this.#emitFsRenamed({ root, subfolder, oldName: file.name, newName: finalName, isFolder: false });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
         } catch (e) {
-            this.#showToast(_t('common.error') + ': ' + e.message);
+            this.#showToast(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -2860,14 +2860,14 @@ export class GalleryGadget extends GadgetBase {
             });
             const data = await r.json();
             if (data.error) {
-                this.#showToast(_t('common.error') + ': ' + data.error);
+                this.#showToast(_t('common.errorWith', { message: data.error }));
             } else if (data.renamed) {
                 this.#emitFsRenamed({ root, subfolder, oldName: name, newName, isFolder: true });
                 this.#showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
         } catch (e) {
-            this.#showToast(_t('common.error') + ': ' + e.message);
+            this.#showToast(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -2896,7 +2896,7 @@ export class GalleryGadget extends GadgetBase {
                     continue;
                 }
                 if (data.error) {
-                    this.#showToast(_t('common.error') + ': ' + data.error);
+                    this.#showToast(_t('common.errorWith', { message: data.error }));
                     return;
                 }
                 this.#emitFsCreated({
@@ -2910,7 +2910,7 @@ export class GalleryGadget extends GadgetBase {
                 this.#browse(this.#state.path);
                 return;
             } catch (e) {
-                this.#showToast(_t('common.error') + ': ' + e.message);
+                this.#showToast(_t('common.errorWith', { message: e.message }));
                 return;
             }
         }
@@ -3145,7 +3145,7 @@ export class GalleryGadget extends GadgetBase {
         } catch (e) {
             if (e.name !== 'AbortError') {
                 console.warn('[Gallery] Select all search results failed:', e);
-                this.#showToast(_t('common.error') + ': ' + e.message);
+                this.#showToast(_t('common.errorWith', { message: e.message }));
             }
         } finally {
             s.searchSelectingAll = false;
@@ -3183,7 +3183,7 @@ export class GalleryGadget extends GadgetBase {
             for (const file of s.files) s.selected.add(file.path);
         } catch (e) {
             console.warn('[Gallery] Select all browse results failed:', e);
-            this.#showToast(_t('common.error') + ': ' + e.message);
+            this.#showToast(_t('common.errorWith', { message: e.message }));
         } finally {
             s.browseSelectingAll = false;
             this.#updateSelCount();
@@ -3418,7 +3418,7 @@ export class GalleryGadget extends GadgetBase {
             }
         } catch (e) {
             console.error('[Gallery] Move failed:', e);
-            this.#showToast(_t('common.error') + ': ' + e.message);
+            this.#showToast(_t('common.errorWith', { message: e.message }));
         }
 
         // Stay at move destination and exit selection

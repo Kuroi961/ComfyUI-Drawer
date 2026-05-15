@@ -650,6 +650,49 @@ class LocaleParityTests(unittest.TestCase):
         self.assertEqual(set(en), set(ja), f"en/ja diff: {sorted(set(en) ^ set(ja))[:5]}")
         self.assertEqual(set(en), set(zh), f"en/zh diff: {sorted(set(en) ^ set(zh))[:5]}")
 
+    def test_metadata_viewer_section_titles_are_localised(self):
+        en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
+        # Every label inside the metadata viewer dialog must have a key.
+        for k in (
+            "metaSummary", "metaFile", "metaLocation", "metaWorkflow",
+            "metaWorkflowNodes", "metaPromptNodes", "metaImportable",
+            "metaOnly", "metaWorkflowOverview", "metaPrompt",
+            "metaNegativePrompt", "metaA1111Overview", "metaNAIOverview",
+            "metaShowLabels", "metaShownNodeTypesNone", "metaShownNodeTypes",
+            "metaShownNodeTypesPlural", "metaAddNodeType",
+            "metaHideFromView", "metaEmptyHint", "metaThirdParty",
+            "metaRawJson",
+        ):
+            self.assertIn(k, en["menu"], f"missing: menu.{k}")
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        # The previous hardcoded strings are gone; the new keys are used.
+        self.assertNotIn("textContent = 'Summary'", source)
+        self.assertNotIn("textContent = 'Raw JSON'", source)
+        self.assertNotIn("'Show labels'", source)
+
+    def test_deck_active_bypass_labels_are_localised(self):
+        source = (REPO_ROOT / "web" / "gadgets" / "deck" / "deck-gadget.js").read_text(encoding="utf-8")
+        # The toggle label flips between deck.active and deck.bypass keys.
+        self.assertIn("_t('deck.active')", source)
+        self.assertIn("_t('deck.bypass')", source)
+        self.assertNotIn("? 'Active' : 'Bypass'", source)
+
+    def test_common_errorWith_key_replaces_string_concat(self):
+        en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
+        self.assertIn("errorWith", en["common"])
+        self.assertIn("{message}", en["common"]["errorWith"])
+        # All three locales use the {message} placeholder.
+        ja = json.loads((REPO_ROOT / "web" / "locales" / "ja.json").read_text(encoding="utf-8"))
+        zh = json.loads((REPO_ROOT / "web" / "locales" / "zh.json").read_text(encoding="utf-8"))
+        self.assertIn("{message}", ja["common"]["errorWith"])
+        self.assertIn("{message}", zh["common"]["errorWith"])
+        # Gallery + ModelViewer no longer string-concatenate the message.
+        for fname in ("gallery/gallery-gadget.js", "modelviewer/modelviewer-gadget.js"):
+            path = REPO_ROOT / "web" / "gadgets" / fname
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("_t('common.error') + ': ' + e.message", text, fname)
+            self.assertNotIn("_t('common.error') + ': ' + data.error", text, fname)
+
     def test_xyzplot_sweep_caution_strings_are_localised(self):
         en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
         # The hardcoded Japanese warning text in xyzplot-gadget.js is gone;
@@ -1359,10 +1402,15 @@ class RouteHardeningSourceTests(unittest.TestCase):
     def test_generation_metadata_has_formatted_overview(self):
         source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
         css = (REPO_ROOT / "web" / "css" / "dialog.css").read_text(encoding="utf-8")
+        en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
 
         self.assertIn("const addGenerationOverview = (parent, meta)", source)
-        self.assertIn("A1111 Overview", source)
-        self.assertIn("NovelAI Overview", source)
+        # The A1111 / NovelAI section titles moved from hardcoded strings
+        # to locale keys (menu.metaA1111Overview / metaNAIOverview).
+        self.assertIn("menu.metaA1111Overview", source)
+        self.assertIn("menu.metaNAIOverview", source)
+        self.assertEqual(en["menu"]["metaA1111Overview"], "A1111 Overview")
+        self.assertEqual(en["menu"]["metaNAIOverview"], "NovelAI Overview")
         self.assertIn("cd-meta-prompt-box", source)
         self.assertIn("cd-meta-setting-grid", css)
 

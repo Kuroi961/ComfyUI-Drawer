@@ -13,6 +13,9 @@ import { ContextMenuService } from '../../js/services/context-menu.js';
 import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 
+/** @private Locale helper — falls back to key on missing translation. */
+const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
+
 const EMOJI_EDIT = "\u{1F4DD}"; // 📝
 
 
@@ -732,7 +735,7 @@ export class DeckGadget extends GadgetBase {
     const syncLabel = () => {
       label.textContent = exclusive
         ? labelText
-        : (input.checked ? 'Active' : 'Bypass');
+        : (input.checked ? _t('deck.active') : _t('deck.bypass'));
     };
 
     input.addEventListener('change', () => {
@@ -756,7 +759,7 @@ export class DeckGadget extends GadgetBase {
     const toggleEl = input?.closest('.dk-bypass-toggle');
     if (!toggleEl || toggleEl.classList.contains('dk-exclusive-toggle')) return;
     const label = toggleEl.querySelector('.dk-bypass-label');
-    if (label) label.textContent = input.checked ? 'Active' : 'Bypass';
+    if (label) label.textContent = input.checked ? _t('deck.active') : _t('deck.bypass');
   }
 
   /* ═══ Collapse State (persisted in workflow.extra) ═══ */
