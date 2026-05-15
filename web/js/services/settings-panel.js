@@ -20,6 +20,7 @@
 
 import { apiFetch } from '../core/api-utils.js';
 import { showConfirm, showDialog } from './dialog.js';
+import { escapeHTML } from '../utils.js';
 
 /** @private Locale helper — falls back to key if ComfyDrawer not ready */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
@@ -1299,7 +1300,10 @@ function reloadUserDict() {
    Utility
    ═══════════════════════════════════════════════════════ */
 
+// Settings labels and descriptions come from def.label / def.description
+// which may originate in third-party extensions. Route through the shared
+// escapeHTML so output stays consistent with everywhere else in Drawer
+// (covers " and ' which the previous local escapeText missed).
 function escapeText(s) {
-    if (!s) return '';
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return s == null ? '' : escapeHTML(s);
 }

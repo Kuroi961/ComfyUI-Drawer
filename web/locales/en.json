@@ -254,7 +254,12 @@
     "dropHere": "Drop here",
     "sendToLoadImage": "Send to Load Image",
     "openWorkflow": "Open as Workflow",
-    "copyPrompt": "Copy Prompt"
+    "copyPrompt": "Copy Prompt",
+    "tempWarningTitle": "About the Temp folder",
+    "tempWarningCleared": "The contents of the Temp folder are <b>cleared when ComfyUI restarts</b>.",
+    "tempWarningNotIndexed": "The Temp folder is <b>not included in the search index</b>.",
+    "tempWarningDontShowAgain": "Don't show this again",
+    "tempNotSearchable": "Cannot search in Temp folder"
   },
   "deck": {
     "label": "Deck",

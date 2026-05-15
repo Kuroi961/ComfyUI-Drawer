@@ -88,10 +88,10 @@ export class DrawerShell {
         this.#bus = bus;
         this.#bridge = bridge;
         // Restore saved top offset; fall back to a default that gives PANEL_DEFAULT height
-        const savedTop = parseInt(localStorage.getItem(DrawerShell.STORAGE_KEY));
+        const savedTop = parseInt(localStorage.getItem(DrawerShell.STORAGE_KEY), 10);
         this.#topOffset = isNaN(savedTop) ? null : savedTop;
         this.#panelHeight = this.#topOffsetToHeight(this.#topOffset) || DrawerShell.PANEL_DEFAULT;
-        this.#panelWidth = parseInt(localStorage.getItem(DrawerShell.WIDTH_KEY)) || null;
+        this.#panelWidth = parseInt(localStorage.getItem(DrawerShell.WIDTH_KEY), 10) || null;
         this.#panelAlign = localStorage.getItem(DrawerShell.ALIGN_KEY) || 'left';
         this.#desktopMQ = window.matchMedia('(min-width: 601px)');
         this.#desktopMQ.addEventListener('change', () => this.#applyLayout());
@@ -328,11 +328,18 @@ export class DrawerShell {
             tab.draggable = true;
             if (gadget.id === this.#activeId) tab.classList.add('active');
 
-            tab.innerHTML = `
-                <span class="comfy-drawer-tab-icon">${gadget.icon}</span>
-                <span class="comfy-drawer-tab-label">${gadget.label}</span>
-            `;
-            tab.title = gadget.label;
+            // gadget.label is treated as plain text via textContent: any
+            // third-party gadget registered through registerGadget() owns
+            // this string, so we can't trust it as HTML. gadget.icon is
+            // still innerHTML because the convention is "raw SVG markup".
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'comfy-drawer-tab-icon';
+            iconSpan.innerHTML = gadget.icon ?? '';
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'comfy-drawer-tab-label';
+            labelSpan.textContent = gadget.label ?? '';
+            tab.append(iconSpan, labelSpan);
+            tab.title = gadget.label ?? '';
             tab.addEventListener('click', () => this.#onTabClick(gadget.id));
 
             // ── Drag & Drop ──
@@ -564,12 +571,26 @@ export class DrawerShell {
         const menu = document.createElement('div');
         menu.className = 'comfy-drawer-burger-menu';
 
+        // Helper: build a burger menu item with the label set via
+        // textContent. Labels come from gadget definitions / action defs
+        // (some authored by third parties) so they cannot be trusted as
+        // HTML. Icons remain innerHTML because the convention is raw SVG.
+        const _buildBurgerItem = (iconHTML, labelText, iconClass = 'comfy-drawer-tab-icon') => {
+            const item = document.createElement('button');
+            item.className = 'comfy-drawer-burger-item';
+            const iconSpan = document.createElement('span');
+            iconSpan.className = iconClass;
+            iconSpan.innerHTML = iconHTML ?? '';
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = labelText ?? '';
+            item.append(iconSpan, labelSpan);
+            return item;
+        };
+
         // Section 1: Hidden gadgets
         if (hiddenGadgets.length > 0) {
             for (const g of hiddenGadgets) {
-                const item = document.createElement('button');
-                item.className = 'comfy-drawer-burger-item';
-                item.innerHTML = `<span class="comfy-drawer-tab-icon">${g.icon}</span><span>${g.label}</span>`;
+                const item = _buildBurgerItem(g.icon, g.label);
                 item.addEventListener('click', () => {
                     menu.remove();
                     this.open(g.id);
@@ -584,9 +605,7 @@ export class DrawerShell {
 
         // Section 2: Registered actions (settings, reload, align, etc.)
         for (const a of this.#burgerActions) {
-            const item = document.createElement('button');
-            item.className = 'comfy-drawer-burger-item';
-            item.innerHTML = `<span class="comfy-drawer-burger-icon">${a.icon}</span><span>${a.label}</span>`;
+            const item = _buildBurgerItem(a.icon, a.label, 'comfy-drawer-burger-icon');
             item.addEventListener('click', () => {
                 menu.remove();
                 a.action();
@@ -596,10 +615,12 @@ export class DrawerShell {
 
         // Align action (desktop only, when custom width is active)
         if (this.#desktopMQ?.matches && this.#panelWidth) {
-            const alignItem = document.createElement('button');
-            alignItem.className = 'comfy-drawer-burger-item';
             const alignLabel = this.#panelAlign === 'left' ? '→ Right' : '← Left';
-            alignItem.innerHTML = `<span class="comfy-drawer-burger-icon">${this.#alignIcon()}</span><span>Panel: ${alignLabel}</span>`;
+            const alignItem = _buildBurgerItem(
+                this.#alignIcon(),
+                `Panel: ${alignLabel}`,
+                'comfy-drawer-burger-icon',
+            );
             alignItem.addEventListener('click', () => {
                 menu.remove();
                 this.#cycleAlign();

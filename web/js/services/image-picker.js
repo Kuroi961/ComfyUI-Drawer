@@ -16,6 +16,7 @@
  *   });
  */
 import { apiFetch, apiURL } from '../core/api-utils.js';
+import { escapeHTML } from '../utils.js';
 
 /* ═══════════════════════════════════════════════════════
    CSS Injection
@@ -352,12 +353,6 @@ export function openImagePicker(opts = {}) {
     });
 }
 
-/* ═══════════════════════════════════════════════════════
-   Utility
-   ═══════════════════════════════════════════════════════ */
-
-function escapeHTML(s) {
-    const el = document.createElement('span');
-    el.textContent = s;
-    return el.innerHTML;
-}
+// escapeHTML is imported from ../utils.js — the previous local copy
+// produced different output (no quote escaping) and risked drifting
+// from the shared implementation.

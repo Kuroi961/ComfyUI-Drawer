@@ -356,10 +356,27 @@ export function showDialog(options = {}) {
         });
 
         // ── History API — back button closes dialog, not drawer ──
-        history.pushState({ comfyDrawerDialog: true }, '');
+        // We push a synthetic history entry so the back gesture closes the
+        // dialog instead of navigating away. On programmatic dismiss we
+        // call history.back() to pop that entry, so opening N dialogs and
+        // closing them via the UI no longer leaves N stale entries in the
+        // browser's history. `_pushedHistory` records whether *we* added
+        // the entry, so we never pop someone else's history on shared
+        // tabs / popstate-driven dismisses.
+        let _pushedHistory = false;
+        try {
+            history.pushState({ comfyDrawerDialog: true }, '');
+            _pushedHistory = true;
+        } catch (e) {
+            // Some embeddings (sandbox / file://) reject pushState. Skip.
+            _pushedHistory = false;
+        }
 
         const onPopState = () => {
             window.removeEventListener('popstate', onPopState);
+            // The popstate consumed our synthetic entry; do not call back()
+            // again from dismiss().
+            _pushedHistory = false;
             dismiss(null, /* fromPopState */ true);
         };
         window.addEventListener('popstate', onPopState, { signal: abortCtrl.signal });
@@ -390,10 +407,18 @@ export function showDialog(options = {}) {
             // Clean up bus listener
             if (bus) bus.off('drawer:back-button', onBackButton);
 
-            // Clean up history entry (only if not triggered by popstate)
+            // Clean up history entry (only if not triggered by popstate).
+            // We DO want to pop our synthetic entry on programmatic dismiss
+            // so the browser history doesn't accumulate one stale entry per
+            // dialog open. history.back() fires popstate synchronously in
+            // some browsers, so unregister our listener first to avoid the
+            // re-entrant dismiss it would otherwise trigger.
             if (!fromPopState) {
                 window.removeEventListener('popstate', onPopState);
-                // Leave the stale history entry — harmless, avoids cascade
+                if (_pushedHistory) {
+                    _pushedHistory = false;
+                    try { history.back(); } catch { /* ignore */ }
+                }
             }
 
             // Restore focus to whatever owned it before the dialog opened.

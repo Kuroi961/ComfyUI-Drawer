@@ -518,6 +518,147 @@ class InternalErrorHelperTests(unittest.TestCase):
         self.assertNotRegex(source, r'"error":\s*f"[^"]*\{e\}[^"]*",\s*status=500')
 
 
+class GadgetLabelSafetyTests(unittest.TestCase):
+    """L1: drawer-shell must build tab/burger labels via textContent so a
+    third-party gadget cannot inject HTML through its registered label.
+    """
+
+    def test_drawer_shell_uses_textcontent_for_gadget_labels(self):
+        source = (REPO_ROOT / "web" / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8")
+        # The unsafe `${gadget.label}` interpolation into innerHTML is gone.
+        self.assertNotIn("<span class=\"comfy-drawer-tab-label\">${gadget.label}</span>", source)
+        # The DOM-build path uses textContent for the label.
+        self.assertIn("labelSpan.textContent = gadget.label", source)
+        # Burger items go through the shared _buildBurgerItem helper that
+        # also uses textContent.
+        self.assertIn("const _buildBurgerItem", source)
+        self.assertIn("labelSpan.textContent = labelText", source)
+
+
+class DialogHistoryHygieneTests(unittest.TestCase):
+    """L2: dialog must pop its synthetic history entry on dismiss so
+    opening N dialogs and closing them via the UI does not leave N stale
+    entries in the browser's back stack.
+    """
+
+    def test_dialog_pops_pushed_history_on_dismiss(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "dialog.js").read_text(encoding="utf-8")
+        self.assertIn("let _pushedHistory = false;", source)
+        self.assertIn("_pushedHistory = true;", source)
+        self.assertIn("history.back()", source)
+
+
+class EscapeHTMLConsolidationTests(unittest.TestCase):
+    """L3: per-file escapeHTML/escapeText duplicates were lossy (they did
+    not escape quotes). Everything now routes through the shared
+    escapeHTML in utils.js.
+    """
+
+    def test_image_picker_imports_shared_escapeHTML(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "image-picker.js").read_text(encoding="utf-8")
+        self.assertIn("from '../utils.js'", source)
+        # The local copy is gone — no `function escapeHTML(s)` body.
+        self.assertNotIn("el.textContent = s;\n    return el.innerHTML;", source)
+
+    def test_settings_panel_imports_shared_escapeHTML(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "settings-panel.js").read_text(encoding="utf-8")
+        self.assertIn("import { escapeHTML } from '../utils.js'", source)
+        self.assertIn("return s == null ? '' : escapeHTML(s);", source)
+
+
+class ParseIntRadixTests(unittest.TestCase):
+    """L4: every parseInt() in the frontend must carry an explicit radix
+    so a numeric input starting with '0x' (manual tampering or future
+    code) cannot be silently parsed as hex.
+    """
+
+    @staticmethod
+    def _parseInt_call_has_radix(text, start):
+        """Walk `parseInt(...)` from `start` with proper paren balance and
+        return True iff a comma-separated second argument is present at
+        the top level (i.e. a radix, not a comma inside a nested call).
+        """
+        depth = 0
+        top_level_comma = False
+        i = start
+        while i < len(text):
+            c = text[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return top_level_comma
+            elif c == "," and depth == 1:
+                top_level_comma = True
+            i += 1
+        return False  # unbalanced; treat as offender
+
+    def test_no_parseInt_without_radix_in_frontend(self):
+        frontend_dir = REPO_ROOT / "web"
+        offenders = []
+        for path in frontend_dir.rglob("*.js"):
+            text = path.read_text(encoding="utf-8")
+            idx = 0
+            while True:
+                hit = text.find("parseInt(", idx)
+                if hit < 0:
+                    break
+                # Skip identifier-prefixed matches like `myParseInt(` /
+                # `Number.parseInt(` (the latter is fine but rare).
+                before = text[hit - 1] if hit > 0 else ""
+                if before.isalnum() or before == "_" or before == ".":
+                    idx = hit + 1
+                    continue
+                paren_start = hit + len("parseInt")  # at the '('
+                if not self._parseInt_call_has_radix(text, paren_start):
+                    # Capture a short snippet for the error message
+                    snippet_end = min(len(text), paren_start + 60)
+                    snippet = text[hit:snippet_end].split("\n", 1)[0]
+                    offenders.append(f"{path.name}: {snippet}")
+                idx = paren_start + 1
+        self.assertEqual(offenders, [], "parseInt without radix:\n" + "\n".join(offenders))
+
+
+class LocaleParityTests(unittest.TestCase):
+    """L5: en/ja/zh locale files must have identical key sets so a
+    string added in one is never silently missing in another.
+    """
+
+    @staticmethod
+    def _flatten(obj, prefix=""):
+        out = {}
+        for k, v in obj.items():
+            full = prefix + k
+            if isinstance(v, dict):
+                out.update(LocaleParityTests._flatten(v, full + "."))
+            else:
+                out[full] = v
+        return out
+
+    def test_en_ja_zh_share_the_same_key_set(self):
+        en = self._flatten(json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8")))
+        ja = self._flatten(json.loads((REPO_ROOT / "web" / "locales" / "ja.json").read_text(encoding="utf-8")))
+        zh = self._flatten(json.loads((REPO_ROOT / "web" / "locales" / "zh.json").read_text(encoding="utf-8")))
+        self.assertEqual(set(en), set(ja), f"en/ja diff: {sorted(set(en) ^ set(ja))[:5]}")
+        self.assertEqual(set(en), set(zh), f"en/zh diff: {sorted(set(en) ^ set(zh))[:5]}")
+
+    def test_gallery_temp_warning_strings_are_localised(self):
+        en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
+        # The hardcoded Japanese warning text in gallery-gadget.js was
+        # replaced with these keys, and Gallery now uses _t() to look
+        # them up. Sanity-check that all four keys exist in en.json.
+        for k in ("tempWarningTitle", "tempWarningCleared",
+                  "tempWarningNotIndexed", "tempWarningDontShowAgain",
+                  "tempNotSearchable"):
+            self.assertIn(k, en["gallery"], f"missing: gallery.{k}")
+        # The fixed JP text is gone from the source so adding a new
+        # language doesn't require a second edit.
+        source = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
+        self.assertNotIn("Temp フォルダーについて", source)
+        self.assertNotIn("Cannot search in Temp folder", source)
+
+
 class ToastServiceTests(unittest.TestCase):
     """T1-T3: the shared toast service replaces per-gadget DOM toasts."""
 

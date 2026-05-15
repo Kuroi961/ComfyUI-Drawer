@@ -477,7 +477,7 @@ export class ComfyBridge {
      */
     setNodesModesMap(modeMap) {
         for (const [id, mode] of Object.entries(modeMap)) {
-            const node = this.getNodeById(parseInt(id));
+            const node = this.getNodeById(parseInt(id, 10));
             if (node) node.mode = mode;
         }
         this.#app?.graph?.change?.();

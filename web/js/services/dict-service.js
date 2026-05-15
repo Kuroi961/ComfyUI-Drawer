@@ -44,8 +44,8 @@ function parseDanbooruCSV(csv) {
         if (c2 < 0) continue;
         let c3 = line.indexOf(',', c2 + 1);
         const tagName = line.substring(0, c1);
-        const cat = parseInt(line.substring(c1 + 1, c2)) || 0;
-        const count = parseInt(line.substring(c2 + 1, c3 > 0 ? c3 : undefined)) || 0;
+        const cat = parseInt(line.substring(c1 + 1, c2), 10) || 0;
+        const count = parseInt(line.substring(c2 + 1, c3 > 0 ? c3 : undefined), 10) || 0;
         tags.push({ t: tagName, c: cat, n: count });
         // Parse aliases from 4th column
         if (c3 > 0) {

@@ -254,7 +254,12 @@
     "dropHere": "ここにドロップ",
     "sendToLoadImage": "Load Imageへ送信",
     "openWorkflow": "WFとして開く",
-    "copyPrompt": "プロンプトをコピー"
+    "copyPrompt": "プロンプトをコピー",
+    "tempWarningTitle": "Temp フォルダーについて",
+    "tempWarningCleared": "Temp フォルダーの内容は <b>ComfyUI の再起動時に消去</b>されます。",
+    "tempWarningNotIndexed": "Temp フォルダーは<b>検索インデックスの対象外</b>です。",
+    "tempWarningDontShowAgain": "次回以降表示しない",
+    "tempNotSearchable": "Temp フォルダーは検索できません"
   },
   "deck": {
     "label": "Deck",

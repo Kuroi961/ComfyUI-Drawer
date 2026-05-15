@@ -561,7 +561,7 @@ export class XYZPlotGadget extends GadgetBase {
       }
       return null;
     }
-    const node = this.bridge.getNodeById(parseInt(nodeId));
+    const node = this.bridge.getNodeById(parseInt(nodeId, 10));
     if (isDrawerControlsNode(node)) {
       const control = enumerateDrawerControls(this.bridge, node, { connectedOnly: false })
         .find(c => c.name === wName);
@@ -1161,7 +1161,7 @@ export class XYZPlotGadget extends GadgetBase {
       return;
     }
 
-    const node = this.bridge.getNodeById(parseInt(nodeId));
+    const node = this.bridge.getNodeById(parseInt(nodeId, 10));
     if (!node) return;
 
     const widgets = this.getEditableWidgets(node);
@@ -1339,7 +1339,7 @@ export class XYZPlotGadget extends GadgetBase {
     const srText = this.#q(`xyz-${axis}-sr-text`);
     if (!widget || !srText || !this.#isTextWidget(widget)) return;
     const nodeId = this.#q(`xyz-${axis}-node`)?.value;
-    const node = nodeId ? this.bridge.getNodeById(parseInt(nodeId)) : null;
+    const node = nodeId ? this.bridge.getNodeById(parseInt(nodeId, 10)) : null;
     if (!node) return;
     this.#setWidgetValue(widget, node, srText.value);
     this.bridge.setDirtyCanvas?.(true, true);
@@ -1557,7 +1557,7 @@ export class XYZPlotGadget extends GadgetBase {
         }
         return { node: null, widget, values, search: "" };
       }
-      const node = this.bridge.getNodeById(parseInt(a.nodeId));
+      const node = this.bridge.getNodeById(parseInt(a.nodeId, 10));
       if (!node) { await showAlert(`${label} node not found!`, { variant: 'warning' }); return null; }
 
       if (a.widgetName === "__bypass__") {
@@ -1624,7 +1624,7 @@ export class XYZPlotGadget extends GadgetBase {
     const fmtLabel = (axis, widget) => {
       if (widget?.__bypass__) {
         const nodeId = axes[axis].nodeId;
-        const node = this.bridge.getNodeById(parseInt(nodeId));
+        const node = this.bridge.getNodeById(parseInt(nodeId, 10));
         const parsed = parseDrawerNodeMarkers(node?.title || node?.type || '');
         return `Bypass: ${parsed.displayTitle || node?.title || node?.type || `#${nodeId}`}`;
       }

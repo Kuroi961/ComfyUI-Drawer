@@ -423,7 +423,7 @@ export class DeckGadget extends GadgetBase {
       // Hide Execute when the node is bypassed (mode 4)
       visible: (ctx) => {
         if (window.__xyzSweepActive) return false;
-        const n = bridge.getNodeById(parseInt(ctx.nodeId));
+        const n = bridge.getNodeById(parseInt(ctx.nodeId, 10));
         return n ? n.mode !== 4 : true;
       },
       action: async (ctx) => {
@@ -930,7 +930,7 @@ export class DeckGadget extends GadgetBase {
     if (!groupEl) return;
     const sections = groupEl.querySelectorAll('.dk-section[data-node-id]');
     for (const sec of sections) {
-      const nodeId = parseInt(sec.dataset.nodeId);
+      const nodeId = parseInt(sec.dataset.nodeId, 10);
       const node = this.bridge.getNodeById(nodeId);
       const parsed = this.#parseNodeMarkers(node?.title || node?.type);
       const mode = this.bridge.getNodeMode(nodeId);
@@ -1002,7 +1002,7 @@ export class DeckGadget extends GadgetBase {
 
     const sections = this.container?.querySelectorAll('.dk-section[data-node-id]');
     for (const sec of sections || []) {
-      const nodeId = parseInt(sec.dataset.nodeId);
+      const nodeId = parseInt(sec.dataset.nodeId, 10);
       const node = this.bridge.getNodeById(nodeId);
       if (!node) continue;
       const parsed = this.#parseNodeMarkers(node.title || node.type);
@@ -2257,7 +2257,7 @@ export class DeckGadget extends GadgetBase {
     inp.style.cssText = 'flex:1;min-width:0;width:auto';
     inp.value = seedWidget.value;
     inp.addEventListener('change', () => {
-      this.bridge.invokeWidgetCallback(node, seedWidget, parseInt(inp.value) || 0);
+      this.bridge.invokeWidgetCallback(node, seedWidget, parseInt(inp.value, 10) || 0);
     });
     row.appendChild(inp);
 
@@ -2633,7 +2633,7 @@ export class DeckGadget extends GadgetBase {
     hInp.value = currentH;
 
     wInp.addEventListener('change', () => {
-      currentW = round16(parseInt(wInp.value) || 64);
+      currentW = round16(parseInt(wInp.value, 10) || 64);
       megapixels = Math.round((currentW * currentH) / MP * 10) / 10;
       // Manual W/H edit → set ratio to 'custom'
       if (ratioW) this.bridge.invokeWidgetCallback(node, ratioW, 'custom');
@@ -2641,7 +2641,7 @@ export class DeckGadget extends GadgetBase {
       commitSize();
     });
     hInp.addEventListener('change', () => {
-      currentH = round16(parseInt(hInp.value) || 64);
+      currentH = round16(parseInt(hInp.value, 10) || 64);
       megapixels = Math.round((currentW * currentH) / MP * 10) / 10;
       if (ratioW) this.bridge.invokeWidgetCallback(node, ratioW, 'custom');
       if (mpW) this.bridge.invokeWidgetCallback(node, mpW, megapixels);
@@ -2669,7 +2669,7 @@ export class DeckGadget extends GadgetBase {
     this.bindings.push({
       widget: widthW, el: wInp, type: 'number',
       syncExtra: () => {
-        if (parseInt(wInp.value) !== widthW.value) {
+        if (parseInt(wInp.value, 10) !== widthW.value) {
           currentW = widthW.value;
           wInp.value = currentW;
           megapixels = Math.round((currentW * currentH) / MP * 10) / 10;
@@ -2682,7 +2682,7 @@ export class DeckGadget extends GadgetBase {
     this.bindings.push({
       widget: heightW, el: hInp, type: 'number',
       syncExtra: () => {
-        if (parseInt(hInp.value) !== heightW.value) {
+        if (parseInt(hInp.value, 10) !== heightW.value) {
           currentH = heightW.value;
           hInp.value = currentH;
           megapixels = Math.round((currentW * currentH) / MP * 10) / 10;
@@ -2800,7 +2800,7 @@ export class DeckGadget extends GadgetBase {
 
     let needsFullRebuild = false;
     for (const sec of sections) {
-      const nodeId = parseInt(sec.dataset.nodeId);
+      const nodeId = parseInt(sec.dataset.nodeId, 10);
       const node = this.bridge.getNodeById(nodeId);
       if (!node) {
         // Node was deleted — need full rebuild

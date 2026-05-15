@@ -69,6 +69,8 @@
     "syncSearchIndex": "同步搜索索引",
     "syncSearchIndexDesc": "将新增、移动和删除的文件反映到搜索索引",
     "syncNow": "立即同步",
+    "searchIndexAutoSync": "自动检查",
+    "searchIndexAutoSyncDesc": "每 5 分钟检查文件变更（通常保持关闭即可）",
     "searchIndexSyncStarted": "搜索索引同步已开始",
     "searchIndexSyncComplete": "搜索索引同步完成",
     "searchIndexSyncFailed": "搜索索引同步失败",
@@ -252,7 +254,12 @@
     "dropHere": "拖放到此处",
     "sendToLoadImage": "发送到 Load Image",
     "openWorkflow": "作为工作流打开",
-    "copyPrompt": "复制提示词"
+    "copyPrompt": "复制提示词",
+    "tempWarningTitle": "关于 Temp 文件夹",
+    "tempWarningCleared": "Temp 文件夹的内容会在 <b>ComfyUI 重启时被清空</b>。",
+    "tempWarningNotIndexed": "Temp 文件夹<b>不会被纳入搜索索引</b>。",
+    "tempWarningDontShowAgain": "不再显示",
+    "tempNotSearchable": "Temp 文件夹不可搜索"
   },
   "deck": {
     "label": "面板",

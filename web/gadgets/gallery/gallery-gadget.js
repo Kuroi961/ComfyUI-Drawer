@@ -1718,7 +1718,7 @@ export class GalleryGadget extends GadgetBase {
         if (this.#state.root === 'temp') {
             this.#el.resultCount.textContent = '';
             this.#renderSearchSummary('');
-            this.#setStatus('Cannot search in Temp folder');
+            this.#setStatus(_t('gallery.tempNotSearchable'));
             return;
         }
         if (query.length < 2) {
@@ -2093,21 +2093,31 @@ export class GalleryGadget extends GadgetBase {
             return;
         }
 
+        // The locale strings carry the trusted <b>...</b> markup for the
+        // emphasised fragment, so they go through innerHTML as-is. No
+        // user-controlled content is interpolated.
         const result = await showDialog({
-            title: 'Temp フォルダーについて',
+            title: _t('gallery.tempWarningTitle'),
             variant: 'warning',
             showCancel: false,
-            confirmLabel: 'OK',
+            confirmLabel: _t('common.ok'),
             content: (bodyEl) => {
-                bodyEl.innerHTML = `
-                    <p style="margin:0 0 8px">• Temp フォルダーの内容は <b>ComfyUI の再起動時に消去</b>されます。</p>
-                    <p style="margin:0 0 16px">• Temp フォルダーは<b>検索インデックスの対象外</b>です。</p>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--cd-text-dim)">
-                        <input type="checkbox" id="gg-temp-warning-skip" style="accent-color:var(--cd-accent);width:16px;height:16px">
-                        次回以降表示しない
-                    </label>
-                `;
-                return () => ({ skip: bodyEl.querySelector('#gg-temp-warning-skip')?.checked ?? false });
+                const p1 = document.createElement('p');
+                p1.style.margin = '0 0 8px';
+                p1.innerHTML = '• ' + _t('gallery.tempWarningCleared');
+                const p2 = document.createElement('p');
+                p2.style.margin = '0 0 16px';
+                p2.innerHTML = '• ' + _t('gallery.tempWarningNotIndexed');
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--cd-text-dim)';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = 'gg-temp-warning-skip';
+                checkbox.style.cssText = 'accent-color:var(--cd-accent);width:16px;height:16px';
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(' ' + _t('gallery.tempWarningDontShowAgain')));
+                bodyEl.append(p1, p2, label);
+                return () => ({ skip: checkbox.checked });
             },
         });
 
