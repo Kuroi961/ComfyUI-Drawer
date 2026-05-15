@@ -1217,11 +1217,20 @@ export class GalleryGadget extends GadgetBase {
     }
 
     #showToast(msg) {
-        const el = document.createElement('div');
-        el.className = 'gg-toast';
-        el.textContent = msg;
-        document.body.appendChild(el);
-        setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
+        // Delegate to the platform toast. Older builds inlined a DOM toast
+        // here; that pattern leaked elements on destroy and stacked
+        // overlapping toasts at the same fixed position on rapid actions.
+        const showToast = window.ComfyDrawer?.showToast;
+        if (typeof showToast === 'function') {
+            showToast(msg);
+        } else {
+            // Fallback for the unlikely case the platform isn't ready yet.
+            const el = document.createElement('div');
+            el.className = 'gg-toast';
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
+        }
     }
 
     /** Create a new AbortController for fetch, aborting any previous one */

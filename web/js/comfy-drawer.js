@@ -56,6 +56,7 @@ import { createMediaCard, createMediaGrid } from "./components/media-card.js";
 import { DictService, createDanbooruLoader, createUserDictLoader, createWildcardLoader, createNodeTypeLoader, createThirdPartyDictLoader, attachDictAutocomplete } from "./services/dict-service.js";
 import { escapeHTML, truncate, getLinkedInputNames, CollapseStore, sanitizeComfyDrawerWorkflowExtra } from "./utils.js";
 import { showDialog, showAlert, showConfirm, showPrompt } from "./services/dialog.js";
+import { showToast } from "./services/toast.js";
 import { openImagePicker } from "./services/image-picker.js";
 import { MaskService }     from "./services/mask-service.js";
 import { SettingsService } from "./services/settings.js";
@@ -622,17 +623,10 @@ app.registerExtension({
             return isPng && !!meta?.a1111;
         }
 
-        function showToast(message, { duration = 2500 } = {}) {
-            const el = document.createElement('div');
-            el.className = 'cd-toast';
-            el.textContent = message;
-            document.body.appendChild(el);
-            requestAnimationFrame(() => el.classList.add('visible'));
-            setTimeout(() => {
-                el.classList.remove('visible');
-                setTimeout(() => el.remove(), 250);
-            }, duration);
-        }
+        // Toast notifications are delegated to the platform showToast
+        // imported at the top of this file (stacked, theme-aware,
+        // auto-cleans). Kept here as a reference for older callers that
+        // still expect a function-scope `showToast` symbol.
 
         async function openMediaViaNativeHandler(item, name) {
             if (!item?.src || !bridge?.handleFile) return false;

@@ -1955,20 +1955,13 @@ export class ModelViewerGadget extends GadgetBase {
     }
 
     #showToast(msg) {
-        const el = document.createElement('div');
-        Object.assign(el.style, {
-            position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-            padding: '8px 18px', background: 'rgba(0,0,0,.85)', color: '#fff',
-            borderRadius: '8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-            zIndex: '230000', pointerEvents: 'none', transition: 'opacity .3s',
-        });
-        el.textContent = msg;
-        document.body.appendChild(el);
-        // Track both timers so onDestroy can stop them and remove the toast.
-        this.#scheduleCleanupTimer(() => {
-            el.style.opacity = '0';
-            this.#scheduleCleanupTimer(() => el.remove(), 300);
-        }, 2000);
+        // Delegate to the platform toast. The previous inline-styled fixed
+        // <div> was duplicated across gadgets, ignored the theme tokens,
+        // and stacked overlapping toasts on rapid actions.
+        const showToast = window.ComfyDrawer?.showToast;
+        if (typeof showToast === 'function') {
+            showToast(msg, { duration: 2000 });
+        }
     }
 
     /**

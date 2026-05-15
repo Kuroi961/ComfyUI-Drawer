@@ -495,6 +495,57 @@ class MaskServiceAccessibilityTests(unittest.TestCase):
         self.assertIn("_overlay.querySelectorAll(", source)
 
 
+class InternalErrorHelperTests(unittest.TestCase):
+    """E1: 500 responses must not leak `str(e)` (which often contains the
+    server's absolute filesystem path via OSError/PermissionError).
+    """
+
+    def test_internal_error_helper_exists(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("def _internal_error(exc", source)
+        self.assertIn('"error": error', source)
+        # The default error message must NOT include the exception text.
+        self.assertIn('error="internal error"', source)
+
+    def test_500_routes_route_through_internal_error(self):
+        """Every `status=500` response inside drawer_routes.py must route
+        through _internal_error rather than echoing str(e)/`{e}` to the
+        client. Helper definitions themselves are excluded.
+        """
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        # No surviving `status=500` site that interpolates the exception.
+        self.assertNotRegex(source, r'"error":\s*str\(e\)[^,]*,\s*status=500')
+        self.assertNotRegex(source, r'"error":\s*f"[^"]*\{e\}[^"]*",\s*status=500')
+
+
+class ToastServiceTests(unittest.TestCase):
+    """T1-T3: the shared toast service replaces per-gadget DOM toasts."""
+
+    def test_toast_service_module_exists(self):
+        path = REPO_ROOT / "web" / "js" / "services" / "toast.js"
+        self.assertTrue(path.is_file(), "toast.js missing")
+        source = path.read_text(encoding="utf-8")
+        self.assertIn("export function showToast", source)
+        # role+aria-live region for screen-reader announcements
+        self.assertIn("aria-live", source)
+        self.assertIn("'region'", source)
+
+    def test_comfy_drawer_imports_and_exports_show_toast(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        self.assertIn('from "./services/toast.js"', source)
+        # The local function-scoped showToast definition is gone — the
+        # imported one takes over.
+        self.assertNotIn("function showToast(message, { duration", source)
+
+    def test_gallery_delegates_to_platform_show_toast(self):
+        source = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
+        self.assertIn("window.ComfyDrawer?.showToast", source)
+
+    def test_modelviewer_delegates_to_platform_show_toast(self):
+        source = (REPO_ROOT / "web" / "gadgets" / "modelviewer" / "modelviewer-gadget.js").read_text(encoding="utf-8")
+        self.assertIn("window.ComfyDrawer?.showToast", source)
+
+
 class ImagePickerAccessibilityTests(unittest.TestCase):
     """A6: image-picker popup must expose role=dialog, trap Tab, and
     restore focus on close.
@@ -1194,6 +1245,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
         routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
         index = (REPO_ROOT / "search_index.py").read_text(encoding="utf-8")
+        toast_module = (REPO_ROOT / "web" / "js" / "services" / "toast.js").read_text(encoding="utf-8")
 
         self.assertIn("async function syncMediaMetadataIndex(ctx)", source)
         self.assertIn("id: 'media:sync-metadata'", source)
@@ -1201,7 +1253,9 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("showToast(t('menu.syncMetadataDone'", source)
         self.assertIn("ctx.hasMetadata !== false && (ctx.root || ctx.source) !== 'temp'", source)
         self.assertIn("checkMetadataAvailable", source)
-        self.assertIn("cd-toast", source)
+        # showToast moved to its own module — the cd-toast class lives there
+        # now instead of being injected inline by comfy-drawer.js.
+        self.assertIn("cd-toast", toast_module)
         self.assertIn("index_files_from_disk(files[:200], replace=replace)", routes)
         self.assertIn("def index_files_from_disk(self, entries, *, replace=False):", index)
         self.assertIn("and not replace", index)

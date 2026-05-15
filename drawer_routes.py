@@ -692,6 +692,23 @@ def _json_error(message, status):
     return web.json_response({"error": message}, status=status)
 
 
+def _internal_error(exc, *, where=None, status=500, error="internal error"):
+    """Log an exception server-side and return a generic JSON error.
+
+    `str(e)` for OSError/PermissionError typically contains the absolute
+    server path that triggered the failure, which leaks filesystem layout
+    to the browser. Use this helper instead of interpolating ``e`` into
+    the response body. Operators still get the full traceback in the log.
+    """
+    label = where or "drawer"
+    try:
+        logger.warning("[Drawer] %s failed", label, exc_info=exc)
+    except Exception:
+        # Never let logging failure block the response.
+        pass
+    return web.json_response({"error": error}, status=status)
+
+
 async def _multipart_reader(request):
     try:
         return await request.multipart()
@@ -1925,7 +1942,7 @@ async def fs_mkdir(request):
         await asyncio.to_thread(os.makedirs, target)
         return web.json_response({"ok": True, "path": (subfolder + "/" + name).strip("/")})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="fs_mkdir")
 
 
 # -- Rename --
@@ -1998,7 +2015,7 @@ async def fs_rename(request):
         index_updated = await asyncio.to_thread(_do_rename)
         return web.json_response({"ok": True, "renamed": True, "indexUpdated": index_updated})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="fs_rename")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2531,7 +2548,7 @@ async def save_trigger_words(request):
             drawer_data["triggerWords"] = [w for w in trigger_words if isinstance(w, str) and w.strip()]
             _write_json_file_atomic(drawer_path, drawer_data)
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="save_trigger_words")
 
     return web.json_response({"ok": True, "triggerWords": drawer_data["triggerWords"]})
 
@@ -2572,7 +2589,7 @@ async def save_model_comment(request):
                 drawer_data.pop("comment", None)
             _write_json_file_atomic(drawer_path, drawer_data)
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="save_model_comment")
 
     return web.json_response({"ok": True})
 
@@ -2690,7 +2707,7 @@ async def upload_model_preview(request):
                 os.remove(temp_path)
             except OSError:
                 pass
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="upload_model_preview")
 
     return web.json_response({"ok": True, "path": preview_path.replace("\\", "/")})
 
@@ -2874,7 +2891,7 @@ async def set_preview_from_output(request):
                 os.remove(temp_path)
             except OSError:
                 pass
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="set_preview_from_output")
 
     return web.json_response({"ok": True, "path": preview_path.replace("\\", "/")})
 
@@ -2922,7 +2939,7 @@ async def create_model_folder(request):
     try:
         os.makedirs(target_dir, exist_ok=True)
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return _internal_error(e, where="create_model_folder")
 
     return web.json_response({"ok": True, "path": target_dir.replace("\\", "/")})
 
@@ -3056,7 +3073,7 @@ async def civitai_sync(request):
             try:
                 sha256_hash = await loop.run_in_executor(None, _compute_sha256, model_path)
             except Exception as e:
-                return web.json_response({"error": f"hash error: {e}"}, status=500)
+                return _internal_error(e, where="civitai_sync.sha256", error="hash error")
 
         # Cache the hash in .drawer.json for future use
         try:
