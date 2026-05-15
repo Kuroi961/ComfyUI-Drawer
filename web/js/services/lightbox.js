@@ -40,6 +40,8 @@ let root = null;
 let el = {};
 let items = [];
 let index = 0;
+/** Element that owned focus before the lightbox opened — restored on close. */
+let _prevActiveElement = null;
 let opts = {};
 let cssReady = null;
 let openToken = 0;
@@ -71,15 +73,19 @@ function ensureDOM() {
   root = document.createElement('div');
   root.className = 'cd-lightbox-root';
   root.style.cssText = 'position:fixed;inset:0;z-index:100000;pointer-events:none;';
+  // Build the lightbox shell with explicit ARIA: role="dialog" announces
+  // a modal to assistive tech; the close/prev/next buttons get aria-label
+  // because their visible content is an icon only. The label/counter is
+  // assembled into aria-labelledby below.
   root.innerHTML = `
-    <div class="cd-lightbox" hidden>
+    <div class="cd-lightbox" hidden role="dialog" aria-modal="true" aria-labelledby="cd-lightbox-label" tabindex="-1">
       <div class="cd-lightbox-backdrop"></div>
-      <button class="cd-lightbox-nav cd-lightbox-prev">‹</button>
-      <button class="cd-lightbox-nav cd-lightbox-next">›</button>
+      <button class="cd-lightbox-nav cd-lightbox-prev" aria-label="Previous">‹</button>
+      <button class="cd-lightbox-nav cd-lightbox-next" aria-label="Next">›</button>
       <div class="cd-lightbox-body">
         <div class="cd-lightbox-topbar">
-          <span class="cd-lightbox-counter"></span>
-          <button class="cd-lightbox-close">${X_ICON}</button>
+          <span class="cd-lightbox-counter" id="cd-lightbox-label"></span>
+          <button class="cd-lightbox-close" aria-label="Close">${X_ICON}</button>
         </div>
         <div class="cd-lightbox-media">
           <img class="cd-lightbox-img" alt="">
@@ -158,6 +164,22 @@ function ensureDOM() {
       case 'w': case 'W':
         e.stopPropagation(); e.preventDefault();
         openInNewTab(); break;
+      case 'Tab': {
+        // Focus trap: keep Tab inside the lightbox's controls (prev/next/
+        // close). Without this, Tab leaks into the underlying drawer or
+        // ComfyUI canvas, defeating the modal contract.
+        e.stopPropagation(); e.preventDefault();
+        const buttons = [el.close, el.prev, el.next].filter(b => b && !b.disabled);
+        if (buttons.length === 0) break;
+        const active = document.activeElement;
+        const idx = buttons.indexOf(active);
+        const delta = e.shiftKey ? -1 : 1;
+        const nextIdx = idx < 0
+          ? (e.shiftKey ? buttons.length - 1 : 0)
+          : (idx + delta + buttons.length) % buttons.length;
+        buttons[nextIdx]?.focus?.({ preventScroll: true });
+        break;
+      }
       default:
         // Block ComfyUI shortcuts but forward to caller
         e.stopPropagation(); e.preventDefault();
@@ -251,6 +273,9 @@ function showItem(i) {
     if (autoplay) el.audio.play().catch(() => {});
   } else {
     el.img.style.display = 'block';
+    // alt reflects the current item so screen readers announce it on
+    // navigation (was previously fixed at "").
+    el.img.alt = item.label || item.name || '';
     el.img.onload = () => updateMediaMeta(token, item, el.img);
     el.img.src = item.src;
     if (el.img.complete && el.img.naturalWidth) {
@@ -347,6 +372,12 @@ export function openLightbox(mediaItems, startIndex = 0, options = {}) {
   const token = ++openToken;
   items = mediaItems;
   opts = options;
+  // Capture focus owner so closeLightbox() can put it back. Skip if the
+  // lightbox is already open (stacked open via media-card click while
+  // another item is shown) so we don't overwrite the original anchor.
+  if (el.lightbox?.hidden !== false) {
+    _prevActiveElement = document.activeElement;
+  }
   root.style.pointerEvents = 'auto';
   showItem(startIndex);
   const reveal = () => {
@@ -376,6 +407,17 @@ export function closeLightbox() {
   el.audio.src = '';
   el.img.onload = null;
   el.img.src = '';
+  // Restore focus to whatever owned it before the lightbox opened. This
+  // is the modal-dialog a11y contract and also stops the canvas from
+  // silently capturing the next keystroke.
+  if (
+    _prevActiveElement
+    && typeof _prevActiveElement.focus === 'function'
+    && _prevActiveElement.isConnected
+  ) {
+    try { _prevActiveElement.focus({ preventScroll: true }); } catch { /* ignore */ }
+  }
+  _prevActiveElement = null;
   // Evacuate callback before resetting state — onClose may
   // call openLightbox(), so opts/items must already be clean.
   const onClose = opts.onClose;

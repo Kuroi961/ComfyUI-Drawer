@@ -162,15 +162,21 @@ const MaskService = (() => {
     _injectCSS();
     const el = document.createElement('div');
     el.className = 'ms-overlay';
+    // ARIA: announce the overlay as a modal dialog labelled by the
+    // toolbar's primary action so screen-reader users land in context.
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', _t('maskeditor.title') || 'Mask editor');
+    el.setAttribute('tabindex', '-1');
     el.innerHTML = `
       <div class="ms-workspace">
         <div class="ms-viewport">
           <div class="ms-canvas-container">
-            <canvas class="ms-display-canvas"></canvas>
+            <canvas class="ms-display-canvas" aria-label="${_t('maskeditor.title') || 'Mask canvas'}"></canvas>
           </div>
         </div>
-        <div class="ms-zoom-badge">100%</div>
-        <div class="ms-brush-cursor"></div>
+        <div class="ms-zoom-badge" aria-hidden="true">100%</div>
+        <div class="ms-brush-cursor" aria-hidden="true"></div>
       </div>
       <div class="ms-node-bar">
         <label>${_t('maskeditor.loadInto')}</label>
@@ -182,17 +188,17 @@ const MaskService = (() => {
         <div class="ms-toolbar-row ms-toolbar-primary">
           <div class="ms-size-group">
             <span class="ms-size-val">40</span>
-            <input type="range" class="ms-size-slider" min="1" max="200" value="40">
+            <input type="range" class="ms-size-slider" min="1" max="200" value="40" aria-label="${_t('maskeditor.brushSize') || 'Brush size'}">
           </div>
-          <button class="ms-tb-btn ms-btn-brush active" aria-pressed="true" title="${_t('maskeditor.pen')}">${_iconLabel(ICON_BRUSH, _t('maskeditor.pen'))}</button>
-          <button class="ms-tb-btn ms-btn-eraser" aria-pressed="false" title="${_t('maskeditor.eraser')}">${_iconLabel(ICON_ERASER, _t('maskeditor.eraser'))}</button>
+          <button class="ms-tb-btn ms-btn-brush active" aria-pressed="true" aria-label="${_t('maskeditor.pen')}" title="${_t('maskeditor.pen')}">${_iconLabel(ICON_BRUSH, _t('maskeditor.pen'))}</button>
+          <button class="ms-tb-btn ms-btn-eraser" aria-pressed="false" aria-label="${_t('maskeditor.eraser')}" title="${_t('maskeditor.eraser')}">${_iconLabel(ICON_ERASER, _t('maskeditor.eraser'))}</button>
         </div>
         <div class="ms-toolbar-row ms-toolbar-actions">
-          <button class="ms-tb-btn ms-btn-clear" title="${_t('maskeditor.clearMask')}">${ICON_TRASH}<span>${_t('maskeditor.clear')}</span></button>
-          <button class="ms-tb-btn ms-btn-fit" title="${_t('maskeditor.fitView')}">${_iconLabel(ICON_FIT, _t('maskeditor.fitView'))}</button>
+          <button class="ms-tb-btn ms-btn-clear" aria-label="${_t('maskeditor.clearMask')}" title="${_t('maskeditor.clearMask')}">${ICON_TRASH}<span>${_t('maskeditor.clear')}</span></button>
+          <button class="ms-tb-btn ms-btn-fit" aria-label="${_t('maskeditor.fitView')}" title="${_t('maskeditor.fitView')}">${_iconLabel(ICON_FIT, _t('maskeditor.fitView'))}</button>
           <div class="ms-spacer"></div>
-          <button class="ms-tb-btn ms-send ms-btn-send">${_iconLabel(ICON_CHECK, _t('common.ok'))}</button>
-          <button class="ms-tb-btn ms-close-btn ms-btn-close">${_iconLabel(ICON_X, _t('common.cancel'))}</button>
+          <button class="ms-tb-btn ms-send ms-btn-send" aria-label="${_t('common.ok')}">${_iconLabel(ICON_CHECK, _t('common.ok'))}</button>
+          <button class="ms-tb-btn ms-close-btn ms-btn-close" aria-label="${_t('common.cancel')}">${_iconLabel(ICON_X, _t('common.cancel'))}</button>
         </div>
       </div>
     `;
@@ -614,6 +620,8 @@ const MaskService = (() => {
   // Captured outside `open()` so it is the same reference at install &
   // remove time (closures created on every open would leak).
   let _onDocumentKeyDown = null;
+  /** Element that owned focus before open() — restored on close. */
+  let _prevActiveElement = null;
 
   // ── Public API ────────────────────────────────────────────────────────────
   function open({ url, filename, bridge } = {}) {
@@ -647,20 +655,56 @@ const MaskService = (() => {
     // Close lightbox if open
     window.ComfyDrawer?.closeLightbox?.();
 
+    // Capture focus owner so close() can restore it.
+    if (!_prevActiveElement) {
+      _prevActiveElement = document.activeElement;
+    }
+
     _overlay.classList.add('ms-visible');
     _populateNodeSelect();
 
     if (url) _loadImage(url, filename);
 
-    // Escape cancels the overlay. Use capture phase so the listener wins
-    // against other handlers that might `stopPropagation` first.
+    // Focus a sensible default control so keyboard users land inside the
+    // dialog. Prefer the OK button; fall back to overlay itself.
+    requestAnimationFrame(() => {
+      const target = _overlay.querySelector('.ms-btn-send')
+        || _overlay.querySelector('.ms-btn-close')
+        || _overlay;
+      try { target?.focus?.({ preventScroll: true }); } catch { /* ignore */ }
+    });
+
+    // Document-level keyboard handler: Escape cancels, Tab is trapped
+    // inside the overlay's controls so focus can't leak into the canvas.
     if (!_onDocumentKeyDown) {
       _onDocumentKeyDown = (e) => {
-        if (e.key !== 'Escape') return;
         if (!_overlay?.classList.contains('ms-visible')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        close(null);
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          close(null);
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        // Focus trap
+        const focusable = Array.from(
+          _overlay.querySelectorAll(
+            'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled])'
+          )
+        ).filter(node => node.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey) {
+          if (active === first || !_overlay.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (active === last || !_overlay.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
       };
       document.addEventListener('keydown', _onDocumentKeyDown, true);
     }
@@ -675,6 +719,15 @@ const MaskService = (() => {
       document.removeEventListener('keydown', _onDocumentKeyDown, true);
       _onDocumentKeyDown = null;
     }
+    // Restore focus to whatever opened the editor.
+    if (
+      _prevActiveElement
+      && typeof _prevActiveElement.focus === 'function'
+      && _prevActiveElement.isConnected
+    ) {
+      try { _prevActiveElement.focus({ preventScroll: true }); } catch { /* ignore */ }
+    }
+    _prevActiveElement = null;
     if (_resolveOpen) {
       const resolve = _resolveOpen;
       _resolveOpen = null;

@@ -70,6 +70,32 @@ function ensureCSS() {
 const activeDialogs = new Set();
 const DISMISS_DELAY_MS = 0;
 
+/** Monotonic counter for aria-labelledby targets. */
+let _dialogIdCounter = 0;
+
+/** Selectors for focusable descendants used by the focus trap. */
+const _FOCUSABLE_SELECTOR = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+    '[contenteditable="true"]',
+].join(',');
+
+function _getFocusable(root) {
+    if (!root) return [];
+    const nodes = root.querySelectorAll(_FOCUSABLE_SELECTOR);
+    // Filter out anything hidden via inline display:none or aria-hidden
+    return Array.from(nodes).filter(el => {
+        if (el.hasAttribute('aria-hidden') && el.getAttribute('aria-hidden') === 'true') return false;
+        // offsetParent is null for display:none / visibility:hidden parents
+        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+        return true;
+    });
+}
+
 const DIALOG_ICONS = {
     info: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
     warning: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
@@ -135,6 +161,15 @@ export function showDialog(options = {}) {
 
         const dialog = document.createElement('div');
         dialog.className = `cd-dialog cd-dialog-${tone}`;
+        // ARIA: announce as a modal dialog to assistive tech. The
+        // aria-labelledby target points at the title element so screen
+        // readers read the title on open. tabindex=-1 lets us programmatic-
+        // ally focus the dialog itself as a fallback target.
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.setAttribute('tabindex', '-1');
+        const titleId = `cd-dialog-title-${++_dialogIdCounter}`;
+        dialog.setAttribute('aria-labelledby', titleId);
 
         // Header
         const header = document.createElement('div');
@@ -143,6 +178,7 @@ export function showDialog(options = {}) {
         if (dialogIcon) {
             const iconEl = document.createElement('span');
             iconEl.className = 'cd-dialog-icon';
+            iconEl.setAttribute('aria-hidden', 'true');
             if (dialogIcon.startsWith('<')) iconEl.innerHTML = dialogIcon;
             else iconEl.textContent = dialogIcon;
             header.appendChild(iconEl);
@@ -150,6 +186,7 @@ export function showDialog(options = {}) {
 
         const titleEl = document.createElement('span');
         titleEl.className = 'cd-dialog-title';
+        titleEl.id = titleId;
         titleEl.textContent = title || (dialogIcon ? '' : ' ');
         header.appendChild(titleEl);
 
@@ -227,6 +264,12 @@ export function showDialog(options = {}) {
 
         if (footer.childElementCount) dialog.appendChild(footer);
         backdrop.appendChild(dialog);
+
+        // Remember which element had focus so we can restore it on dismiss.
+        // Skip restore if the previous element is no longer in the DOM by
+        // the time we close (e.g. the user navigated to a different gadget).
+        const prevActiveElement = document.activeElement;
+
         document.body.appendChild(backdrop);
         activeDialogs.add(backdrop);
 
@@ -255,6 +298,28 @@ export function showDialog(options = {}) {
                 e.stopPropagation();
                 e.preventDefault();
                 confirmBtn.click();
+            } else if (e.key === 'Tab') {
+                // Focus trap: keep Tab/Shift+Tab inside the dialog so users
+                // cannot tab into the underlying drawer or ComfyUI canvas,
+                // which would silently bypass the modal contract.
+                const focusable = _getFocusable(dialog);
+                if (focusable.length === 0) {
+                    e.preventDefault();
+                    dialog.focus();
+                    return;
+                }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                const active = document.activeElement;
+                if (e.shiftKey) {
+                    if (active === first || !dialog.contains(active)) {
+                        e.preventDefault();
+                        last.focus();
+                    }
+                } else if (active === last || !dialog.contains(active)) {
+                    e.preventDefault();
+                    first.focus();
+                }
             }
         }, { signal: abortCtrl.signal, capture: true });
 
@@ -329,6 +394,19 @@ export function showDialog(options = {}) {
             if (!fromPopState) {
                 window.removeEventListener('popstate', onPopState);
                 // Leave the stale history entry — harmless, avoids cascade
+            }
+
+            // Restore focus to whatever owned it before the dialog opened.
+            // This is the standard a11y contract for modal dialogs and also
+            // prevents the canvas from silently capturing the next keystroke.
+            // Skip if the element was removed in the meantime or belongs to
+            // a topmost dialog that is still open (stacked dialog flow).
+            if (
+                prevActiveElement
+                && typeof prevActiveElement.focus === 'function'
+                && prevActiveElement.isConnected
+            ) {
+                try { prevActiveElement.focus({ preventScroll: true }); } catch { /* ignore */ }
             }
 
             setTimeout(() => {

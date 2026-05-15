@@ -87,17 +87,27 @@ export function openImagePicker(opts = {}) {
 
         // ── Build DOM ──
 
+        // Capture focus owner for restore on close.
+        const prevActiveElement = document.activeElement;
+
         const backdrop = document.createElement('div');
         backdrop.className = 'cd-picker-backdrop';
 
         const panel = document.createElement('div');
         panel.className = 'cd-picker';
+        // ARIA: announce as modal dialog labelled by the title element.
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('tabindex', '-1');
+        const titleElId = `cd-picker-title-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+        panel.setAttribute('aria-labelledby', titleElId);
 
         // Header
         const header = document.createElement('div');
         header.className = 'cd-picker-header';
         const titleEl = document.createElement('span');
         titleEl.className = 'cd-picker-title';
+        titleEl.id = titleElId;
         const _t = (k, p) => (window.ComfyDrawer?.t?.(k, p)) ?? k;
         titleEl.textContent = accept === 'video' ? _t('picker.selectVideo')
                             : accept === 'audio' ? _t('picker.selectAudio')
@@ -105,6 +115,7 @@ export function openImagePicker(opts = {}) {
                             : _t('picker.selectImage');
         const closeBtn = document.createElement('button');
         closeBtn.className = 'cd-picker-close';
+        closeBtn.setAttribute('aria-label', _t('common.close') || 'Close');
         closeBtn.innerHTML = ICON_X;
         closeBtn.addEventListener('click', () => close(null));
         header.append(titleEl, closeBtn);
@@ -128,6 +139,14 @@ export function openImagePicker(opts = {}) {
             document.removeEventListener('keydown', onKey, true);
             backdrop.classList.remove('visible');
             setTimeout(() => backdrop.remove(), 200);
+            // Restore focus to the element that opened the picker.
+            if (
+                prevActiveElement
+                && typeof prevActiveElement.focus === 'function'
+                && prevActiveElement.isConnected
+            ) {
+                try { prevActiveElement.focus({ preventScroll: true }); } catch { /* ignore */ }
+            }
             if (value !== null && onSelect) {
                 onSelect(value);
             }
@@ -146,11 +165,30 @@ export function openImagePicker(opts = {}) {
             e.preventDefault();
         });
 
-        // Escape key
+        // Escape closes; Tab is trapped inside the picker so focus cannot
+        // leak into the canvas/drawer behind the modal.
         function onKey(e) {
             if (e.key === 'Escape') {
                 e.stopPropagation();
                 close(null);
+                return;
+            }
+            if (e.key !== 'Tab') return;
+            const focusable = Array.from(panel.querySelectorAll(
+                'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )).filter(node => node.offsetParent !== null);
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            const active = document.activeElement;
+            if (e.shiftKey) {
+                if (active === first || !panel.contains(active)) {
+                    e.preventDefault();
+                    last.focus();
+                }
+            } else if (active === last || !panel.contains(active)) {
+                e.preventDefault();
+                first.focus();
             }
         }
         document.addEventListener('keydown', onKey, true);

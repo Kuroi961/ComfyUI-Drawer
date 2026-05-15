@@ -383,7 +383,9 @@ class MaskServiceReentryTests(unittest.TestCase):
     def test_mask_service_installs_escape_handler(self):
         source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
         self.assertIn("_onDocumentKeyDown", source)
-        self.assertIn("if (e.key !== 'Escape') return;", source)
+        # Escape now lives inside the combined keydown handler that also
+        # implements the focus trap (a11y pass).
+        self.assertIn("if (e.key === 'Escape') {", source)
 
 
 class SettingsPanelCleanupTests(unittest.TestCase):
@@ -414,6 +416,106 @@ class DrawerRebootIsAsyncTests(unittest.TestCase):
         self.assertIn("async def drawer_reboot(request):", source)
         self.assertIn("_exec_after_response", source)
         self.assertIn("asyncio.create_task(_exec_after_response", source)
+
+
+class DialogAccessibilityTests(unittest.TestCase):
+    """A1-A3: showDialog must expose ARIA modal semantics, trap Tab, and
+    restore focus on dismiss. Without these, a screen-reader user is not
+    told a modal opened, Tab leaks into the canvas behind the dialog,
+    and focus stays on the no-longer-existent close button after close.
+    """
+
+    def test_dialog_sets_role_modal_and_labelledby(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "dialog.js").read_text(encoding="utf-8")
+        self.assertIn("dialog.setAttribute('role', 'dialog')", source)
+        self.assertIn("dialog.setAttribute('aria-modal', 'true')", source)
+        self.assertIn("dialog.setAttribute('aria-labelledby', titleId)", source)
+
+    def test_dialog_traps_tab_within_focusable_descendants(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "dialog.js").read_text(encoding="utf-8")
+        # The focus trap branch lives inside the keydown handler.
+        self.assertIn("e.key === 'Tab'", source)
+        self.assertIn("_getFocusable(dialog)", source)
+        self.assertIn("Focus trap", source)
+
+    def test_dialog_restores_focus_on_dismiss(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "dialog.js").read_text(encoding="utf-8")
+        self.assertIn("prevActiveElement", source)
+        self.assertIn("prevActiveElement.focus({ preventScroll: true })", source)
+
+
+class LightboxAccessibilityTests(unittest.TestCase):
+    """A4: openLightbox must expose ARIA modal semantics, trap Tab to the
+    nav buttons, restore focus on close, and set <img> alt per item.
+    """
+
+    def test_lightbox_root_carries_dialog_aria(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "lightbox.js").read_text(encoding="utf-8")
+        self.assertIn('role="dialog"', source)
+        self.assertIn('aria-modal="true"', source)
+        self.assertIn('aria-labelledby="cd-lightbox-label"', source)
+        self.assertIn('aria-label="Previous"', source)
+        self.assertIn('aria-label="Next"', source)
+        self.assertIn('aria-label="Close"', source)
+
+    def test_lightbox_focus_trap_branch_present(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "lightbox.js").read_text(encoding="utf-8")
+        self.assertIn("case 'Tab':", source)
+        self.assertIn("[el.close, el.prev, el.next]", source)
+
+    def test_lightbox_restores_focus_on_close(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "lightbox.js").read_text(encoding="utf-8")
+        self.assertIn("_prevActiveElement", source)
+        self.assertIn("_prevActiveElement.focus({ preventScroll: true })", source)
+
+    def test_lightbox_img_alt_reflects_item(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "lightbox.js").read_text(encoding="utf-8")
+        self.assertIn("el.img.alt = item.label || item.name || ''", source)
+
+
+class MaskServiceAccessibilityTests(unittest.TestCase):
+    """A5: MaskService overlay must expose role=dialog, restore focus on
+    close, and trap Tab/Escape inside the overlay.
+    """
+
+    def test_mask_overlay_has_dialog_aria(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
+        self.assertIn("el.setAttribute('role', 'dialog')", source)
+        self.assertIn("el.setAttribute('aria-modal', 'true')", source)
+
+    def test_mask_service_restores_focus(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
+        self.assertIn("_prevActiveElement", source)
+        self.assertIn("_prevActiveElement.focus({ preventScroll: true })", source)
+
+    def test_mask_service_has_tab_focus_trap(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "mask-service.js").read_text(encoding="utf-8")
+        self.assertIn("if (e.key !== 'Tab') return;", source)
+        # The trap uses the same focusable-button collection pattern
+        self.assertIn("_overlay.querySelectorAll(", source)
+
+
+class ImagePickerAccessibilityTests(unittest.TestCase):
+    """A6: image-picker popup must expose role=dialog, trap Tab, and
+    restore focus on close.
+    """
+
+    def test_image_picker_has_dialog_aria(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "image-picker.js").read_text(encoding="utf-8")
+        self.assertIn("panel.setAttribute('role', 'dialog')", source)
+        self.assertIn("panel.setAttribute('aria-modal', 'true')", source)
+        self.assertIn("panel.setAttribute('aria-labelledby'", source)
+
+    def test_image_picker_restores_focus(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "image-picker.js").read_text(encoding="utf-8")
+        self.assertIn("prevActiveElement", source)
+        self.assertIn("prevActiveElement.focus({ preventScroll: true })", source)
+
+    def test_image_picker_has_tab_focus_trap(self):
+        source = (REPO_ROOT / "web" / "js" / "services" / "image-picker.js").read_text(encoding="utf-8")
+        # New Tab branch in onKey
+        self.assertIn("if (e.key !== 'Tab') return;", source)
+        self.assertIn("panel.querySelectorAll(", source)
 
 
 class RequestGuardTests(unittest.TestCase):
