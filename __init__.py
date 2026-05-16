@@ -27,6 +27,9 @@ def get_drawer_version(default="0.0.0"):
 
 from .drawer_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 from . import drawer_routes as _drawer_routes  # noqa: F401 - route registration side effects
+from . import xyz_metadata as _xyz_metadata
+
+_xyz_metadata.register_builtin_xyz_contributors()
 
 WEB_DIRECTORY = "./web"
 register_metadata_provider = _drawer_routes.register_metadata_provider

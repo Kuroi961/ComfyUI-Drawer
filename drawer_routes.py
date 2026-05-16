@@ -2042,6 +2042,7 @@ except ImportError:
     _HAS_PIL = False
 
 _MAX_GRID_UPLOAD_BYTES = 64 * 1024 * 1024
+_MAX_XYZ_CONFIG_BYTES = 256 * 1024
 _MAX_MODEL_PREVIEW_BYTES = 32 * 1024 * 1024
 _MODEL_SIDECAR_LOCK = threading.Lock()
 
@@ -2248,6 +2249,26 @@ async def _save_grid(request):
     quality = _body_int(data, "quality", 95, minimum=1, maximum=100)
     save_metadata = data.get("save_metadata", True)
     workflow_json = data.get("workflow_json", None)
+    xyz_config_raw = data.get("xyz_config", None)
+    # Validate xyz_config: must round-trip as JSON object and fit a hard cap.
+    # The cap mirrors the frontend's; if the client sent more we drop it
+    # rather than letting an attacker bloat the PNG.
+    xyz_config_json = None
+    if isinstance(xyz_config_raw, str):
+        if len(xyz_config_raw.encode("utf-8")) <= _MAX_XYZ_CONFIG_BYTES:
+            try:
+                parsed = json.loads(xyz_config_raw)
+                if isinstance(parsed, dict):
+                    xyz_config_json = xyz_config_raw
+            except (ValueError, TypeError):
+                pass
+    elif isinstance(xyz_config_raw, dict):
+        try:
+            encoded = json.dumps(xyz_config_raw, ensure_ascii=False)
+        except (TypeError, ValueError):
+            encoded = None
+        if encoded and len(encoded.encode("utf-8")) <= _MAX_XYZ_CONFIG_BYTES:
+            xyz_config_json = encoded
 
     # Strip data URL header if present
     if "," in image_b64:
@@ -2314,16 +2335,26 @@ async def _save_grid(request):
                 metadata.add_text("workflow", json.dumps(wf))
             except Exception:
                 pass
+        if xyz_config_json:
+            # Validated as a dict-shaped JSON string above; embed as iTXt
+            # (zTXt-compressed) so axis lists with many values stay compact.
+            metadata.add_itxt("xyz_plot", xyz_config_json, zip=True)
         metadata.add_text("comfy-drawer", "xyz_plot_grid")
         save_kwargs["pnginfo"] = metadata
-    elif save_metadata and ext in (".jpg", ".webp") and workflow_json:
+    elif save_metadata and ext in (".jpg", ".webp") and (workflow_json or xyz_config_json):
         # Embed workflow using ComfyUI's native WebP metadata format:
         #   EXIF 0x010F (Make) = "workflow:JSON"
         #   EXIF 0x0110 (Model) = "prompt:JSON"  (if available)
+        # Drawer-owned sweep config goes into 0x010E (ImageDescription) as
+        #   "xyz_plot:JSON" — same "key:JSON" envelope the reader already
+        #   accepts for tags 0x010D..0x0110.
         try:
-            wf_obj = json.loads(workflow_json) if isinstance(workflow_json, str) else workflow_json
             exif_data = img.getexif()
-            exif_data[0x010F] = "workflow:{}".format(json.dumps(wf_obj))
+            if workflow_json:
+                wf_obj = json.loads(workflow_json) if isinstance(workflow_json, str) else workflow_json
+                exif_data[0x010F] = "workflow:{}".format(json.dumps(wf_obj))
+            if xyz_config_json:
+                exif_data[0x010E] = "xyz_plot:{}".format(xyz_config_json)
             save_kwargs["exif"] = exif_data.tobytes()
         except Exception as e:
             logger.warning(f"EXIF embedding failed: {e}")
@@ -3523,13 +3554,6 @@ async def drawer_reboot(request):
     async def _exec_after_response():
         # Give the response a chance to reach the client before we exec.
         await asyncio.sleep(0.4)
-        # Some launch wrappers replace stdout with an object that must be
-        # detached before exec, otherwise the replacement process can
-        # inherit a broken stream.
-        try:
-            sys.stdout.close_log()
-        except Exception:
-            pass
         if cli_session:
             try:
                 with open(cli_session + ".reboot", "w"):
@@ -3537,12 +3561,29 @@ async def drawer_reboot(request):
             except OSError as e:
                 logger.warning("[Drawer] failed to mark CLI reboot: %s", e)
             os._exit(0)
+        # Log BEFORE closing the log stream — some launch wrappers (notably
+        # ComfyUI-Manager's prestartup_script) wrap the logging handler
+        # around a file that close_log() detaches. Any logger call AFTER
+        # close_log() would raise "I/O operation on closed file" and abort
+        # the task before os.execv runs, leaving the user stuck.
         logger.info("[Drawer] Restarting...")
         logger.info("[Drawer] Command: %s", cmds)
+        # Some launch wrappers replace stdout with an object that must be
+        # detached before exec, otherwise the replacement process can
+        # inherit a broken stream. Do this only after the last logger call.
+        try:
+            sys.stdout.close_log()
+        except Exception:
+            pass
         try:
             os.execv(sys.executable, cmds)
         except Exception as e:
-            logger.error("[Drawer] os.execv failed: %s", e)
+            # logger may be unusable here (close_log() above) — write
+            # directly to the original stderr so the error is still visible.
+            try:
+                sys.__stderr__.write(f"[Drawer] os.execv failed: {e}\n")
+            except Exception:
+                pass
 
     asyncio.create_task(_exec_after_response())
     return web.json_response({"ok": True, "restarting": True})

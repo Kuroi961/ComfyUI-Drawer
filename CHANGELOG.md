@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Deck
+
+- Drop the `📝` Deck-display marker from `Switch (Drawer)` and `Switch Chain (Drawer)`. Both are routing-only nodes with no user-editable widgets, so surfacing them on the Deck main screen wasted a card. The marker remains on Drawer nodes that actually carry meaningful widgets (Seed, Controls, Concat, Size). Workflow JSONs that don't override the node title pick up the new display name automatically; existing workflows with a custom title are unaffected.
+
+### Reboot
+
+- Fix `/drawer/reboot` failing under ComfyUI-Manager-wrapped logging: `sys.stdout.close_log()` was called before the final `logger.info("[Drawer] Restarting...")`, which detached the log file used by Manager's logging handler and made the next `logger.info` raise `ValueError: I/O operation on closed file`. The asyncio task died before `os.execv` ran, leaving the server unrestartable and breaking subsequent request logging. Now logs first, then closes the stream; `os.execv` failure also falls back to `sys.__stderr__.write` so the error is visible even when the logger is no longer usable.
+
+### XYZ Plot
+
+- Embed the full XYZ Plot sweep configuration (axes, widgets, values, zip flags, per-step outputs, settings) into composite images as a self-describing reproducible set: PNG `xyz_plot` iTXt chunk (zip-compressed) and JPEG/WebP EXIF `0x010E` (ImageDescription) with the existing `xyz_plot:JSON` envelope. Capped at 256 KB; per-step list is dropped if the cap is exceeded, keeping axes + counts intact.
+- Surface embedded `xyz_plot` blobs to Gallery search via a built-in `xyzPlot` namespace contributor: `xyzPlot:axis[steps]`, `xyzPlot:node[KSampler]`, `xyzPlot:value[10]`, `xyzPlot:values_x[...]`, plus `xyzPlot:mode[zip_xy|zip_yz]` when zip is active.
+- Render embedded `xyz_plot` blobs as a dedicated "XYZ Plot" section in the lightbox metadata panel (axis rows, zip flags, step counts, Drawer version).
+- Extend `_read_embedded_meta` / `_read_exif_meta` / `_parse_exif_bytes_for_workflow` to recognise `xyz_plot` alongside `prompt` and `workflow`.
+- Bind XYZ Plot gadget state to the active workflow via `workflow.extra.comfyDrawer.xyzPlot` so reopening a workflow (including drag-and-drop of a composite PNG whose embedded workflow carries the binding) auto-restores axis selections, value strings, and zip flags. The binding is written **only when a sweep completes** — touching the XYZ tab without sweeping leaves the workflow untouched, so Deck and manual generations on the same workflow never carry XYZ metadata in their embedded JSON. After a workflow-sourced restore, the in-memory `workflow.extra.comfyDrawer.xyzPlot` is cleared so subsequent Deck or manual generations on the composite-restored workflow are also clean; the original composite file is untouched, so re-dragging it restores the binding again. localStorage continues to cover the per-browser default for workflows that have never been swept. Restore falls back to nodeTitle + widgetName lookup when the original nodeId has shifted, so workflows imported into a different graph still rebind correctly.
+
 ## v2.1.7 - 2026-05-15
 
 ### XYZ Plot

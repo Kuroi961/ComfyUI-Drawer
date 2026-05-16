@@ -162,6 +162,8 @@ This keeps filesystem changes autonomous while preventing background sync from r
 
 Direct file interactions may perform a one-file opportunistic sync. For example, opening a media context menu first checks that file's provider/embedded metadata, fills a missing or empty index row, and only then renders the menu. Search result lists do not bulk-sync their hits; only the item the user directly opens or targets is checked.
 
+XYZ Plot composite images carry a Drawer-owned `xyz_plot` metadata blob (PNG iTXt chunk or JPEG/WebP EXIF `0x010E` with the `xyz_plot:JSON` envelope). Drawer registers built-in index and panel contributors for that blob at startup (`xyz_metadata.register_builtin_xyz_contributors`), surfacing axes, widgets, node titles, and values under the `xyzPlot` search namespace. Treat this as the canonical example of a built-in contributor: it does not need to be enabled and uses the same registration API as third-party contributors.
+
 ## Ownership Boundaries
 
 ### Bus Events

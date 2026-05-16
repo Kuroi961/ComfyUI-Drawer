@@ -20,8 +20,13 @@ import {
 } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 import { showAlert, showConfirm, showDialog } from '../../js/services/dialog.js';
+import { DRAWER_VERSION } from '../../js/version.js';
 
 const STORAGE_KEY = "comfy-drawer-xyz-plot";
+const XYZ_CONFIG_SCHEMA = 1;
+// Cap embedded sweep config to keep the PNG text chunk reasonable.
+// Per-step lists are dropped (axes + settings retained) if exceeded.
+const XYZ_CONFIG_MAX_BYTES = 256 * 1024;
 const _t = (key, params) => window.ComfyDrawer?.t?.(key, params) ?? key;
 
 // One-time migration from old comfypilot- localStorage keys
@@ -188,28 +193,81 @@ export class XYZPlotGadget extends GadgetBase {
 
 
 
-  // ── localStorage persistence ──────────────────────────────────────────
-  #saveState() {
-    try {
-      const state = {};
-      for (const axis of ["x", "y", "z"]) {
-        state[axis] = {
-          nodeId: this.#q(`xyz-${axis}-node`)?.value || "",
-          widgetName: this.#q(`xyz-${axis}-widget`)?.value || "",
-          values: this.#q(`xyz-${axis}-values`)?.value || "",
-        };
+  // ── Persistence ──────────────────────────────────────────────────────
+  // Two stores with different lifecycles:
+  //   - localStorage: written on every form edit (browser-level scratch)
+  //   - workflow.extra.comfyDrawer.xyzPlot: written ONLY when a sweep
+  //     successfully completes. The binding represents "this workflow was
+  //     swept with these axes", and travels in the workflow JSON exported
+  //     for the composite image. We deliberately do NOT mirror form edits
+  //     into workflow.extra — otherwise touching the XYZ tab would leak
+  //     the binding into Deck or manual generations whose embedded
+  //     workflow JSON would then advertise XYZ metadata that was never
+  //     actually used.
+  // Restore prefers workflow.extra over localStorage so reopening a swept
+  // workflow (or its composite PNG) auto-rebinds the gadget. nodeTitle is
+  // stored alongside nodeId so restore can fall back to a title+widget
+  // lookup when node IDs shift between graphs.
+  #buildStateSnapshot() {
+    const snapshot = { schema: 1 };
+    for (const axis of ["x", "y", "z"]) {
+      const nodeId = this.#q(`xyz-${axis}-node`)?.value || "";
+      let nodeTitle = "";
+      if (nodeId) {
+        const node = this.bridge?.getNodeById?.(parseInt(nodeId, 10));
+        nodeTitle = node?.title || node?.type || "";
       }
-      state.zipXY = this.#q('xyz-zip-xy')?.checked ?? false;
-      state.zipYZ = this.#q('xyz-zip-yz')?.checked ?? false;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) { /* ignore */ }
+      snapshot[axis] = {
+        nodeId,
+        nodeTitle,
+        widgetName: this.#q(`xyz-${axis}-widget`)?.value || "",
+        values: this.#q(`xyz-${axis}-values`)?.value || "",
+      };
+    }
+    snapshot.zipXY = this.#q('xyz-zip-xy')?.checked ?? false;
+    snapshot.zipYZ = this.#q('xyz-zip-yz')?.checked ?? false;
+    return snapshot;
   }
 
-  #loadState() {
+  #saveState() {
+    // Form-edit path: localStorage only. workflow.extra is reserved for
+    // post-sweep binding (see #bindStateToWorkflow).
+    let snapshot;
+    try { snapshot = this.#buildStateSnapshot(); }
+    catch (e) { return; }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch (e) { /* ignore */ }
+  }
+
+  // Called once a sweep completes successfully, right before the workflow
+  // JSON is exported for embedding into the composite image. Writes the
+  // current axis snapshot into workflow.extra so the exported workflow
+  // (and any future reopen of it) carries the binding. Non-sweep code
+  // paths (Deck, manual queue, etc.) never reach this and therefore never
+  // contaminate the workflow with XYZ metadata.
+  #bindStateToWorkflow() {
+    let snapshot;
+    try { snapshot = this.#buildStateSnapshot(); }
+    catch (e) { return; }
+    try { this.bridge?.setWorkflowExtra?.('xyzPlot', snapshot); } catch (e) { /* ignore */ }
+  }
+
+  // Returns { state, fromWorkflow } so the caller can clear workflow.extra
+  // after a successful restore (see #restoreState). Per-workflow state is
+  // preferred so reopening a workflow restores its sweep config; we fall
+  // back to localStorage for workflows that have never been swept.
+  #loadStateWithSource() {
+    try {
+      const wfState = this.bridge?.getWorkflowExtra?.('xyzPlot', null);
+      if (wfState && typeof wfState === 'object') {
+        return { state: wfState, fromWorkflow: true };
+      }
+    } catch (e) { /* fall through */ }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
+      const state = raw ? JSON.parse(raw) : null;
+      if (state) return { state, fromWorkflow: false };
+    } catch (e) { /* ignore */ }
+    return { state: null, fromWorkflow: false };
   }
 
   // ── Custom node type blacklist ──────────────────────────────────────
@@ -321,16 +379,39 @@ export class XYZPlotGadget extends GadgetBase {
     }
   }
 
+  // Resolve a per-axis snapshot to a node option present in the current
+  // dropdown. Tries the original nodeId first, then falls back to matching
+  // by nodeTitle + widgetName so a workflow imported into a different
+  // graph (where node IDs have shifted) still restores correctly.
+  #resolveAxisNodeId(axis, snapshot) {
+    if (!snapshot) return "";
+    const nodeSel = this.#q(`xyz-${axis}-node`);
+    if (!nodeSel) return "";
+    if (snapshot.nodeId && nodeSel.querySelector(`option[value="${snapshot.nodeId}"]`)) {
+      return snapshot.nodeId;
+    }
+    if (snapshot.nodeTitle) {
+      for (const node of this.bridge?.allNodes ?? []) {
+        if ((node.title || node.type) !== snapshot.nodeTitle) continue;
+        if (snapshot.widgetName && !node.widgets?.some(w => w.name === snapshot.widgetName)) continue;
+        const id = String(node.id);
+        if (nodeSel.querySelector(`option[value="${id}"]`)) return id;
+      }
+    }
+    return "";
+  }
+
   #restoreState() {
-    const state = this.#loadState();
+    const { state, fromWorkflow } = this.#loadStateWithSource();
     if (!state) return;
 
     for (const axis of ["x", "y", "z"]) {
       const s = state[axis];
       if (!s) continue;
       const nodeSel = this.#q(`xyz-${axis}-node`);
-      if (s.nodeId && nodeSel.querySelector(`option[value="${s.nodeId}"]`)) {
-        nodeSel.value = s.nodeId;
+      const resolvedId = this.#resolveAxisNodeId(axis, s);
+      if (resolvedId) {
+        nodeSel.value = resolvedId;
         this.#onNodeChange(axis);
         const widgetSel = this.#q(`xyz-${axis}-widget`);
         if (s.widgetName && widgetSel.querySelector(`option[value="${s.widgetName}"]`)) {
@@ -344,6 +425,17 @@ export class XYZPlotGadget extends GadgetBase {
     }
     if (state.zipXY != null) { const el = this.#q('xyz-zip-xy'); if (el) el.checked = !!state.zipXY; }
     if (state.zipYZ != null) { const el = this.#q('xyz-zip-yz'); if (el) el.checked = !!state.zipYZ; }
+
+    // The binding has been copied into the gadget form. Clear it from the
+    // in-memory workflow so subsequent non-sweep generations (Deck, manual
+    // queue) don't re-export workflow.extra.comfyDrawer.xyzPlot. Setting
+    // the value to undefined drops it from JSON.stringify output — the
+    // original PNG/file is untouched, so re-dragging the composite still
+    // restores the binding. A future sweep re-publishes it via
+    // #bindStateToWorkflow() right before exportWorkflow.
+    if (fromWorkflow) {
+      try { this.bridge?.setWorkflowExtra?.('xyzPlot', undefined); } catch (e) { /* ignore */ }
+    }
   }
 
   // Node types that only carry routing metadata — no sweepable parameters
@@ -1854,10 +1946,17 @@ export class XYZPlotGadget extends GadgetBase {
       // The pinned seed values are still active at this point, so the
       // exported workflow will contain the actual seeds used for generation
       // (not the pre-sweep originals that would be recorded after restore).
+      // Also bind the current axis form snapshot into workflow.extra
+      // first, so the exported workflow carries the binding needed for
+      // auto-restore when the composite PNG is later reopened. This is
+      // the only place that writes workflow.extra.comfyDrawer.xyzPlot —
+      // non-sweep generations (Deck, manual queue) therefore never carry
+      // XYZ metadata in their embedded workflow JSON.
       let capturedWorkflowJson = null;
       if (completed > 0 && !this.cancelled) {
         const saveMeta = this.bridge.getSetting("ComfyDrawer.XYZ.SaveMetadata", true);
         if (saveMeta) {
+          try { this.#bindStateToWorkflow(); } catch (e) { /* ignore */ }
           try { capturedWorkflowJson = JSON.stringify(this.bridge.exportWorkflow()); } catch (e) { /* ignore */ }
         }
       }
@@ -1873,10 +1972,34 @@ export class XYZPlotGadget extends GadgetBase {
         this.cancelled ? "XYZ Cancelled" : `XYZ Done! ${total} images`;
       if (statusEl) statusEl.textContent = this.cancelled ? 'Cancelled' : `Done — ${total} images`;
 
+      // Build sweep config snapshot (axes/zip/steps) for embedded metadata
+      let xyzConfigJson = null;
+      if (completed > 0 && !this.cancelled) {
+        const saveMeta = this.bridge.getSetting("ComfyDrawer.XYZ.SaveMetadata", true);
+        if (saveMeta) {
+          try {
+            const built = this.#buildXyzConfig({
+              axes,
+              axisWidgets: { x: xWidget, y: yWidget, z: zWidget },
+              axisNodes: { x: xNode, y: yNode, z: zNode },
+              axisValues: { x: xValues, y: yValues, z: zValues },
+              axisSearches: { x: xSearch, y: ySearch, z: zSearch },
+              zipXY: effectiveZipXY,
+              zipYZ: effectiveZipYZ,
+              completed,
+              total,
+            });
+            xyzConfigJson = built.serialized;
+          } catch (e) {
+            console.warn('[ComfyDrawer:XYZPlot] xyz_config build failed:', e);
+          }
+        }
+      }
+
       // Build composite image(s) when done
       if (completed > 0 && !this.cancelled) {
         try {
-          await this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, effectiveZipXY, effectiveZipYZ);
+          await this.#buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, effectiveZipXY, effectiveZipYZ, xyzConfigJson);
         } catch (e) {
           console.error('[ComfyDrawer:XYZPlot] Composite image failed:', e);
         }
@@ -1924,6 +2047,101 @@ export class XYZPlotGadget extends GadgetBase {
       }
     }
     return steps;
+  }
+
+  // ── Build sweep config blob embedded into composite metadata ─────────
+  // Captures axis/widget definitions, zip flags, swept steps and per-step
+  // outputs so the saved composite is a self-describing reproducible set.
+  #buildXyzConfig({ axes, axisWidgets, axisNodes, axisValues, axisSearches, zipXY, zipYZ, completed, total }) {
+    const settings = {
+      savePrefix: this.bridge.getSetting("ComfyDrawer.XYZ.SavePrefix", ""),
+      format: this.bridge.getSetting("ComfyDrawer.XYZ.Format", "png"),
+    };
+
+    const widgetType = (widget) => {
+      if (!widget) return null;
+      if (widget.__bypass__) return "__bypass__";
+      if (widget.__groupBypass__) return "__groupBypass__";
+      if (widget.__groupExclusive__) return "__groupExclusive__";
+      if (widget.__nodeExclusive__) return "__nodeExclusive__";
+      return widget.type || widget.options?.type || null;
+    };
+
+    const buildAxis = (axisKey) => {
+      const a = axes[axisKey];
+      const widget = axisWidgets[axisKey];
+      const node = axisNodes[axisKey];
+      const values = axisValues[axisKey];
+      // Treat single null sentinel as "not configured"
+      if (!widget || (values.length === 1 && values[0] === null)) return null;
+      const nodeId = a?.nodeId ?? null;
+      const nodeTitle = node?.title || node?.type || null;
+      return {
+        nodeId: nodeId ? String(nodeId) : null,
+        nodeTitle,
+        widgetName: widget.name || a?.widgetName || null,
+        widgetLabel: widget.label || widget.name || null,
+        widgetType: widgetType(widget),
+        valuesStr: a?.valuesStr ?? "",
+        values: Array.isArray(values) ? values.slice() : [],
+        search: axisSearches[axisKey] || "",
+      };
+    };
+
+    const steps = [];
+    for (let i = 0; i < this.results.length; i++) {
+      const r = this.results[i];
+      steps.push({
+        i,
+        x: r.x ?? null,
+        y: r.y ?? null,
+        z: r.z ?? null,
+        images: Array.isArray(r.images)
+          ? r.images.map(f => ({
+              filename: f.filename,
+              subfolder: f.subfolder || "",
+              type: f.type || "output",
+            }))
+          : [],
+      });
+    }
+
+    let config = {
+      schema: XYZ_CONFIG_SCHEMA,
+      plugin: "ComfyUI-Drawer",
+      version: DRAWER_VERSION,
+      generatedAt: new Date().toISOString(),
+      axes: {
+        x: buildAxis("x"),
+        y: buildAxis("y"),
+        z: buildAxis("z"),
+      },
+      zip: { xy: !!zipXY, yz: !!zipYZ },
+      sweep: {
+        totalSteps: total,
+        completedSteps: completed,
+        steps,
+      },
+      settings,
+    };
+
+    // Enforce size cap. If the per-step list is what blows the budget,
+    // drop it (axes + counts still let users reproduce the matrix shape).
+    let serialized = JSON.stringify(config);
+    if (serialized.length > XYZ_CONFIG_MAX_BYTES) {
+      config = {
+        ...config,
+        sweep: {
+          totalSteps: total,
+          completedSteps: completed,
+          steps: [],
+          stepsOmitted: true,
+          stepsOmittedReason: "size_cap",
+        },
+      };
+      serialized = JSON.stringify(config);
+    }
+    return { config, serialized };
   }
 
   #showToast(msg) {
@@ -2344,9 +2562,9 @@ export class XYZPlotGadget extends GadgetBase {
   }
 
   // ── Build composite image from results (per-Z page) ────────────────────
-  async #buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson = null, zipXY = false, zipYZ = false) {
+  async #buildCompositeImage(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson = null, zipXY = false, zipYZ = false, xyzConfigJson = null) {
     if (zipXY || zipYZ) {
-      return this.#buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ);
+      return this.#buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ, xyzConfigJson);
     }
     const hasX = xValues.length > 1 || xValues[0] !== null;
     const hasY = yValues.length > 1 || yValues[0] !== null;
@@ -2566,6 +2784,7 @@ export class XYZPlotGadget extends GadgetBase {
             quality: 95,
             save_metadata: saveMeta,
             workflow_json: workflowJson,
+            xyz_config: xyzConfigJson,
           }),
         });
         if (resp.ok) saveResult = await resp.json();
@@ -2650,7 +2869,7 @@ export class XYZPlotGadget extends GadgetBase {
   }
 
   // ── Build composite image in Zip mode ────────────────────────────────
-  async #buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ) {
+  async #buildCompositeImageZipped(xValues, yValues, zValues, xLabel, yLabel, zLabel, capturedWorkflowJson, zipXY, zipYZ, xyzConfigJson = null) {
     const _cs = getComputedStyle(document.documentElement);
     const _get = (v, fb) => { const r = _cs.getPropertyValue(v).trim(); return r || fb; };
     const COLOR_BG     = _get('--cd-panel',  '#0e0e1a');
@@ -2880,6 +3099,7 @@ export class XYZPlotGadget extends GadgetBase {
           quality: 95,
           save_metadata: saveMeta,
           workflow_json: capturedWorkflowJson,
+          xyz_config: xyzConfigJson,
         }),
       });
       if (resp.ok) saveResult = await resp.json();

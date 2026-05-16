@@ -140,7 +140,7 @@ def _parse_exif_bytes_for_workflow(exif_bytes):
             val = exif.get(tag_id)
             if isinstance(val, str) and ":" in val:
                 key, _, json_str = val.partition(":")
-                if key in ("prompt", "workflow"):
+                if key in ("prompt", "workflow", "xyz_plot"):
                     try:
                         meta[key] = json.loads(json_str)
                     except (json.JSONDecodeError, ValueError):
@@ -382,7 +382,7 @@ def _read_embedded_meta(filepath):
         if not chunks:
             return None
         meta = {}
-        for key in ("prompt", "workflow"):
+        for key in ("prompt", "workflow", "xyz_plot"):
             if key in chunks:
                 try:
                     meta[key] = json.loads(chunks[key])
@@ -442,7 +442,7 @@ def _read_exif_meta(filepath):
         with open_image_checked(filepath) as img:
             info = img.info or {}
             meta = {}
-            for key in ("prompt", "workflow"):
+            for key in ("prompt", "workflow", "xyz_plot"):
                 if key in info:
                     try:
                         val = info[key]
@@ -465,7 +465,7 @@ def _read_exif_meta(filepath):
                     val = exif.get(tag_id)
                     if isinstance(val, str) and ":" in val:
                         key, _, json_str = val.partition(":")
-                        if key in ("prompt", "workflow"):
+                        if key in ("prompt", "workflow", "xyz_plot"):
                             try:
                                 meta[key] = json.loads(json_str)
                             except (json.JSONDecodeError, ValueError):

@@ -230,7 +230,7 @@ class DrawerSwitchChain:
 
 
 NODE_CLASS_MAPPINGS["DrawerSwitchChain"] = DrawerSwitchChain
-NODE_DISPLAY_NAME_MAPPINGS["DrawerSwitchChain"] = "📝 Switch Chain (Drawer)"
+NODE_DISPLAY_NAME_MAPPINGS["DrawerSwitchChain"] = "Switch Chain (Drawer)"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

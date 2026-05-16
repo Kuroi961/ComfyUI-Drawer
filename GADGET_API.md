@@ -219,6 +219,29 @@ myPlugin:tags[black hair]     # search only the myPlugin tags field
 myPlugin:project[archive A]
 ```
 
+### Workflow-bound gadget state
+
+The XYZ Plot gadget binds its form snapshot (axes, widgets, values, zip flags, per-axis `nodeTitle` for fallback) into `workflow.extra.comfyDrawer.xyzPlot` **only when a sweep successfully completes**, via `bridge.setWorkflowExtra('xyzPlot', ...)`. Form-edit autoSave writes to localStorage only — touching the XYZ tab without sweeping must not contaminate the workflow JSON, otherwise Deck or manual generations on the same workflow would embed XYZ metadata that was never actually used.
+
+On graph switch (workflow tab change or drag-and-drop of a composite PNG whose embedded workflow carries the extra), the gadget calls `bridge.getWorkflowExtra('xyzPlot', null)` and repopulates the form. After a workflow-sourced restore, the in-memory `workflow.extra.comfyDrawer.xyzPlot` is cleared via `bridge.setWorkflowExtra('xyzPlot', undefined)` so the binding does not propagate into subsequent Deck or manual generations on the composite-restored workflow. The original file is untouched — re-dragging the composite still restores the binding. localStorage is consulted as a fall-back for workflows that have never been swept. Restore tries `nodeId` first, then `nodeTitle + widgetName` so a workflow imported into a different graph still rebinds.
+
+This is the recommended pattern for any gadget whose state should travel with the workflow rather than the browser session: keep the form-edit autoSave in localStorage, and only promote to `workflow.extra` from the action that the binding is meant to represent.
+
+### Built-in `xyz_plot` blob
+
+XYZ Plot composite images embed a `xyz_plot` JSON blob (PNG iTXt or JPEG/WebP EXIF `0x010E` using the existing `xyz_plot:JSON` envelope). The blob is a reproducible-set snapshot of the sweep: schema version, plugin/version, per-axis `{nodeId, nodeTitle, widgetName, widgetLabel, widgetType, valuesStr, values, search}`, zip flags, per-step `{x, y, z, images}`, and the user's save settings. Per-step lists are dropped (with `stepsOmitted: true`) when the JSON would exceed 256 KB; axes + step counts stay.
+
+Drawer registers built-in `xyzPlot` index and panel contributors for this blob, so the following search patterns work without any user-side setup:
+
+```text
+xyzPlot[steps]               # any xyz_plot field
+xyzPlot:axis[steps cfg]      # widget labels across all axes
+xyzPlot:node[KSampler]       # source node titles
+xyzPlot:value[10 20 30]      # any value across axes
+xyzPlot:values_x[10]         # X-axis values only (also values_y, values_z)
+xyzPlot:mode[zip_xy]         # zip_xy / zip_yz when zip mode was used
+```
+
 Drawer extracts standard ComfyUI `prompt` and `workflow` metadata itself. A third-party custom node that embeds custom data in `workflow.extra` can register only an index contributor. A third-party system that stores metadata outside the image can register a raw provider, and can also register an index contributor when that raw format needs custom interpretation. After adding or changing a provider or contributor, rebuild the Gallery search index.
 
 If the index already exists and only provider/contributor interpretation changed, `POST /drawer/fs/index-refresh-metadata` rereads metadata for existing files and reapplies current contributors without dropping the index database. Normal `POST /drawer/fs/index-sync` automatically switches to this refresh path when Drawer detects that the registered raw providers or index contributors changed since the last build/refresh.

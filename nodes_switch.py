@@ -26,7 +26,7 @@ class DrawerSwitchNode(_io.ComfyNode):
         template = _io.MatchType.Template("drawer_switch")
         return _io.Schema(
             node_id="DrawerSwitch",
-            display_name="📝 Switch (Drawer)",
+            display_name="Switch (Drawer)",
             category="Drawer",
             description="A/B switch: output B if connected and non-empty, otherwise A",
             inputs=[

@@ -417,6 +417,29 @@ class DrawerRebootIsAsyncTests(unittest.TestCase):
         self.assertIn("_exec_after_response", source)
         self.assertIn("asyncio.create_task(_exec_after_response", source)
 
+    def test_drawer_reboot_logs_before_closing_log_stream(self):
+        # Regression: ComfyUI-Manager wraps the logging handler around a
+        # file that sys.stdout.close_log() detaches. Calling close_log()
+        # before the final logger.info() raises "I/O operation on closed
+        # file", which kills the asyncio task before os.execv runs and
+        # leaves the server unrestartable. The "Restarting..." log MUST
+        # come before close_log().
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        body = source.split("async def _exec_after_response()", 1)[1].split("\n    asyncio.create_task", 1)[0]
+        idx_log = body.find('logger.info("[Drawer] Restarting...")')
+        idx_close = body.find("sys.stdout.close_log()")
+        self.assertGreater(idx_log, -1)
+        self.assertGreater(idx_close, -1)
+        self.assertLess(idx_log, idx_close,
+                        "logger.info('Restarting...') must run before sys.stdout.close_log()")
+
+    def test_drawer_reboot_execv_failure_falls_back_to_raw_stderr(self):
+        # After close_log() the logger may be unusable. The execv failure
+        # branch must write to sys.__stderr__ directly so the user still
+        # sees what went wrong.
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("sys.__stderr__.write", source)
+
 
 class DialogAccessibilityTests(unittest.TestCase):
     """A1-A3: showDialog must expose ARIA modal semantics, trap Tab, and
@@ -1504,6 +1527,253 @@ class RouteHardeningSourceTests(unittest.TestCase):
             'post_filtering = bool(node_filters or custom_filters or terms.get("include") or terms.get("exclude"))',
             source,
         )
+
+
+class DeckMarkerOnRoutingNodesTests(unittest.TestCase):
+    """Routing-only Drawer nodes (no user-editable widgets) must not carry
+    the 📝 Deck-display marker — putting them on Deck wastes a card on a
+    node with nothing meaningful to surface."""
+
+    def test_drawer_switch_v3_has_no_deck_marker(self):
+        source = (REPO_ROOT / "nodes_switch.py").read_text(encoding="utf-8")
+        self.assertIn('display_name="Switch (Drawer)"', source)
+        self.assertNotIn('display_name="📝 Switch (Drawer)"', source)
+
+    def test_drawer_switch_chain_has_no_deck_marker(self):
+        source = (REPO_ROOT / "drawer_nodes.py").read_text(encoding="utf-8")
+        self.assertIn('NODE_DISPLAY_NAME_MAPPINGS["DrawerSwitchChain"] = "Switch Chain (Drawer)"', source)
+        self.assertNotIn('"📝 Switch Chain (Drawer)"', source)
+
+
+class XyzPlotMetadataTests(unittest.TestCase):
+    """xyz_plot embedded sweep config: storage, surface, search, panel."""
+
+    SAMPLE_CONFIG = {
+        "schema": 1,
+        "plugin": "ComfyUI-Drawer",
+        "version": "2.1.8",
+        "axes": {
+            "x": {
+                "nodeId": "42",
+                "nodeTitle": "KSampler",
+                "widgetName": "steps",
+                "widgetLabel": "Steps",
+                "widgetType": "INT",
+                "values": [10, 20, 30],
+                "valuesStr": "10,20,30",
+                "search": "",
+            },
+            "y": {
+                "nodeId": "7",
+                "nodeTitle": "CLIPTextEncode",
+                "widgetName": "text",
+                "widgetLabel": "text",
+                "widgetType": "STRING",
+                "values": ["castle", "forest"],
+                "valuesStr": '"castle","forest"',
+                "search": "castle",
+            },
+            "z": None,
+        },
+        "zip": {"xy": False, "yz": False},
+        "sweep": {
+            "totalSteps": 6,
+            "completedSteps": 6,
+            "steps": [],
+        },
+        "settings": {"savePrefix": "ComfyDrawer/xyz_plot", "format": "png"},
+    }
+
+    def _write_png_with_xyz(self, path, *, format="png"):
+        try:
+            from PIL import Image
+            from PIL.PngImagePlugin import PngInfo
+        except ImportError:
+            self.skipTest("Pillow not installed")
+        img = Image.new("RGB", (4, 4), (10, 20, 30))
+        if format == "png":
+            info = PngInfo()
+            info.add_itxt("xyz_plot", json.dumps(self.SAMPLE_CONFIG), zip=True)
+            info.add_text("comfy-drawer", "xyz_plot_grid")
+            img.save(path, "PNG", pnginfo=info)
+        elif format == "jpg":
+            exif = img.getexif()
+            exif[0x010E] = "xyz_plot:{}".format(json.dumps(self.SAMPLE_CONFIG))
+            img.save(path, "JPEG", exif=exif.tobytes())
+        elif format == "webp":
+            exif = img.getexif()
+            exif[0x010E] = "xyz_plot:{}".format(json.dumps(self.SAMPLE_CONFIG))
+            img.save(path, "WEBP", exif=exif.tobytes())
+
+    def test_png_xyz_plot_chunk_is_read_into_raw_meta(self):
+        media_metadata = _load_repo_module("media_metadata")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "grid.png")
+            self._write_png_with_xyz(path, format="png")
+            meta = media_metadata._read_embedded_meta(path)
+        self.assertIsNotNone(meta)
+        self.assertIn("xyz_plot", meta)
+        self.assertEqual(meta["xyz_plot"]["axes"]["x"]["widgetName"], "steps")
+        self.assertEqual(meta["xyz_plot"]["sweep"]["totalSteps"], 6)
+
+    def test_jpeg_xyz_plot_exif_is_read_into_raw_meta(self):
+        media_metadata = _load_repo_module("media_metadata")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "grid.jpg")
+            self._write_png_with_xyz(path, format="jpg")
+            meta = media_metadata._read_embedded_meta(path)
+        self.assertIsNotNone(meta)
+        self.assertIn("xyz_plot", meta)
+        self.assertEqual(meta["xyz_plot"]["axes"]["y"]["widgetName"], "text")
+
+    def test_webp_xyz_plot_exif_is_read_into_raw_meta(self):
+        media_metadata = _load_repo_module("media_metadata")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "grid.webp")
+            try:
+                self._write_png_with_xyz(path, format="webp")
+            except Exception as e:
+                self.skipTest(f"WebP save unsupported: {e}")
+            meta = media_metadata._read_embedded_meta(path)
+        self.assertIsNotNone(meta)
+        self.assertIn("xyz_plot", meta)
+
+    def test_index_contributor_emits_xyzplot_namespace_fields(self):
+        xyz_metadata = _load_repo_module("xyz_metadata")
+        contribution = xyz_metadata.contribute_xyz_search_fields(
+            {"xyz_plot": self.SAMPLE_CONFIG}, {}
+        )
+        self.assertIsNotNone(contribution)
+        self.assertEqual(contribution["namespace"], "xyzPlot")
+        fields = contribution["fields"]
+        self.assertIn("Steps", fields["axis"])
+        self.assertIn("KSampler", fields["node"])
+        self.assertIn("10", fields["value"])
+        self.assertIn("castle", fields["value"])
+        self.assertIn("10", fields["values_x"])
+
+    def test_panel_contributor_renders_axis_rows(self):
+        xyz_metadata = _load_repo_module("xyz_metadata")
+        section = xyz_metadata.contribute_xyz_metadata_panel(
+            {"xyz_plot": self.SAMPLE_CONFIG}, {}
+        )
+        self.assertIsNotNone(section)
+        self.assertEqual(section["title"], "XYZ Plot")
+        fields = section["fields"]
+        self.assertIn("X", fields)
+        self.assertIn("Steps", fields["X"])
+        self.assertIn("10", fields["X"])
+        self.assertIn("Y", fields)
+        self.assertEqual(fields["Steps"], "6 / 6")
+
+    def test_contributors_ignore_non_drawer_xyz_plot_blobs(self):
+        xyz_metadata = _load_repo_module("xyz_metadata")
+        other = {"xyz_plot": {"plugin": "SomeoneElse", "axes": {}}}
+        self.assertIsNone(xyz_metadata.contribute_xyz_search_fields(other, {}))
+        self.assertIsNone(xyz_metadata.contribute_xyz_metadata_panel(other, {}))
+
+    def test_save_grid_handler_validates_xyz_config_size_cap(self):
+        # The handler enforces a size cap on the raw xyz_config string. Read
+        # the source to verify the cap and the JSON-object guard are wired up
+        # so future edits can't silently widen the surface.
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("_MAX_XYZ_CONFIG_BYTES = 256 * 1024", source)
+        self.assertIn('xyz_config_raw = data.get("xyz_config"', source)
+        self.assertIn('metadata.add_itxt("xyz_plot"', source)
+        self.assertIn('exif_data[0x010E] = "xyz_plot:{}".format(xyz_config_json)', source)
+
+    def test_xyz_contributors_register_at_startup(self):
+        # __init__.py wires up the contributors so a fresh ComfyUI session
+        # always has xyzPlot search + panel without manual setup.
+        source = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("from . import xyz_metadata as _xyz_metadata", source)
+        self.assertIn("_xyz_metadata.register_builtin_xyz_contributors()", source)
+
+
+class XyzPlotWorkflowBindingTests(unittest.TestCase):
+    """Gadget state is bound to the active workflow via workflow.extra.
+
+    The frontend wiring is JS-only, so we assert through source-pattern
+    checks. Each invariant matters:
+
+    * Form-edit autoSave writes ONLY to localStorage. workflow.extra is
+      reserved for the post-sweep binding so non-sweep generations (Deck,
+      manual queue) cannot accidentally leak XYZ metadata into their
+      embedded workflow JSON.
+    * The binding is written exclusively by ``#bindStateToWorkflow()``,
+      invoked once at sweep completion right before ``exportWorkflow()``.
+    * Each per-axis snapshot stores nodeTitle alongside nodeId, enabling
+      fallback restore when node IDs have shifted (workflow imported into
+      a different graph).
+    * Restore prefers workflow.extra over localStorage so the workflow
+      binding wins when both exist.
+    """
+
+    GADGET_PATH = REPO_ROOT / "web" / "gadgets" / "xyzplot" / "xyzplot-gadget.js"
+
+    def test_save_state_writes_only_to_localstorage(self):
+        # autoSave must NOT touch workflow.extra — otherwise touching the
+        # XYZ tab without sweeping would leak the binding into Deck or
+        # manual generations.
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        save_block = source.split("#saveState() {", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))", save_block)
+        self.assertNotIn("setWorkflowExtra", save_block)
+
+    def test_workflow_binding_lives_in_dedicated_method(self):
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        self.assertIn("#bindStateToWorkflow()", source)
+        bind_block = source.split("#bindStateToWorkflow() {", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("this.bridge?.setWorkflowExtra?.('xyzPlot', snapshot)", bind_block)
+        # The binding method must not write localStorage redundantly —
+        # that lane is owned by #saveState.
+        self.assertNotIn("localStorage.setItem(STORAGE_KEY", bind_block)
+
+    def test_snapshot_captures_node_title_per_axis(self):
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        self.assertIn("#buildStateSnapshot()", source)
+        self.assertIn('nodeTitle = node?.title || node?.type', source)
+        # The per-axis snapshot must include nodeTitle so restore can fall
+        # back when node IDs shift between graphs.
+        self.assertIn("nodeTitle,", source)
+
+    def test_load_state_prefers_workflow_extra_over_localstorage(self):
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        load_block = source.split("#loadStateWithSource()", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("getWorkflowExtra?.('xyzPlot', null)", load_block)
+        wf_idx = load_block.find("getWorkflowExtra")
+        ls_idx = load_block.find("localStorage.getItem(STORAGE_KEY)")
+        self.assertGreater(wf_idx, -1)
+        self.assertGreater(ls_idx, -1)
+        self.assertLess(wf_idx, ls_idx, "workflow.extra must be consulted before localStorage")
+
+    def test_restore_clears_workflow_extra_after_workflow_sourced_restore(self):
+        # Composite-restored workflows must not carry the xyzPlot binding
+        # into subsequent Deck or manual generations. After copying the
+        # binding into the gadget form, the in-memory workflow.extra entry
+        # is cleared so the next exportWorkflow drops it via JSON.stringify
+        # of undefined.
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        restore_block = source.split("#restoreState() {", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("const { state, fromWorkflow } = this.#loadStateWithSource()", restore_block)
+        self.assertIn("if (fromWorkflow)", restore_block)
+        self.assertIn("setWorkflowExtra?.('xyzPlot', undefined)", restore_block)
+
+    def test_restore_falls_back_to_node_title_when_node_id_missing(self):
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        self.assertIn("#resolveAxisNodeId(axis, snapshot)", source)
+        self.assertIn("snapshot.nodeTitle", source)
+        self.assertIn("snapshot.widgetName && !node.widgets?.some(w => w.name === snapshot.widgetName)", source)
+
+    def test_export_workflow_captures_latest_state(self):
+        source = self.GADGET_PATH.read_text(encoding="utf-8")
+        # Find the export call and verify #bindStateToWorkflow() is invoked
+        # right before it inside the metadata-saving branch.
+        idx_export = source.find("this.bridge.exportWorkflow()")
+        self.assertGreater(idx_export, -1)
+        window = source[max(0, idx_export - 400):idx_export]
+        self.assertIn("this.#bindStateToWorkflow()", window,
+                      "#bindStateToWorkflow() must run before exportWorkflow() so the embedded workflow carries the latest binding")
 
 
 if __name__ == "__main__":
