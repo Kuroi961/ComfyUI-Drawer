@@ -919,9 +919,21 @@ export class XYZPlotGadget extends GadgetBase {
       return;
     }
     if (this.#isTextWidget(widget) && searchStr) {
+      // Substitute into the widget's CURRENT text, not the pinned snapshot.
+      // #restoreAllWidgets() already reset every widget to the snapshot at the
+      // top of this sweep step, so the current value is the pristine text plus
+      // whatever an earlier axis substituted into it. Re-reading the snapshot
+      // here discarded that earlier axis: with two Prompt S/R axes pointed at
+      // the same text widget, Y overwrote X and the X axis looked skipped (#3).
+      // Read through __sourceWidget like #setWidgetValue writes through it:
+      // a DrawerControls axis widget is a copy whose own `.value` is frozen at
+      // sweep start, so only the source widget reflects earlier substitutions.
+      const liveWidget = widget.__sourceWidget || widget;
       const nodeSnap = snapshot.get(node.id);
-      const origText = nodeSnap?.get(widget.name) ?? widget.value;
-      const newText = origText.replaceAll(searchStr, value);
+      const baseText = typeof liveWidget.value === "string"
+        ? liveWidget.value
+        : nodeSnap?.get(widget.name);
+      const newText = String(baseText ?? "").replaceAll(searchStr, value);
       this.#setWidgetValue(widget, node, newText);
     } else {
       this.#setWidgetValue(widget, node, value);

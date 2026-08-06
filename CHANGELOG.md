@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### XYZ Plot
+
+- Fix two Prompt S/R axes pointed at the same text widget: the first axis was silently discarded ([#3](https://github.com/Kuroi961/ComfyUI-Drawer/issues/3)). Each sweep step re-pins every widget to the snapshot and then applies X, Y, Z in order, but `#applyAxisValue` rebuilt the text from the snapshot on every call, so Y's substitution threw away X's and every column of the grid came out identical. The substitution now chains off the widget's live value, resolving `__sourceWidget` the same way `#setWidgetValue` writes through it so DrawerControls string controls chain too.
+
 ## v2.1.9 - 2026-08-06
 
 ### Deck

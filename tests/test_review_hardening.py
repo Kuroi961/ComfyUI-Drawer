@@ -659,6 +659,63 @@ class GallerySelectModeExitTests(unittest.TestCase):
         self.assertIn("clientHeight", body)
 
 
+class XyzPlotPromptSRChainingTests(unittest.TestCase):
+    """Issue #3 — two Prompt S/R axes pointed at the same text widget.
+
+    Every sweep step starts with #restoreAllWidgets(pinnedSnapshot), then X, Y
+    and Z are applied in order. #applyAxisValue used to rebuild the text from
+    the snapshot each time, so Y's substitution threw away X's and the X axis
+    looked skipped. The substitution must chain off the widget's live value.
+    """
+
+    def setUp(self):
+        self.source = (REPO_ROOT / "web" / "gadgets" / "xyzplot" / "xyzplot-gadget.js").read_text(encoding="utf-8")
+
+    def _apply_axis_value_body(self):
+        import re
+        m = re.search(r'\n  #applyAxisValue\s*\([^)]*\)\s*\{(.*?)\n  \}', self.source, re.DOTALL)
+        self.assertIsNotNone(m, "#applyAxisValue method not found")
+        return m.group(1)
+
+    def test_sr_substitution_chains_off_the_live_widget_value(self):
+        body = self._apply_axis_value_body()
+        self.assertIn("replaceAll(searchStr, value)", body)
+        self.assertNotRegex(
+            body,
+            r'(?:const|let)\s+\w+\s*=\s*nodeSnap\?\.get\(widget\.name\)\s*\?\?',
+            "The S/R base text must not come from the snapshot first — that drops "
+            "a substitution an earlier axis already applied to the same widget.",
+        )
+        self.assertRegex(
+            body,
+            r'(?:const|let)\s+(\w+)\s*=\s*typeof\s+\w+\.value === "string"',
+            "The S/R base text must be read from the widget's live value.",
+        )
+
+    def test_sr_substitution_reads_through_source_widget(self):
+        """#setWidgetValue writes to `widget.__sourceWidget || widget`; a
+        DrawerControls axis widget is a copy whose own `.value` never updates,
+        so the read side must resolve the same way or the chain breaks."""
+        body = self._apply_axis_value_body()
+        self.assertIn("widget.__sourceWidget || widget", body,
+            "Resolve __sourceWidget when reading the current text.")
+
+    def test_sweep_step_restores_snapshot_before_applying_axes(self):
+        """The chaining above is only correct because each step re-pins every
+        widget to the snapshot first; without it substitutions would compound
+        across steps."""
+        restore = self.source.index("this.#restoreAllWidgets(pinnedSnapshot)")
+        applies = [
+            self.source.index(f"this.#applyAxisValue({axis}Widget")
+            for axis in ("x", "y", "z")
+        ]
+        for axis, idx in zip("xyz", applies):
+            self.assertGreater(idx, restore,
+                f"{axis} axis must be applied after the snapshot restore.")
+        self.assertEqual(applies, sorted(applies),
+            "Axes must be applied in X, Y, Z order for chaining to be deterministic.")
+
+
 class DeckVideoOutputTests(unittest.TestCase):
     """ComfyCore ships videos through a node's `ui.images` list: SaveVideo and
     SaveWEBM return `ui.PreviewVideo`, which serialises as
