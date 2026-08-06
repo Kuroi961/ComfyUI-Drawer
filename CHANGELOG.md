@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.10 - 2026-08-06
 
 ### XYZ Plot
 
