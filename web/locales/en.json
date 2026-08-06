@@ -339,6 +339,8 @@
     "link": "Link",
     "openInCivitai": "Open in CivitAI ↗",
     "civitaiSync": "Fetch from CivitAI",
+    "civitaiSyncShort": "CivitAI Sync",
+    "civitaiBatchSync": "CivitAI Batch Sync",
     "civitaiResync": "Resync CivitAI",
     "civitaiBatchWarn": "This category has {count} models. Syncing all may take several minutes. Continue?",
     "civitaiBatchComplete": "{synced} synced, {failed} not found",

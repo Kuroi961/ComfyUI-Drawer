@@ -1679,14 +1679,7 @@ export class GalleryGadget extends GadgetBase {
             } else {
                 this.#renderGrid();
             }
-            if (preserveScrollTop !== null && this.#el.content) {
-                requestAnimationFrame(() => {
-                    this.#el.content.scrollTop = Math.min(
-                        Number(preserveScrollTop || 0),
-                        Math.max(0, this.#el.content.scrollHeight - this.#el.content.clientHeight)
-                    );
-                });
-            }
+            this.#restoreContentScroll(preserveScrollTop);
             if (!this.#initialLoadComplete) {
                 this.#initialLoadComplete = true;
                 this.#setInitialLoading(false);
@@ -1898,6 +1891,21 @@ export class GalleryGadget extends GadgetBase {
             })
             : _t('gallery.folderItemCount', { count: total.toLocaleString() });
         el.hidden = total <= 0;
+    }
+
+    /**
+     * Restore a scroll offset captured before a grid rebuild, clamped to the
+     * new content height. No-op when nothing was captured.
+     * @param {number|null} scrollTop
+     */
+    #restoreContentScroll(scrollTop) {
+        if (scrollTop === null || !this.#el.content) return;
+        requestAnimationFrame(() => {
+            this.#el.content.scrollTop = Math.min(
+                Number(scrollTop || 0),
+                Math.max(0, this.#el.content.scrollHeight - this.#el.content.clientHeight)
+            );
+        });
     }
 
     async #refreshBrowsePreservingLoadedCount(path = this.#state.path, targetCount = this.#state.rawFiles.length) {
@@ -3507,7 +3515,15 @@ export class GalleryGadget extends GadgetBase {
         this.#state.moveMode = false;
         this.#state.selected.clear();
         this.#showToolbar('browse');
+        const scrollTop = this.#el.content?.scrollTop ?? null;
         await this.#applyDeletedItems(result, itemsToDelete);
+        // The surviving cards were built with select-mode wiring: click toggles
+        // selection, lightbox/drag/long-press/context-menu are all disabled.
+        // #applyDeletedItems only repaints classes via #syncCardModeDecorations,
+        // so leaving select mode must rebuild the grid — otherwise every card
+        // that survived the delete stays inert.
+        this.#renderGrid();
+        this.#restoreContentScroll(scrollTop);
     }
 
     async #deleteCurrent(file = null) {

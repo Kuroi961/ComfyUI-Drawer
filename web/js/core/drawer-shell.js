@@ -58,7 +58,7 @@ export class DrawerShell {
     #tabBarSuffix = [];
     /** @type {Set<string>} Gadget IDs hidden from the tab bar */
     #hiddenGadgets = new Set();
-    /** @type {boolean} True until the first gadget is available */
+    /** @type {boolean} True until the platform marks itself ready (built-in gadget registration pass has run). External gadgets registering before then must not cause the tab bar to surface alone. */
     #loading = true;
 
     static PANEL_MIN = 50;
@@ -201,7 +201,6 @@ export class DrawerShell {
             console.warn(`[ComfyDrawer] Gadget "${gadget.id}" already registered`);
             return;
         }
-        this.#loading = false;
 
         // Create panel container for this gadget (Shell-owned)
         const container = document.createElement('div');
@@ -223,6 +222,18 @@ export class DrawerShell {
         this.#renderTabs();
 
         this.#bus.emit('drawer:gadget-registered', { id: gadget.id });
+    }
+
+    /**
+     * Called by the platform entry point after the built-in gadget registration
+     * pass has run. Clears the loading overlay and re-renders tabs so any
+     * external gadgets that arrived before built-ins become visible together.
+     * Idempotent.
+     */
+    markReady() {
+        if (!this.#loading) return;
+        this.#loading = false;
+        this.#renderTabs();
     }
 
     #mountGadget(id) {
@@ -299,9 +310,8 @@ export class DrawerShell {
         const gadgets = [...this.#gadgets.values()];
         const customOrder = this.#getTabOrder();
 
-        const isEmptyLoading = this.#loading && gadgets.length === 0;
-        this.#root.classList.toggle('loading', isEmptyLoading);
-        if (isEmptyLoading) return;
+        this.#root.classList.toggle('loading', this.#loading);
+        if (this.#loading) return;
 
         if (customOrder) {
             // Sort by saved order; unknown gadgets go to the end by their default order

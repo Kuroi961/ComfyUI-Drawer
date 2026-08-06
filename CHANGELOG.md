@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Deck
+
+- Fix ComfyCore `SaveVideo` / `SaveWEBM` outputs rendering as a broken card. Those nodes return `ui.PreviewVideo`, which serialises as `{images: [...], animated: [true]}` — the saved `.mp4` arrives in the same `images` list as still images, and the Deck rendered every entry as an `<img>`, so the card showed nothing and the lightbox opened blank. Media type is now derived from the file extension, giving those outputs a `<video>` card and a playable lightbox entry. The `gifs` list shares the same detection, which additionally covers `.mov` / `.m4v` / `.avi`.
+
+### Gallery
+
+- Fix the grid going inert after a multi-select delete. Cards are wired at render time from `selectMode` — in selection mode a card's click toggles selection and its lightbox, drag, long-press and context-menu bindings are omitted. `#deleteSelected` left selection mode by flipping the flag and repainting classes only, so every card that survived the delete kept the select-mode wiring: clicking did nothing visible and the lightbox could no longer be opened, with no way back into selection mode. The grid is now rebuilt after the deletion, with the scroll position preserved.
+
+### Shell
+
+- Fix loading overlay leaking the tab bar when an external gadget registers before the built-in gadgets. Built-in gadgets register lazily via `setTimeout` + `requestIdleCallback`, so a third-party gadget that called `registerGadget()` synchronously in `setup()` would flip the shell's loading flag first and surface its tab alone behind the "Loading…" overlay. The loading state is now tied to an explicit `shell.markReady()` signal that the platform fires after the built-in registration pass; the tab bar stays hidden until then, so external + built-in tabs appear together.
+
+### CI
+
+- Bump `actions/checkout@v4` → `@v5` in `publish_action.yml` to run on Node.js 24 (GitHub forces Node 24 for v4 starting 2026-06-02).
+
+### ModelViewer
+
+- Localise the per-model "CivitAI Sync" button label and the toolbar "CivitAI Batch Sync" tooltip via new `modelviewer.civitaiSyncShort` and `modelviewer.civitaiBatchSync` locale keys (en/ja/zh).
+
 ## v2.1.8 - 2026-05-16
 
 ### Deck

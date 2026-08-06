@@ -33,6 +33,17 @@ const ICON_X = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill
 const SKIP_WIDGET_TYPES = new Set(["converted-widget", "video", "audioUI"]);
 
 /**
+ * Video containers that reach the UI through a node's saved-file list.
+ * `.gif` / `.webp` stay out on purpose — those animate inside an <img>.
+ */
+const VIDEO_FILE_RE = /\.(mp4|webm|mkv|mov|m4v|avi)$/i;
+
+/** True when a saved output file needs a <video> element rather than an <img>. */
+function isVideoFilename(filename) {
+  return VIDEO_FILE_RE.test(String(filename || ''));
+}
+
+/**
  * Copy text to clipboard using the legacy execCommand approach.
  * Works in non-secure contexts (plain http) where navigator.clipboard is unavailable.
  */
@@ -1680,18 +1691,23 @@ export class DeckGadget extends GadgetBase {
     const ctxMenu = this.#contextMenu;
     const lbItems = sharedLbItems || [];
 
-    // Images
+    // Images — ComfyCore also ships videos through this list: SaveVideo and
+    // SaveWEBM return `ui.PreviewVideo`, which serialises as
+    // `{images: [...], animated: [true]}`. Those entries need a <video> card and
+    // a video lightbox item; rendering them as <img> yields a broken card and a
+    // blank lightbox.
     if (output.images) {
       for (const img of output.images) {
         hasAny = true;
         const url = makeURL(img);
         const imgSource = img.type || 'output';
+        const mediaType = isVideoFilename(img.filename) ? 'video' : 'image';
         const lbIdx = lbItems.length;
-        lbItems.push({ src: url, type: 'image', label: `${title} — ${img.filename}`,
+        lbItems.push({ src: url, type: mediaType, label: `${title} — ${img.filename}`,
           name: img.filename, subfolder: img.subfolder || '', source: imgSource });
         const card = createMediaCard({
           src: url, filename: img.filename, subfolder: img.subfolder || '',
-          type: imgSource, mediaType: 'image', thumbHeight: null,
+          type: imgSource, mediaType, thumbHeight: null,
           lazy: false,
           lightboxItems: lbItems, lightboxIndex: lbIdx,
           onContextMenu: ctxMenu ? (e) => {
@@ -1701,7 +1717,7 @@ export class DeckGadget extends GadgetBase {
             const item = ref ? ref.items[ref.index] : null;
             ctxMenu.show('media-file', {
               src: item?.src || url,
-              type: 'image',
+              type: item?.type || mediaType,
               name: item?.name || img.filename,
               subfolder: item?.subfolder ?? (img.subfolder || ''),
               source: item?.source || imgSource,
@@ -1719,7 +1735,7 @@ export class DeckGadget extends GadgetBase {
       for (const gif of output.gifs) {
         hasAny = true;
         const url = makeURL(gif);
-        const isVideo = /\.(mp4|webm|mkv)$/i.test(gif.filename);
+        const isVideo = isVideoFilename(gif.filename);
         const lbIdx = lbItems.length;
         lbItems.push({ src: url, type: isVideo ? 'video' : 'image', label: `${title} — ${gif.filename}`,
           name: gif.filename, subfolder: gif.subfolder || '', source: gif.type || 'output' });

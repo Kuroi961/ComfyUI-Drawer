@@ -558,6 +558,159 @@ class GadgetLabelSafetyTests(unittest.TestCase):
         self.assertIn("labelSpan.textContent = labelText", source)
 
 
+class DrawerShellLoadingGateTests(unittest.TestCase):
+    """The loading overlay must stay up — and the tab bar must stay hidden —
+    until the platform marks itself ready, not until the first gadget
+    registers. Built-in gadgets are loaded via setTimeout + requestIdleCallback,
+    so an external gadget that registers synchronously in `setup()` would
+    otherwise flip `#loading = false` first and surface its tab alone behind
+    the loading overlay (see the screenshot in the v2.1.8+ post-release
+    handoff).
+    """
+
+    def test_register_gadget_does_not_clear_loading_flag(self):
+        source = (REPO_ROOT / "web" / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8")
+        # Find the registerGadget method body and assert no #loading assignment inside it.
+        import re
+        m = re.search(r'registerGadget\s*\([^)]*\)\s*\{(.*?)\n    \}', source, re.DOTALL)
+        self.assertIsNotNone(m, "registerGadget method not found")
+        body = m.group(1)
+        self.assertNotRegex(body, r'this\.#loading\s*=\s*false',
+            "registerGadget must not clear #loading — only markReady() should.")
+
+    def test_shell_exposes_mark_ready(self):
+        source = (REPO_ROOT / "web" / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8")
+        self.assertRegex(source, r'\bmarkReady\s*\(\s*\)\s*\{')
+        # markReady must clear the flag and re-render so any external gadgets
+        # registered during loading become visible together with the built-ins.
+        import re
+        m = re.search(r'markReady\s*\(\s*\)\s*\{(.*?)\n    \}', source, re.DOTALL)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("this.#loading = false", body)
+        self.assertIn("this.#renderTabs()", body)
+
+    def test_loading_class_does_not_depend_on_gadget_count(self):
+        """If the loading class only applies when gadgets.length === 0,
+        an external gadget that registers first leaves the tab bar exposed
+        behind the overlay. The class must be driven by #loading alone.
+        """
+        source = (REPO_ROOT / "web" / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8")
+        self.assertNotIn("gadgets.length === 0", source,
+            "Tab loading gate must not depend on gadget count.")
+        self.assertRegex(source, r"classList\.toggle\(\s*'loading'\s*,\s*this\.#loading\s*\)")
+
+    def test_platform_calls_mark_ready_after_built_in_registration(self):
+        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        self.assertIn("shell.markReady()", source,
+            "comfy-drawer.js must call shell.markReady() after the built-in registration pass.")
+
+
+class GallerySelectModeExitTests(unittest.TestCase):
+    """Cards are wired at render time from `selectMode`: in select mode a card
+    gets `onClick -> #toggleSelect` and loses its lightbox, drag, long-press and
+    context-menu bindings. #syncCardModeDecorations only repaints CSS classes,
+    so any path that leaves select mode without re-rendering the grid leaves
+    every surviving card inert — after a multi-select delete the user could
+    neither select nor open the lightbox again.
+    """
+
+    @staticmethod
+    def _method_body(source, name):
+        import re
+        m = re.search(r'\n    (?:async )?' + re.escape(name) + r'\s*\([^)]*\)\s*\{(.*?)\n    \}', source, re.DOTALL)
+        return m.group(1) if m else None
+
+    def setUp(self):
+        self.source = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
+
+    def test_delete_selected_rerenders_grid_after_leaving_select_mode(self):
+        body = self._method_body(self.source, "#deleteSelected")
+        self.assertIsNotNone(body, "#deleteSelected method not found")
+        self.assertIn("this.#state.selectMode = false", body)
+        self.assertIn("this.#renderGrid()", body,
+            "#deleteSelected must rebuild the grid after leaving select mode, "
+            "otherwise surviving cards keep their select-mode click wiring.")
+        select_off = body.index("this.#state.selectMode = false")
+        self.assertGreater(body.index("this.#renderGrid()"), select_off,
+            "The rebuild must happen after selectMode is cleared so cards are wired for browse mode.")
+
+    def test_delete_selected_preserves_scroll_position(self):
+        body = self._method_body(self.source, "#deleteSelected")
+        self.assertIsNotNone(body)
+        self.assertIn("this.#el.content?.scrollTop", body,
+            "#deleteSelected must capture the scroll offset before rebuilding the grid.")
+        self.assertIn("this.#restoreContentScroll(", body,
+            "#deleteSelected must restore the captured scroll offset after rebuilding.")
+
+    def test_sync_card_mode_decorations_is_class_only(self):
+        """Guard the assumption behind the fix: this helper repaints classes and
+        check marks only, so it can never substitute for a re-render."""
+        body = self._method_body(self.source, "#syncCardModeDecorations")
+        self.assertIsNotNone(body, "#syncCardModeDecorations method not found")
+        self.assertNotIn("addEventListener", body)
+        self.assertNotIn("#createFileCard", body)
+
+    def test_restore_content_scroll_clamps_to_content_height(self):
+        body = self._method_body(self.source, "#restoreContentScroll")
+        self.assertIsNotNone(body, "#restoreContentScroll helper not found")
+        self.assertIn("requestAnimationFrame", body)
+        self.assertIn("scrollHeight", body)
+        self.assertIn("clientHeight", body)
+
+
+class DeckVideoOutputTests(unittest.TestCase):
+    """ComfyCore ships videos through a node's `ui.images` list: SaveVideo and
+    SaveWEBM return `ui.PreviewVideo`, which serialises as
+    `{"images": [...], "animated": (True,)}`. The Deck used to render every
+    `output.images` entry as an <img>, so a saved .mp4 produced a broken card
+    and a blank lightbox. Media type must be derived from the filename.
+    """
+
+    def setUp(self):
+        self.source = (REPO_ROOT / "web" / "gadgets" / "deck" / "deck-gadget.js").read_text(encoding="utf-8")
+
+    def _build_node_output_body(self):
+        import re
+        m = re.search(r'\n  #buildNodeOutput\s*\([^)]*\)\s*\{(.*?)\n  \}', self.source, re.DOTALL)
+        self.assertIsNotNone(m, "#buildNodeOutput method not found")
+        return m.group(1)
+
+    def test_video_extension_pattern_covers_core_containers(self):
+        import re
+        m = re.search(r'const VIDEO_FILE_RE = /(.+?)/i;', self.source)
+        self.assertIsNotNone(m, "VIDEO_FILE_RE not found")
+        pattern = re.compile(m.group(1), re.IGNORECASE)
+        for name in ("ComfyUI_00001_.mp4", "a.webm", "a.mkv", "a.mov", "a.m4v", "a.AVI"):
+            self.assertTrue(pattern.search(name), f"{name} should be treated as video")
+        # Animated images render fine inside an <img> and must stay images.
+        for name in ("a.png", "a.gif", "a.webp", "a.jpg", "mp4.png"):
+            self.assertFalse(pattern.search(name), f"{name} must stay an image")
+
+    def test_images_branch_derives_media_type_from_filename(self):
+        body = self._build_node_output_body()
+        self.assertIn("isVideoFilename(img.filename)", body,
+            "The images branch must detect video files instead of assuming <img>.")
+        self.assertNotIn("mediaType: 'image'", body,
+            "The images branch must not hardcode mediaType: 'image'.")
+
+    def test_images_branch_lightbox_item_uses_derived_type(self):
+        """The lightbox picks <video> vs <img> from the item's `type`, so a
+        hardcoded 'image' leaves a saved video unplayable in the lightbox."""
+        import re
+        body = self._build_node_output_body()
+        images_branch = body.split("// Videos / GIFs")[0]
+        self.assertIn("lbItems.push", images_branch)
+        self.assertNotRegex(images_branch, r"lbItems\.push\(\{[^}]*type:\s*'image'",
+            "The lightbox item must carry the derived media type, not a literal 'image'.")
+        self.assertRegex(images_branch, r"lbItems\.push\(\{[^}]*type:\s*mediaType")
+
+    def test_video_detection_is_not_duplicated_inline(self):
+        self.assertNotIn("/\\.(mp4|webm|mkv)$/i", self.source,
+            "Use the shared isVideoFilename() helper instead of an inline regex.")
+        self.assertEqual(self.source.count("const VIDEO_FILE_RE"), 1)
+
+
 class DialogHistoryHygieneTests(unittest.TestCase):
     """Dialog history pollution was previously "fixed" by calling
     history.back() on dismiss, but that triggered DrawerShell's own

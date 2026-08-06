@@ -1562,6 +1562,7 @@ app.registerExtension({
                 }
             }
             bootPlaceholder?.remove();
+            shell.markReady();
         };
         const scheduleBuiltInGadgets = () => {
             if ('requestIdleCallback' in window) {

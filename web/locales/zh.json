@@ -339,6 +339,8 @@
     "link": "链接",
     "openInCivitai": "在 CivitAI 打开 ↗",
     "civitaiSync": "从 CivitAI 获取信息",
+    "civitaiSyncShort": "CivitAI 同步",
+    "civitaiBatchSync": "CivitAI 批量同步",
     "civitaiResync": "重新同步 CivitAI",
     "civitaiBatchWarn": "此分类中有 {count} 个模型。全部同步可能需要几分钟。是否继续？",
     "civitaiBatchComplete": "已同步 {synced} 个，未找到 {failed} 个",
