@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.9 - 2026-08-06
 
 ### Deck
 
