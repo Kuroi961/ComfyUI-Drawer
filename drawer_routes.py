@@ -75,6 +75,7 @@ from .media_metadata import (
     read_media_meta_with_source as _read_media_meta_with_source,
 )
 from .prompt_processor import setup_prompt_processing
+from . import progress_relay
 from .request_guards import require_same_origin as _require_same_origin
 from .search_query import (
     extract_searchable_parts as _extract_searchable_parts,
@@ -133,6 +134,21 @@ def _standalone_page_path():
     except Exception:
         pass
     return f"extensions/{urllib.parse.quote(key)}/standalone.html"
+
+
+progress_relay.install(server.PromptServer.instance)
+
+
+@_routes.get("/drawer/workflows/names")
+async def get_workflow_names(request):
+    """Map saved workflow ids to their paths, for naming runs in the progress UI."""
+    try:
+        workflows_dir = server.PromptServer.instance.user_manager.get_request_user_filepath(
+            request, "workflows", create_dir=False)
+        names = await asyncio.to_thread(progress_relay.workflow_names, workflows_dir)
+    except Exception as exc:
+        return _internal_error(exc, where="workflow names")
+    return web.json_response(names)
 
 
 @_routes.get("/drawer/app")
