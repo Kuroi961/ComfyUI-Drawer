@@ -1,0 +1,5135 @@
+{
+ "source": "drawer-tutorial-deck-en.json",
+ "frontendVersion": "1.55.17",
+ "workflow": {
+  "id": "683b9d53-eaa4-4376-8022-c15f2ffe309f",
+  "revision": 0,
+  "last_node_id": 89,
+  "last_link_id": 39,
+  "nodes": [
+   {
+    "id": 7,
+    "type": "Note",
+    "pos": [
+     200,
+     1750
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 0,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "Example",
+    "properties": {},
+    "widgets_values": [
+     "This node is not shown on the main screen."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 2,
+    "type": "Note",
+    "pos": [
+     200,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 1,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "Nodes with 📝 in their title appear on the Deck main screen.\nNodes without 📝 can be toggled via the icon at the bottom-left of the Deck.\nGroups are shown automatically if they contain displayable nodes."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 3,
+    "type": "Note",
+    "pos": [
+     580,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 2,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝⚡Description",
+    "properties": {},
+    "widgets_values": [
+     "Nodes and groups with ⚡️ in their title show a bypass toggle switch."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 8,
+    "type": "Note",
+    "pos": [
+     960,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 3,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Description",
+    "properties": {},
+    "widgets_values": [
+     "Adding any [label] at the start of a node or group title makes it an exclusive bypass switch. Namespaces are separated between nodes and groups, and node scope is limited to the group it belongs to."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 31,
+    "type": "PrimitiveString",
+    "pos": [
+     3740,
+     1750
+    ],
+    "size": [
+     270,
+     60
+    ],
+    "flags": {},
+    "order": 4,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       3
+      ]
+     }
+    ],
+    "title": "📝String 1",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     "String 1"
+    ]
+   },
+   {
+    "id": 33,
+    "type": "PrimitiveString",
+    "pos": [
+     3740,
+     1950
+    ],
+    "size": [
+     270,
+     60
+    ],
+    "flags": {},
+    "order": 5,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       5
+      ]
+     }
+    ],
+    "title": "📝String 3",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     "String 3"
+    ]
+   },
+   {
+    "id": 32,
+    "type": "PrimitiveString",
+    "pos": [
+     3740,
+     1850
+    ],
+    "size": [
+     270,
+     60
+    ],
+    "flags": {},
+    "order": 6,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       4
+      ]
+     }
+    ],
+    "title": "📝String 2",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     "String 2"
+    ]
+   },
+   {
+    "id": 40,
+    "type": "PrimitiveString",
+    "pos": [
+     4120,
+     1750
+    ],
+    "size": [
+     270,
+     60
+    ],
+    "flags": {},
+    "order": 7,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       9
+      ]
+     }
+    ],
+    "title": "📝⚡️String 1",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     "String 1"
+    ]
+   },
+   {
+    "id": 11,
+    "type": "Note",
+    "pos": [
+     440,
+     2060
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 8,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "Nodes are displayed in Y-coordinate order, and groups are displayed in X-coordinate order."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 12,
+    "type": "Note",
+    "pos": [
+     700,
+     2190
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 9,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Example 1",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 41,
+    "type": "PrimitiveString",
+    "pos": [
+     4120,
+     1850
+    ],
+    "size": [
+     270,
+     60
+    ],
+    "flags": {},
+    "order": 10,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       10
+      ]
+     }
+    ],
+    "title": "📝⚡️String 2",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     "String 2"
+    ]
+   },
+   {
+    "id": 38,
+    "type": "Note",
+    "pos": [
+     4120,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 11,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "A simplified and extended version of ComfySwitchNode. It searches from bottom to top and returns the first non-empty output. Switch (Drawer) is type-safe in V3, but has only two inputs. Switch Chain (Drawer) supports variable-length inputs, but is not type-safe.\nNote: CLIPTextEncode is not considered empty even when the text field is blank."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 52,
+    "type": "PrimitiveStringMultiline",
+    "pos": [
+     2420,
+     1620
+    ],
+    "size": [
+     330,
+     90
+    ],
+    "flags": {},
+    "order": 12,
+    "mode": 0,
+    "inputs": [
+     {
+      "label": "string",
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       22
+      ]
+     }
+    ],
+    "title": "📝Description",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveStringMultiline"
+    },
+    "widgets_values": [
+     "This is not a comment.//Nor is this.  //This is a comment\nThis is not a comment.  # Nor is this.\n# This is a comment\nThis is not a comment, but /* this is a comment */. Drawer's comment processing can be disabled from the tab bar > burger menu > Settings.\n(Unescaped, so this acts as emphasis syntax in CLIPTextEncode)\n\\(This is escaped\\)\nValid __wildcards__ are highlighted."
+    ]
+   },
+   {
+    "id": 19,
+    "type": "PrimitiveStringMultiline",
+    "pos": [
+     2060,
+     1620
+    ],
+    "size": [
+     330,
+     90
+    ],
+    "flags": {},
+    "order": 13,
+    "mode": 0,
+    "inputs": [
+     {
+      "label": "string",
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       7
+      ]
+     }
+    ],
+    "title": "📝Description",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveStringMultiline"
+    },
+    "widgets_values": [
+     "A small ▸ mark appears at the start of output node titles.\nRight-click / long-tap an output node title to execute it partially.\nNote: PreviewAny values can be copied via the context menu on the Deck."
+    ]
+   },
+   {
+    "id": 47,
+    "type": "CLIPLoader",
+    "pos": [
+     4120,
+     2220
+    ],
+    "size": [
+     270,
+     110
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 14,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "clip名",
+      "name": "clip_name",
+      "type": "COMBO",
+      "widget": {
+       "name": "clip_name"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "タイプ",
+      "name": "type",
+      "type": "COMBO",
+      "widget": {
+       "name": "type"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "デバイス",
+      "name": "device",
+      "shape": 7,
+      "type": "COMBO",
+      "widget": {
+       "name": "device"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "CLIP",
+      "name": "CLIP",
+      "type": "CLIP",
+      "links": [
+       12,
+       13
+      ]
+     }
+    ],
+    "title": "📝CLIPLoader",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "CLIPLoader"
+    },
+    "widgets_values": [
+     "qwen_3_06b_base.safetensors",
+     "stable_diffusion",
+     "default"
+    ]
+   },
+   {
+    "id": 15,
+    "type": "Note",
+    "pos": [
+     1820,
+     1620
+    ],
+    "size": [
+     210,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 15,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description\\📝\\⚡️",
+    "properties": {},
+    "widgets_values": [
+     "\\📝 and \\⚡️ can be used to escape the markers."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 71,
+    "type": "Note",
+    "pos": [
+     1340,
+     1620
+    ],
+    "size": [
+     210,
+     90
+    ],
+    "flags": {},
+    "order": 16,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Example 1",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 72,
+    "type": "Note",
+    "pos": [
+     1340,
+     1750
+    ],
+    "size": [
+     210,
+     90
+    ],
+    "flags": {},
+    "order": 17,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Example 2",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 10,
+    "type": "Note",
+    "pos": [
+     1580,
+     1620
+    ],
+    "size": [
+     210,
+     90
+    ],
+    "flags": {},
+    "order": 18,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝⚡️Example",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 73,
+    "type": "Note",
+    "pos": [
+     1340,
+     1880
+    ],
+    "size": [
+     210,
+     90
+    ],
+    "flags": {},
+    "order": 19,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Example 3",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 13,
+    "type": "Note",
+    "pos": [
+     330,
+     2310
+    ],
+    "size": [
+     510,
+     90
+    ],
+    "flags": {},
+    "order": 20,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Example 2",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 74,
+    "type": "Note",
+    "pos": [
+     960,
+     1880
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 21,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Example 2",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 21,
+    "type": "DrawerSeed",
+    "pos": [
+     2780,
+     1770
+    ],
+    "size": [
+     260,
+     90
+    ],
+    "flags": {},
+    "order": 22,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "seed_value",
+      "name": "seed_value",
+      "type": "INT",
+      "widget": {
+       "name": "seed_value"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "mode",
+      "name": "mode",
+      "shape": 7,
+      "type": "COMBO",
+      "widget": {
+       "name": "mode"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "seed",
+      "name": "seed",
+      "type": "INT",
+      "links": null
+     }
+    ],
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerSeed",
+     "ver": "31154e4c10177729d31ee51b5002563ca20f2d96"
+    },
+    "widgets_values": [
+     3638847588,
+     "randomize"
+    ]
+   },
+   {
+    "id": 69,
+    "type": "Note",
+    "pos": [
+     960,
+     1750
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 23,
+    "mode": 4,
+    "inputs": [],
+    "outputs": [],
+    "title": "[sample]📝Example 1",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 56,
+    "type": "DrawerSize",
+    "pos": [
+     3070,
+     1770
+    ],
+    "size": [
+     260,
+     190
+    ],
+    "flags": {},
+    "order": 24,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ratio_",
+      "name": "ratio_",
+      "type": "COMBO",
+      "widget": {
+       "name": "ratio_"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "megapixels_",
+      "name": "megapixels_",
+      "type": "FLOAT",
+      "widget": {
+       "name": "megapixels_"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "width_",
+      "name": "width_",
+      "type": "INT",
+      "widget": {
+       "name": "width_"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "height_",
+      "name": "height_",
+      "type": "INT",
+      "widget": {
+       "name": "height_"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "width",
+      "name": "width",
+      "type": "INT",
+      "links": null
+     },
+     {
+      "localized_name": "height",
+      "name": "height",
+      "type": "INT",
+      "links": null
+     },
+     {
+      "localized_name": "megapixels",
+      "name": "megapixels",
+      "type": "FLOAT",
+      "links": null
+     },
+     {
+      "localized_name": "ratio",
+      "name": "ratio",
+      "type": "COMBO",
+      "links": null
+     }
+    ],
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerSize",
+     "ver": "620a4aca7d627530b9cc4bb6387c9751ae9c495d"
+    },
+    "widgets_values": [
+     "1:1",
+     1,
+     1024,
+     1024
+    ]
+   },
+   {
+    "id": 63,
+    "type": "Note",
+    "pos": [
+     2780,
+     1620
+    ],
+    "size": [
+     260,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 25,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "A simple seed generator with a dedicated Drawer UI."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 68,
+    "type": "Note",
+    "pos": [
+     580,
+     1750
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 26,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝⚡️Example",
+    "properties": {},
+    "widgets_values": [
+     ""
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 64,
+    "type": "Note",
+    "pos": [
+     3070,
+     1620
+    ],
+    "size": [
+     260,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 27,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "Determines the size from an aspect ratio and megapixel count."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 29,
+    "type": "Note",
+    "pos": [
+     3740,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 28,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "An extended version of StringConcatenate. Supports variable-length inputs. Empty inputs are skipped, preventing extra delimiters from being inserted."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 30,
+    "type": "DrawerConcat",
+    "pos": [
+     3740,
+     2070
+    ],
+    "size": [
+     210,
+     142
+    ],
+    "flags": {},
+    "order": 32,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "string_1",
+      "name": "string_1",
+      "shape": 7,
+      "type": "STRING",
+      "link": 3
+     },
+     {
+      "localized_name": "string_2",
+      "name": "string_2",
+      "shape": 7,
+      "type": "STRING",
+      "link": 4
+     },
+     {
+      "localized_name": "string_3",
+      "name": "string_3",
+      "shape": 7,
+      "type": "STRING",
+      "link": 5
+     },
+     {
+      "localized_name": "string_4",
+      "name": "string_4",
+      "shape": 7,
+      "type": "STRING",
+      "link": null
+     },
+     {
+      "localized_name": "delimiter",
+      "name": "delimiter",
+      "type": "STRING",
+      "widget": {
+       "name": "delimiter"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "skip_empty",
+      "name": "skip_empty",
+      "type": "BOOLEAN",
+      "widget": {
+       "name": "skip_empty"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": [
+       6
+      ]
+     }
+    ],
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerConcat",
+     "ver": "31154e4c10177729d31ee51b5002563ca20f2d96"
+    },
+    "widgets_values": [
+     ", ",
+     true
+    ]
+   },
+   {
+    "id": 37,
+    "type": "DrawerSwitch",
+    "pos": [
+     4120,
+     1970
+    ],
+    "size": [
+     170,
+     50
+    ],
+    "flags": {},
+    "order": 33,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "A",
+      "name": "A",
+      "shape": 7,
+      "type": "STRING",
+      "link": 9
+     },
+     {
+      "localized_name": "B",
+      "name": "B",
+      "shape": 7,
+      "type": "STRING",
+      "link": 10
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "output",
+      "name": "output",
+      "type": "STRING",
+      "links": [
+       11
+      ]
+     }
+    ],
+    "title": "Switch (Drawer)",
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerSwitch",
+     "ver": "31154e4c10177729d31ee51b5002563ca20f2d96"
+    },
+    "widgets_values": []
+   },
+   {
+    "id": 53,
+    "type": "PreviewAny",
+    "pos": [
+     2420,
+     1750
+    ],
+    "size": [
+     330,
+     120
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 34,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ソース",
+      "name": "source",
+      "type": "*",
+      "link": 22
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "title": "📝PreviewAny",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PreviewAny"
+    },
+    "widgets_values": [
+     null,
+     null,
+     null
+    ]
+   },
+   {
+    "id": 36,
+    "type": "PreviewAny",
+    "pos": [
+     2060,
+     1750
+    ],
+    "size": [
+     330,
+     120
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 35,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ソース",
+      "name": "source",
+      "type": "*",
+      "link": 7
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "title": "📝PreviewAny",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PreviewAny"
+    },
+    "widgets_values": [
+     null,
+     null,
+     null
+    ]
+   },
+   {
+    "id": 46,
+    "type": "CLIPTextEncode",
+    "pos": [
+     4120,
+     2370
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 36,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "クリップ",
+      "name": "clip",
+      "type": "CLIP",
+      "link": 12
+     },
+     {
+      "localized_name": "テキスト",
+      "name": "text",
+      "type": "STRING",
+      "widget": {
+       "name": "text"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "条件付け",
+      "name": "CONDITIONING",
+      "type": "CONDITIONING",
+      "links": [
+       19
+      ]
+     }
+    ],
+    "title": "📝⚡️CLIPTextEncode 1",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "CLIPTextEncode"
+    },
+    "widgets_values": [
+     "CLIPTextEncode 1"
+    ]
+   },
+   {
+    "id": 77,
+    "type": "DrawerControls8",
+    "pos": [
+     3360,
+     1770
+    ],
+    "size": [
+     350,
+     560
+    ],
+    "flags": {},
+    "order": 29,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "value_1",
+      "name": "value_1",
+      "type": "STRING",
+      "widget": {
+       "name": "value_1"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_1",
+      "name": "def_1",
+      "type": "STRING",
+      "widget": {
+       "name": "def_1"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_2",
+      "name": "value_2",
+      "type": "STRING",
+      "widget": {
+       "name": "value_2"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_2",
+      "name": "def_2",
+      "type": "STRING",
+      "widget": {
+       "name": "def_2"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_3",
+      "name": "value_3",
+      "type": "STRING",
+      "widget": {
+       "name": "value_3"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_3",
+      "name": "def_3",
+      "type": "STRING",
+      "widget": {
+       "name": "def_3"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_4",
+      "name": "value_4",
+      "type": "STRING",
+      "widget": {
+       "name": "value_4"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_4",
+      "name": "def_4",
+      "type": "STRING",
+      "widget": {
+       "name": "def_4"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_5",
+      "name": "value_5",
+      "type": "STRING",
+      "widget": {
+       "name": "value_5"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_5",
+      "name": "def_5",
+      "type": "STRING",
+      "widget": {
+       "name": "def_5"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_6",
+      "name": "value_6",
+      "type": "STRING",
+      "widget": {
+       "name": "value_6"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_6",
+      "name": "def_6",
+      "type": "STRING",
+      "widget": {
+       "name": "def_6"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_7",
+      "name": "value_7",
+      "type": "STRING",
+      "widget": {
+       "name": "value_7"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_7",
+      "name": "def_7",
+      "type": "STRING",
+      "widget": {
+       "name": "def_7"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "value_8",
+      "name": "value_8",
+      "type": "STRING",
+      "widget": {
+       "name": "value_8"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "def_8",
+      "name": "def_8",
+      "type": "STRING",
+      "widget": {
+       "name": "def_8"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "value_1",
+      "name": "value_1",
+      "type": "*",
+      "links": [
+       30
+      ]
+     },
+     {
+      "localized_name": "value_2",
+      "name": "value_2",
+      "type": "*",
+      "links": [
+       31
+      ]
+     },
+     {
+      "localized_name": "value_3",
+      "name": "value_3",
+      "type": "*",
+      "links": [
+       34
+      ]
+     },
+     {
+      "localized_name": "value_4",
+      "name": "value_4",
+      "type": "*",
+      "links": [
+       36
+      ]
+     },
+     {
+      "localized_name": "value_5",
+      "name": "value_5",
+      "type": "*",
+      "links": [
+       39
+      ]
+     },
+     {
+      "localized_name": "value_6",
+      "name": "value_6",
+      "type": "*",
+      "links": [
+       38
+      ]
+     },
+     {
+      "localized_name": "value_7",
+      "name": "value_7",
+      "type": "*",
+      "links": []
+     },
+     {
+      "localized_name": "value_8",
+      "name": "value_8",
+      "type": "*",
+      "links": []
+     }
+    ],
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerControls8",
+     "ver": "c0558730e119b12d2789e7c5fcb7a63e34eeb9b5"
+    },
+    "widgets_values": [
+     "5",
+     "int | INT Slider | 1 | 10 | 1",
+     "5",
+     "float | FLOAT Slider | 1 | 10 | 0.1 | 1",
+     "String",
+     "string | String",
+     "String multiline",
+     "string | String multiline | multiline",
+     "true",
+     "boolean | BOOLEAN",
+     "euler",
+     "combo | COMBO Selector",
+     "",
+     "",
+     "",
+     ""
+    ]
+   },
+   {
+    "id": 48,
+    "type": "CLIPTextEncode",
+    "pos": [
+     4120,
+     2500
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 37,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "クリップ",
+      "name": "clip",
+      "type": "CLIP",
+      "link": 13
+     },
+     {
+      "localized_name": "テキスト",
+      "name": "text",
+      "type": "STRING",
+      "widget": {
+       "name": "text"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "条件付け",
+      "name": "CONDITIONING",
+      "type": "CONDITIONING",
+      "links": [
+       21
+      ]
+     }
+    ],
+    "title": "📝⚡️CLIPTextEncode 2",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "CLIPTextEncode"
+    },
+    "widgets_values": [
+     ""
+    ]
+   },
+   {
+    "id": 42,
+    "type": "PreviewAny",
+    "pos": [
+     4120,
+     2060
+    ],
+    "size": [
+     350,
+     120
+    ],
+    "flags": {},
+    "order": 43,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ソース",
+      "name": "source",
+      "type": "*",
+      "link": 11
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "title": "📝Result",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PreviewAny"
+    },
+    "widgets_values": [
+     null,
+     null,
+     null
+    ]
+   },
+   {
+    "id": 49,
+    "type": "DrawerSwitch",
+    "pos": [
+     4120,
+     2650
+    ],
+    "size": [
+     170,
+     50
+    ],
+    "flags": {},
+    "order": 44,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "A",
+      "name": "A",
+      "shape": 7,
+      "type": "CONDITIONING",
+      "link": 19
+     },
+     {
+      "localized_name": "B",
+      "name": "B",
+      "shape": 7,
+      "type": "CONDITIONING",
+      "link": 21
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "output",
+      "name": "output",
+      "type": "CONDITIONING",
+      "links": [
+       18
+      ]
+     }
+    ],
+    "title": "Switch (Drawer)",
+    "properties": {
+     "aux_id": "Kuroi961/ComfyUI-Drawer",
+     "Node name for S&R": "DrawerSwitch",
+     "ver": "31154e4c10177729d31ee51b5002563ca20f2d96"
+    },
+    "widgets_values": []
+   },
+   {
+    "id": 50,
+    "type": "PreviewAny",
+    "pos": [
+     4120,
+     2740
+    ],
+    "size": [
+     350,
+     120
+    ],
+    "flags": {},
+    "order": 45,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ソース",
+      "name": "source",
+      "type": "*",
+      "link": 18
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "title": "📝Result",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PreviewAny"
+    },
+    "widgets_values": [
+     null,
+     null,
+     null
+    ]
+   },
+   {
+    "id": 80,
+    "type": "PrimitiveString",
+    "pos": [
+     3360,
+     2370
+    ],
+    "size": [
+     350,
+     60
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 38,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": 34
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.20.1",
+     "Node name for S&R": "PrimitiveString"
+    },
+    "widgets_values": [
+     ""
+    ]
+   },
+   {
+    "id": 82,
+    "type": "PrimitiveStringMultiline",
+    "pos": [
+     3360,
+     2470
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {},
+    "order": 39,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "STRING",
+      "widget": {
+       "name": "value"
+      },
+      "link": 36
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.20.1",
+     "Node name for S&R": "PrimitiveStringMultiline"
+    },
+    "widgets_values": [
+     ""
+    ]
+   },
+   {
+    "id": 34,
+    "type": "PreviewAny",
+    "pos": [
+     3740,
+     2250
+    ],
+    "size": [
+     350,
+     120
+    ],
+    "flags": {},
+    "order": 42,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "ソース",
+      "name": "source",
+      "type": "*",
+      "link": 6
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "文字列",
+      "name": "STRING",
+      "type": "STRING",
+      "links": null
+     }
+    ],
+    "title": "📝Result",
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PreviewAny"
+    },
+    "widgets_values": [
+     null,
+     null,
+     null
+    ]
+   },
+   {
+    "id": 61,
+    "type": "KSampler",
+    "pos": [
+     3360,
+     2600
+    ],
+    "size": [
+     350,
+     270
+    ],
+    "flags": {},
+    "order": 41,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "モデル",
+      "name": "model",
+      "type": "MODEL",
+      "link": null
+     },
+     {
+      "localized_name": "ポジティブ",
+      "name": "positive",
+      "type": "CONDITIONING",
+      "link": null
+     },
+     {
+      "localized_name": "ネガティブ",
+      "name": "negative",
+      "type": "CONDITIONING",
+      "link": null
+     },
+     {
+      "localized_name": "潜在画像",
+      "name": "latent_image",
+      "type": "LATENT",
+      "link": null
+     },
+     {
+      "localized_name": "シード",
+      "name": "seed",
+      "type": "INT",
+      "widget": {
+       "name": "seed"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "ステップ",
+      "name": "steps",
+      "type": "INT",
+      "widget": {
+       "name": "steps"
+      },
+      "link": 30
+     },
+     {
+      "localized_name": "cfg",
+      "name": "cfg",
+      "type": "FLOAT",
+      "widget": {
+       "name": "cfg"
+      },
+      "link": 31
+     },
+     {
+      "localized_name": "サンプラー名",
+      "name": "sampler_name",
+      "type": "COMBO",
+      "widget": {
+       "name": "sampler_name"
+      },
+      "link": 38
+     },
+     {
+      "localized_name": "スケジューラ",
+      "name": "scheduler",
+      "type": "COMBO",
+      "widget": {
+       "name": "scheduler"
+      },
+      "link": null
+     },
+     {
+      "localized_name": "ノイズ除去",
+      "name": "denoise",
+      "type": "FLOAT",
+      "widget": {
+       "name": "denoise"
+      },
+      "link": null
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "潜在",
+      "name": "LATENT",
+      "type": "LATENT",
+      "links": null
+     }
+    ],
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "KSampler"
+    },
+    "widgets_values": [
+     0,
+     "randomize",
+     20,
+     8,
+     "euler",
+     "simple",
+     1
+    ]
+   },
+   {
+    "id": 62,
+    "type": "PrimitiveBoolean",
+    "pos": [
+     3360,
+     2910
+    ],
+    "size": [
+     350,
+     60
+    ],
+    "flags": {},
+    "order": 40,
+    "mode": 0,
+    "inputs": [
+     {
+      "localized_name": "値",
+      "name": "value",
+      "type": "BOOLEAN",
+      "widget": {
+       "name": "value"
+      },
+      "link": 39
+     }
+    ],
+    "outputs": [
+     {
+      "localized_name": "ブール",
+      "name": "BOOLEAN",
+      "type": "BOOLEAN",
+      "links": null
+     }
+    ],
+    "properties": {
+     "cnr_id": "comfy-core",
+     "ver": "0.19.3",
+     "Node name for S&R": "PrimitiveBoolean"
+    },
+    "widgets_values": [
+     false
+    ]
+   },
+   {
+    "id": 14,
+    "type": "Note",
+    "pos": [
+     860,
+     2380
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 30,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Example 3",
+    "properties": {},
+    "widgets_values": [
+     "This node does not belong to any group.\nNodes not in any group are displayed last, grouped together."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   },
+   {
+    "id": 66,
+    "type": "Note",
+    "pos": [
+     3360,
+     1620
+    ],
+    "size": [
+     350,
+     90
+    ],
+    "flags": {
+     "collapsed": false
+    },
+    "order": 31,
+    "mode": 0,
+    "inputs": [],
+    "outputs": [],
+    "title": "📝Description",
+    "properties": {},
+    "widgets_values": [
+     "A node for configuring INT, FLOAT, STRING, BOOLEAN, and COMBO values in one place. Numeric types include sliders. Each value is paired with its UI definition. Outputs that are not connected, or definitions with invalid syntax, are hidden.\n\nSyntax:\nint | label name | min | max | step\nfloat | label name | min | max | step | round\nstring | label name\nstring | label name | multiline\nboolean | label name\ncombo | label name | (fallback 1) | (fallback 2) | ..."
+    ],
+    "color": "#432",
+    "bgcolor": "#653"
+   }
+  ],
+  "links": [
+   [
+    3,
+    31,
+    0,
+    30,
+    0,
+    "STRING"
+   ],
+   [
+    4,
+    32,
+    0,
+    30,
+    1,
+    "STRING"
+   ],
+   [
+    5,
+    33,
+    0,
+    30,
+    2,
+    "STRING"
+   ],
+   [
+    6,
+    30,
+    0,
+    34,
+    0,
+    "STRING"
+   ],
+   [
+    7,
+    19,
+    0,
+    36,
+    0,
+    "STRING"
+   ],
+   [
+    9,
+    40,
+    0,
+    37,
+    0,
+    "STRING"
+   ],
+   [
+    10,
+    41,
+    0,
+    37,
+    1,
+    "STRING"
+   ],
+   [
+    11,
+    37,
+    0,
+    42,
+    0,
+    "STRING"
+   ],
+   [
+    12,
+    47,
+    0,
+    46,
+    0,
+    "CLIP"
+   ],
+   [
+    13,
+    47,
+    0,
+    48,
+    0,
+    "CLIP"
+   ],
+   [
+    18,
+    49,
+    0,
+    50,
+    0,
+    "CONDITIONING"
+   ],
+   [
+    19,
+    46,
+    0,
+    49,
+    0,
+    "CONDITIONING"
+   ],
+   [
+    21,
+    48,
+    0,
+    49,
+    1,
+    "CONDITIONING"
+   ],
+   [
+    22,
+    52,
+    0,
+    53,
+    0,
+    "STRING"
+   ],
+   [
+    30,
+    77,
+    0,
+    61,
+    5,
+    "INT"
+   ],
+   [
+    31,
+    77,
+    1,
+    61,
+    6,
+    "FLOAT"
+   ],
+   [
+    34,
+    77,
+    2,
+    80,
+    0,
+    "STRING"
+   ],
+   [
+    36,
+    77,
+    3,
+    82,
+    0,
+    "STRING"
+   ],
+   [
+    38,
+    77,
+    5,
+    61,
+    7,
+    "COMBO"
+   ],
+   [
+    39,
+    77,
+    4,
+    62,
+    0,
+    "BOOLEAN"
+   ]
+  ],
+  "groups": [
+   {
+    "id": 1,
+    "title": "How to display nodes",
+    "bounding": [
+     190,
+     1550,
+     370,
+     300
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 2,
+    "title": "[sample]Exclusive bypass-A",
+    "bounding": [
+     950,
+     1550,
+     370,
+     430
+    ],
+    "color": "#88A",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 3,
+    "title": "⚡️Single bypass",
+    "bounding": [
+     570,
+     1550,
+     370,
+     300
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 4,
+    "title": "[sample]Exclusive bypass-B",
+    "bounding": [
+     1330,
+     1550,
+     230,
+     430
+    ],
+    "color": "#88A",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 5,
+    "title": "[sample]Exclusive bypass-C",
+    "bounding": [
+     1570,
+     1550,
+     230,
+     170
+    ],
+    "color": "#88A",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 6,
+    "title": "Displaying order",
+    "bounding": [
+     320,
+     1990,
+     740,
+     420
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 7,
+    "title": "Escape \\📝\\⚡️",
+    "bounding": [
+     1810,
+     1550,
+     230,
+     170
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 8,
+    "title": "Output node and partial execution",
+    "bounding": [
+     2050,
+     1550,
+     350,
+     330
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 9,
+    "title": "Seed (Drawer)",
+    "bounding": [
+     2770,
+     1550,
+     280,
+     320
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 10,
+    "title": "Concat (Drawer)",
+    "bounding": [
+     3730,
+     1550,
+     370,
+     830
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 11,
+    "title": "Switch (Drawer)",
+    "bounding": [
+     4110,
+     1550,
+     370,
+     1320
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 12,
+    "title": "Comment and syntax high light",
+    "bounding": [
+     2410,
+     1550,
+     350,
+     330
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 13,
+    "title": "Size (Drawer)",
+    "bounding": [
+     3060,
+     1550,
+     280,
+     420
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   },
+   {
+    "id": 14,
+    "title": "Controls (Drawer)",
+    "bounding": [
+     3350,
+     1550,
+     370,
+     1430
+    ],
+    "color": "#3f789e",
+    "font_size": 24,
+    "flags": {}
+   }
+  ],
+  "config": {},
+  "extra": {
+   "ds": {
+    "scale": 0.263776102088167,
+    "offset": [
+     538.3333333333339,
+     -721.7088143668681
+    ]
+   },
+   "comfyDrawer": {
+    "deckGroupExclusive": {
+     "sample": "group-[sample]Exclusive bypass-A"
+    },
+    "deckNodeExclusive": {
+     "group-[sample]Exclusive bypass-A::sample": 8,
+     "group-[sample]Exclusive bypass-B::sample": 71
+    },
+    "deckExpand": {
+     "node-14": true,
+     "node-50": true,
+     "node-48": true,
+     "node-46": true,
+     "node-47": true,
+     "node-42": true,
+     "node-41": true,
+     "node-40": true,
+     "node-38": true,
+     "group-Concat (Drawer)": true,
+     "node-34": true,
+     "node-30": true,
+     "node-33": true,
+     "node-32": true,
+     "node-31": true,
+     "node-29": true,
+     "node-77": true,
+     "node-66": true,
+     "group-Size (Drawer)": true,
+     "node-56": true,
+     "node-64": true,
+     "group-Seed (Drawer)": true,
+     "node-21": true,
+     "node-63": true,
+     "group-Comment and syntax high light": true,
+     "node-53": true,
+     "node-52": true,
+     "group-Output node and partial execution": true,
+     "node-36": true,
+     "node-19": true,
+     "group-Escape \\📝\\⚡️": true,
+     "node-15": true,
+     "group-[sample]Exclusive bypass-C": true,
+     "group-[sample]Exclusive bypass-B": true,
+     "group-[sample]Exclusive bypass-A": true,
+     "node-8": true,
+     "group-⚡️Single bypass": true,
+     "node-3": true,
+     "group-Displaying order": true,
+     "node-11": true,
+     "group-How to display nodes": true,
+     "node-2": true,
+     "node-7": true
+    }
+   }
+  },
+  "version": 0.4
+ },
+ "objectInfo": {
+  "CLIPLoader": {
+   "input": {
+    "required": {
+     "clip_name": [
+      [
+       "Krea2-Engineer-V1-bf16.safetensors",
+       "gemma-3-12b-it-ablit-norms-biproj-fp8mixed.safetensors",
+       "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+       "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
+       "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+       "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+       "qwen3vl_4b_fp8_scaled.safetensors",
+       "qwen3vl_8b_bf16.safetensors",
+       "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+       "qwen_3_06b_base.safetensors"
+      ]
+     ],
+     "type": [
+      [
+       "stable_diffusion",
+       "stable_cascade",
+       "sd3",
+       "stable_audio",
+       "mochi",
+       "ltxv",
+       "pixart",
+       "cosmos",
+       "lumina2",
+       "wan",
+       "hidream",
+       "chroma",
+       "ace",
+       "omnigen2",
+       "qwen_image",
+       "hunyuan_image",
+       "flux2",
+       "ovis",
+       "longcat_image",
+       "cogvideox",
+       "lens",
+       "pixeldit",
+       "ideogram4",
+       "boogu",
+       "krea2",
+       "joyimage",
+       "mage",
+       "minimax",
+       "yue2"
+      ]
+     ]
+    },
+    "optional": {
+     "device": [
+      [
+       "default",
+       "cpu"
+      ],
+      {
+       "advanced": true
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "clip_name",
+     "type"
+    ],
+    "optional": [
+     "device"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "CLIP"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "CLIP"
+   ],
+   "name": "CLIPLoader",
+   "display_name": "Load CLIP",
+   "description": "Recipes:\nsd: clip-l\nstable cascade: clip-g\nsd3: t5 xxl / clip-g / clip-l\nstable audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\nhidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\njoyimage: qwen3-vl 8B\nlens: gpt-oss-20b\npixeldit: gemma 2 2B elm\nminimax: MiniMax H3 Qwen3-VL or Music3 Qwen/RVQ",
+   "python_module": "nodes",
+   "category": "model/loaders",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "search_aliases": []
+  },
+  "CLIPTextEncode": {
+   "input": {
+    "required": {
+     "text": [
+      "STRING",
+      {
+       "multiline": true,
+       "dynamicPrompts": true,
+       "tooltip": "The text to be encoded."
+      }
+     ],
+     "clip": [
+      "CLIP",
+      {
+       "tooltip": "The CLIP model used for encoding the text."
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "text",
+     "clip"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "CONDITIONING"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "CONDITIONING"
+   ],
+   "name": "CLIPTextEncode",
+   "display_name": "CLIP Text Encode (Prompt)",
+   "description": "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images.",
+   "python_module": "nodes",
+   "category": "model/conditioning",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "output_tooltips": [
+    "A conditioning containing the embedded text used to guide the diffusion model."
+   ],
+   "search_aliases": [
+    "text",
+    "prompt",
+    "text prompt",
+    "positive prompt",
+    "negative prompt",
+    "encode text",
+    "text encoder",
+    "encode prompt"
+   ]
+  },
+  "DrawerConcat": {
+   "input": {
+    "required": {
+     "delimiter": [
+      "STRING",
+      {
+       "default": ", "
+      }
+     ],
+     "skip_empty": [
+      "BOOLEAN",
+      {
+       "default": true
+      }
+     ]
+    },
+    "optional": {
+     "string_1": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_2": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_3": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_4": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_5": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_6": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_7": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_8": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_9": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_10": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_11": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_12": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_13": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_14": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_15": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_16": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_17": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_18": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_19": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_20": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_21": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_22": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_23": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_24": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_25": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_26": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_27": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_28": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_29": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_30": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_31": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_32": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_33": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_34": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_35": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_36": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_37": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_38": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_39": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_40": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_41": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_42": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_43": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_44": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_45": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_46": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_47": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_48": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_49": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_50": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_51": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_52": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_53": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_54": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_55": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_56": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_57": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_58": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_59": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_60": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_61": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_62": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_63": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ],
+     "string_64": [
+      "STRING",
+      {
+       "multiline": true,
+       "forceInput": true
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "delimiter",
+     "skip_empty"
+    ],
+    "optional": [
+     "string_1",
+     "string_2",
+     "string_3",
+     "string_4",
+     "string_5",
+     "string_6",
+     "string_7",
+     "string_8",
+     "string_9",
+     "string_10",
+     "string_11",
+     "string_12",
+     "string_13",
+     "string_14",
+     "string_15",
+     "string_16",
+     "string_17",
+     "string_18",
+     "string_19",
+     "string_20",
+     "string_21",
+     "string_22",
+     "string_23",
+     "string_24",
+     "string_25",
+     "string_26",
+     "string_27",
+     "string_28",
+     "string_29",
+     "string_30",
+     "string_31",
+     "string_32",
+     "string_33",
+     "string_34",
+     "string_35",
+     "string_36",
+     "string_37",
+     "string_38",
+     "string_39",
+     "string_40",
+     "string_41",
+     "string_42",
+     "string_43",
+     "string_44",
+     "string_45",
+     "string_46",
+     "string_47",
+     "string_48",
+     "string_49",
+     "string_50",
+     "string_51",
+     "string_52",
+     "string_53",
+     "string_54",
+     "string_55",
+     "string_56",
+     "string_57",
+     "string_58",
+     "string_59",
+     "string_60",
+     "string_61",
+     "string_62",
+     "string_63",
+     "string_64"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "STRING"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "STRING"
+   ],
+   "name": "DrawerConcat",
+   "display_name": "📝 Concat (Drawer)",
+   "description": "",
+   "python_module": "custom_nodes.ComfyUI-Drawer",
+   "category": "Drawer",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "search_aliases": []
+  },
+  "DrawerControls8": {
+   "input": {
+    "required": {
+     "value_1": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_1": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_2": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_2": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_3": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_3": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_4": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_4": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_5": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_5": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_6": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_6": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_7": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_7": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "value_8": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ],
+     "def_8": [
+      "STRING",
+      {
+       "default": ""
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "value_1",
+     "def_1",
+     "value_2",
+     "def_2",
+     "value_3",
+     "def_3",
+     "value_4",
+     "def_4",
+     "value_5",
+     "def_5",
+     "value_6",
+     "def_6",
+     "value_7",
+     "def_7",
+     "value_8",
+     "def_8"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "*",
+    "*",
+    "*",
+    "*",
+    "*",
+    "*",
+    "*",
+    "*"
+   ],
+   "output_is_list": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "output_name": [
+    "value_1",
+    "value_2",
+    "value_3",
+    "value_4",
+    "value_5",
+    "value_6",
+    "value_7",
+    "value_8"
+   ],
+   "name": "DrawerControls8",
+   "display_name": "📝 Controls 8 (Drawer)",
+   "description": "",
+   "python_module": "custom_nodes.ComfyUI-Drawer",
+   "category": "Drawer",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "search_aliases": []
+  },
+  "DrawerSeed": {
+   "input": {
+    "required": {
+     "seed_value": [
+      "INT",
+      {
+       "default": 0,
+       "min": 0,
+       "max": 4294967295
+      }
+     ]
+    },
+    "optional": {
+     "mode": [
+      [
+       "randomize",
+       "fixed"
+      ],
+      {
+       "default": "randomize"
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "seed_value"
+    ],
+    "optional": [
+     "mode"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "INT"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "seed"
+   ],
+   "name": "DrawerSeed",
+   "display_name": "📝 Seed (Drawer)",
+   "description": "",
+   "python_module": "custom_nodes.ComfyUI-Drawer",
+   "category": "Drawer",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "search_aliases": []
+  },
+  "DrawerSize": {
+   "input": {
+    "required": {
+     "ratio_": [
+      [
+       "custom",
+       "1:1",
+       "4:3",
+       "3:2",
+       "16:9",
+       "21:9",
+       "9:16",
+       "2:3",
+       "3:4"
+      ],
+      {
+       "default": "custom"
+      }
+     ],
+     "megapixels_": [
+      "FLOAT",
+      {
+       "default": 1.0,
+       "min": 0.25,
+       "max": 4.0,
+       "step": 0.05
+      }
+     ],
+     "width_": [
+      "INT",
+      {
+       "default": 1024,
+       "min": 64,
+       "max": 8192,
+       "step": 16
+      }
+     ],
+     "height_": [
+      "INT",
+      {
+       "default": 1024,
+       "min": 64,
+       "max": 8192,
+       "step": 16
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "ratio_",
+     "megapixels_",
+     "width_",
+     "height_"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "INT",
+    "INT",
+    "FLOAT",
+    [
+     "custom",
+     "1:1",
+     "4:3",
+     "3:2",
+     "16:9",
+     "21:9",
+     "9:16",
+     "2:3",
+     "3:4"
+    ]
+   ],
+   "output_is_list": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "output_name": [
+    "width",
+    "height",
+    "megapixels",
+    "ratio"
+   ],
+   "name": "DrawerSize",
+   "display_name": "📝 Size (Drawer)",
+   "description": "",
+   "python_module": "custom_nodes.ComfyUI-Drawer",
+   "category": "Drawer",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "search_aliases": []
+  },
+  "DrawerSwitch": {
+   "input": {
+    "required": {},
+    "optional": {
+     "A": [
+      "COMFY_MATCHTYPE_V3",
+      {
+       "lazy": true,
+       "template": {
+        "template_id": "drawer_switch",
+        "allowed_types": "*"
+       }
+      }
+     ],
+     "B": [
+      "COMFY_MATCHTYPE_V3",
+      {
+       "lazy": true,
+       "template": {
+        "template_id": "drawer_switch",
+        "allowed_types": "*"
+       }
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [],
+    "optional": [
+     "A",
+     "B"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "COMFY_MATCHTYPE_V3"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "output"
+   ],
+   "output_tooltips": [
+    null
+   ],
+   "output_matchtypes": [
+    "drawer_switch"
+   ],
+   "name": "DrawerSwitch",
+   "display_name": "Switch (Drawer)",
+   "description": "A/B switch: output B if connected and non-empty, otherwise A",
+   "python_module": "custom_nodes.ComfyUI-Drawer",
+   "category": "Drawer",
+   "output_node": false,
+   "deprecated": false,
+   "experimental": false,
+   "dev_only": false,
+   "api_node": false,
+   "price_badge": null,
+   "search_aliases": null,
+   "essentials_category": null,
+   "has_intermediate_output": false
+  },
+  "KSampler": {
+   "input": {
+    "required": {
+     "model": [
+      "MODEL",
+      {
+       "tooltip": "The model used for denoising the input latent."
+      }
+     ],
+     "seed": [
+      "INT",
+      {
+       "default": 0,
+       "min": 0,
+       "max": 18446744073709551615,
+       "control_after_generate": true,
+       "tooltip": "The random seed used for creating the noise."
+      }
+     ],
+     "steps": [
+      "INT",
+      {
+       "default": 20,
+       "min": 1,
+       "max": 10000,
+       "tooltip": "The number of steps used in the denoising process."
+      }
+     ],
+     "cfg": [
+      "FLOAT",
+      {
+       "default": 8.0,
+       "min": 0.0,
+       "max": 100.0,
+       "step": 0.1,
+       "round": 0.01,
+       "tooltip": "The Classifier-Free Guidance scale balances creativity and adherence to the prompt. Higher values result in images more closely matching the prompt however too high values will negatively impact quality."
+      }
+     ],
+     "sampler_name": [
+      [
+       "euler",
+       "euler_cfg_pp",
+       "euler_ancestral",
+       "euler_ancestral_cfg_pp",
+       "heun",
+       "heunpp2",
+       "exp_heun_2_x0",
+       "exp_heun_2_x0_sde",
+       "dpm_2",
+       "dpm_2_ancestral",
+       "lms",
+       "dpm_fast",
+       "dpm_adaptive",
+       "dpmpp_2s_ancestral",
+       "dpmpp_2s_ancestral_cfg_pp",
+       "dpmpp_sde",
+       "dpmpp_sde_gpu",
+       "dpmpp_2m",
+       "dpmpp_2m_cfg_pp",
+       "dpmpp_2m_sde",
+       "dpmpp_2m_sde_gpu",
+       "dpmpp_2m_sde_heun",
+       "dpmpp_2m_sde_heun_gpu",
+       "dpmpp_3m_sde",
+       "dpmpp_3m_sde_gpu",
+       "ddpm",
+       "lcm",
+       "ipndm",
+       "ipndm_v",
+       "deis",
+       "cfgpp_ud10_ab",
+       "res_multistep",
+       "res_multistep_cfg_pp",
+       "res_multistep_ancestral",
+       "res_multistep_ancestral_cfg_pp",
+       "gradient_estimation",
+       "gradient_estimation_cfg_pp",
+       "er_sde",
+       "seeds_2",
+       "seeds_3",
+       "sa_solver",
+       "sa_solver_pece",
+       "ddim",
+       "uni_pc",
+       "uni_pc_bh2"
+      ],
+      {
+       "tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."
+      }
+     ],
+     "scheduler": [
+      [
+       "simple",
+       "sgm_uniform",
+       "karras",
+       "exponential",
+       "ddim_uniform",
+       "beta",
+       "normal",
+       "linear_quadratic",
+       "kl_optimal",
+       "ays",
+       "ays+",
+       "ays_30",
+       "ays_30+",
+       "gits",
+       "beta_1_1"
+      ],
+      {
+       "tooltip": "The scheduler controls how noise is gradually removed to form the image."
+      }
+     ],
+     "positive": [
+      "CONDITIONING",
+      {
+       "tooltip": "The conditioning describing the attributes you want to include in the image."
+      }
+     ],
+     "negative": [
+      "CONDITIONING",
+      {
+       "tooltip": "The conditioning describing the attributes you want to exclude from the image."
+      }
+     ],
+     "latent_image": [
+      "LATENT",
+      {
+       "tooltip": "The latent image to denoise."
+      }
+     ],
+     "denoise": [
+      "FLOAT",
+      {
+       "default": 1.0,
+       "min": 0.0,
+       "max": 1.0,
+       "step": 0.01,
+       "tooltip": "The amount of denoising applied, lower values will maintain the structure of the initial image allowing for image to image sampling."
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "model",
+     "seed",
+     "steps",
+     "cfg",
+     "sampler_name",
+     "scheduler",
+     "positive",
+     "negative",
+     "latent_image",
+     "denoise"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "LATENT"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "LATENT"
+   ],
+   "name": "KSampler",
+   "display_name": "KSampler",
+   "description": "Uses the provided model, positive and negative conditioning to denoise the latent image.",
+   "python_module": "nodes",
+   "category": "model/sampling",
+   "output_node": false,
+   "has_intermediate_output": false,
+   "output_tooltips": [
+    "The denoised latent."
+   ],
+   "search_aliases": [
+    "sampler",
+    "sample",
+    "generate",
+    "denoise",
+    "diffuse",
+    "txt2img",
+    "img2img"
+   ]
+  },
+  "PreviewAny": {
+   "input": {
+    "required": {
+     "source": [
+      "*",
+      {}
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "source"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "STRING"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "STRING"
+   ],
+   "name": "PreviewAny",
+   "display_name": "Preview as Text",
+   "description": "Preview any input value as text.",
+   "python_module": "comfy_extras.nodes_preview_any",
+   "category": "utilities",
+   "output_node": true,
+   "has_intermediate_output": false,
+   "search_aliases": [
+    "preview",
+    "preview text",
+    "show output",
+    "inspect",
+    "debug",
+    "print value",
+    "show text"
+   ]
+  },
+  "PrimitiveBoolean": {
+   "input": {
+    "required": {
+     "value": [
+      "BOOLEAN",
+      {}
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "value"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "BOOLEAN"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "BOOLEAN"
+   ],
+   "output_tooltips": [
+    null
+   ],
+   "output_matchtypes": null,
+   "name": "PrimitiveBoolean",
+   "display_name": "Boolean",
+   "description": "",
+   "python_module": "comfy_extras.nodes_primitive",
+   "category": "utilities/primitive",
+   "output_node": false,
+   "deprecated": false,
+   "experimental": false,
+   "dev_only": false,
+   "api_node": false,
+   "price_badge": null,
+   "search_aliases": null,
+   "essentials_category": null,
+   "has_intermediate_output": false
+  },
+  "PrimitiveString": {
+   "input": {
+    "required": {
+     "value": [
+      "STRING",
+      {
+       "multiline": false
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "value"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "STRING"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "STRING"
+   ],
+   "output_tooltips": [
+    null
+   ],
+   "output_matchtypes": null,
+   "name": "PrimitiveString",
+   "display_name": "Text",
+   "description": "",
+   "python_module": "comfy_extras.nodes_primitive",
+   "category": "utilities/primitive",
+   "output_node": false,
+   "deprecated": false,
+   "experimental": false,
+   "dev_only": false,
+   "api_node": false,
+   "price_badge": null,
+   "search_aliases": [
+    "text",
+    "string",
+    "text box",
+    "prompt"
+   ],
+   "essentials_category": null,
+   "has_intermediate_output": false
+  },
+  "PrimitiveStringMultiline": {
+   "input": {
+    "required": {
+     "value": [
+      "STRING",
+      {
+       "multiline": true
+      }
+     ]
+    }
+   },
+   "input_order": {
+    "required": [
+     "value"
+    ]
+   },
+   "is_input_list": false,
+   "output": [
+    "STRING"
+   ],
+   "output_is_list": [
+    false
+   ],
+   "output_name": [
+    "STRING"
+   ],
+   "output_tooltips": [
+    null
+   ],
+   "output_matchtypes": null,
+   "name": "PrimitiveStringMultiline",
+   "display_name": "Text (Multiline)",
+   "description": "",
+   "python_module": "comfy_extras.nodes_primitive",
+   "category": "utilities/primitive",
+   "output_node": false,
+   "deprecated": false,
+   "experimental": false,
+   "dev_only": false,
+   "api_node": false,
+   "price_badge": null,
+   "search_aliases": [
+    "text",
+    "string",
+    "text box",
+    "prompt"
+   ],
+   "essentials_category": "Basics",
+   "has_intermediate_output": false
+  }
+ },
+ "variants": [
+  {
+   "name": "asis",
+   "modes": {
+    "2": 0,
+    "3": 0,
+    "7": 0,
+    "8": 0,
+    "10": 4,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "19": 0,
+    "21": 0,
+    "29": 0,
+    "30": 0,
+    "31": 0,
+    "32": 0,
+    "33": 0,
+    "34": 0,
+    "36": 0,
+    "37": 0,
+    "38": 0,
+    "40": 0,
+    "41": 0,
+    "42": 0,
+    "46": 0,
+    "47": 0,
+    "48": 0,
+    "49": 0,
+    "50": 0,
+    "52": 0,
+    "53": 0,
+    "56": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "66": 0,
+    "68": 0,
+    "69": 4,
+    "71": 4,
+    "72": 4,
+    "73": 4,
+    "74": 4,
+    "77": 0,
+    "80": 0,
+    "82": 0
+   },
+   "expected": {
+    "19": {
+     "inputs": {
+      "value": "A small ▸ mark appears at the start of output node titles.\nRight-click / long-tap an output node title to execute it partially.\nNote: PreviewAny values can be copied via the context menu on the Deck."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "21": {
+     "inputs": {
+      "seed_value": 3638847588,
+      "mode": "randomize"
+     },
+     "class_type": "DrawerSeed",
+     "_meta": {
+      "title": "📝 Seed (Drawer)"
+     }
+    },
+    "30": {
+     "inputs": {
+      "delimiter": ", ",
+      "skip_empty": true,
+      "string_1": [
+       "31",
+       0
+      ],
+      "string_2": [
+       "32",
+       0
+      ],
+      "string_3": [
+       "33",
+       0
+      ]
+     },
+     "class_type": "DrawerConcat",
+     "_meta": {
+      "title": "📝 Concat (Drawer)"
+     }
+    },
+    "31": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 1"
+     }
+    },
+    "32": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 2"
+     }
+    },
+    "33": {
+     "inputs": {
+      "value": "String 3"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 3"
+     }
+    },
+    "34": {
+     "inputs": {
+      "source": [
+       "30",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "36": {
+     "inputs": {
+      "source": [
+       "19",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝PreviewAny"
+     }
+    },
+    "37": {
+     "inputs": {
+      "A": [
+       "40",
+       0
+      ],
+      "B": [
+       "41",
+       0
+      ]
+     },
+     "class_type": "DrawerSwitch",
+     "_meta": {
+      "title": "Switch (Drawer)"
+     }
+    },
+    "40": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 1"
+     }
+    },
+    "41": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 2"
+     }
+    },
+    "42": {
+     "inputs": {
+      "source": [
+       "37",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "46": {
+     "inputs": {
+      "text": "CLIPTextEncode 1",
+      "clip": [
+       "47",
+       0
+      ]
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 1"
+     }
+    },
+    "47": {
+     "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+     },
+     "class_type": "CLIPLoader",
+     "_meta": {
+      "title": "📝CLIPLoader"
+     }
+    },
+    "48": {
+     "inputs": {
+      "text": "",
+      "clip": [
+       "47",
+       0
+      ]
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 2"
+     }
+    },
+    "49": {
+     "inputs": {
+      "A": [
+       "46",
+       0
+      ],
+      "B": [
+       "48",
+       0
+      ]
+     },
+     "class_type": "DrawerSwitch",
+     "_meta": {
+      "title": "Switch (Drawer)"
+     }
+    },
+    "50": {
+     "inputs": {
+      "source": [
+       "49",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "52": {
+     "inputs": {
+      "value": "This is not a comment.//Nor is this.  //This is a comment\nThis is not a comment.  # Nor is this.\n# This is a comment\nThis is not a comment, but /* this is a comment */. Drawer's comment processing can be disabled from the tab bar > burger menu > Settings.\n(Unescaped, so this acts as emphasis syntax in CLIPTextEncode)\n\\(This is escaped\\)\nValid __wildcards__ are highlighted."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "53": {
+     "inputs": {
+      "source": [
+       "52",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝PreviewAny"
+     }
+    },
+    "56": {
+     "inputs": {
+      "ratio_": "1:1",
+      "megapixels_": 1,
+      "width_": 1024,
+      "height_": 1024
+     },
+     "class_type": "DrawerSize",
+     "_meta": {
+      "title": "📝 Size (Drawer)"
+     }
+    },
+    "61": {
+     "inputs": {
+      "seed": 0,
+      "steps": [
+       "77",
+       0
+      ],
+      "cfg": [
+       "77",
+       1
+      ],
+      "sampler_name": [
+       "77",
+       5
+      ],
+      "scheduler": "simple",
+      "denoise": 1
+     },
+     "class_type": "KSampler",
+     "_meta": {
+      "title": "Kサンプラー"
+     }
+    },
+    "62": {
+     "inputs": {
+      "value": [
+       "77",
+       4
+      ]
+     },
+     "class_type": "PrimitiveBoolean",
+     "_meta": {
+      "title": "ブール値"
+     }
+    },
+    "77": {
+     "inputs": {
+      "value_1": "5",
+      "def_1": "int | INT Slider | 1 | 10 | 1",
+      "value_2": "5",
+      "def_2": "float | FLOAT Slider | 1 | 10 | 0.1 | 1",
+      "value_3": "String",
+      "def_3": "string | String",
+      "value_4": "String multiline",
+      "def_4": "string | String multiline | multiline",
+      "value_5": "true",
+      "def_5": "boolean | BOOLEAN",
+      "value_6": "euler",
+      "def_6": "combo | COMBO Selector",
+      "value_7": "",
+      "def_7": "",
+      "value_8": "",
+      "def_8": ""
+     },
+     "class_type": "DrawerControls8",
+     "_meta": {
+      "title": "📝 Controls 8 (Drawer)"
+     }
+    },
+    "80": {
+     "inputs": {
+      "value": [
+       "77",
+       2
+      ]
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "文字列"
+     }
+    },
+    "82": {
+     "inputs": {
+      "value": [
+       "77",
+       3
+      ]
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "文字列（複数行）"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "allActive",
+   "modes": {
+    "2": 0,
+    "3": 0,
+    "7": 0,
+    "8": 0,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "19": 0,
+    "21": 0,
+    "29": 0,
+    "30": 0,
+    "31": 0,
+    "32": 0,
+    "33": 0,
+    "34": 0,
+    "36": 0,
+    "37": 0,
+    "38": 0,
+    "40": 0,
+    "41": 0,
+    "42": 0,
+    "46": 0,
+    "47": 0,
+    "48": 0,
+    "49": 0,
+    "50": 0,
+    "52": 0,
+    "53": 0,
+    "56": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "66": 0,
+    "68": 0,
+    "69": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "77": 0,
+    "80": 0,
+    "82": 0
+   },
+   "expected": {
+    "19": {
+     "inputs": {
+      "value": "A small ▸ mark appears at the start of output node titles.\nRight-click / long-tap an output node title to execute it partially.\nNote: PreviewAny values can be copied via the context menu on the Deck."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "21": {
+     "inputs": {
+      "seed_value": 3638847588,
+      "mode": "randomize"
+     },
+     "class_type": "DrawerSeed",
+     "_meta": {
+      "title": "📝 Seed (Drawer)"
+     }
+    },
+    "30": {
+     "inputs": {
+      "delimiter": ", ",
+      "skip_empty": true,
+      "string_1": [
+       "31",
+       0
+      ],
+      "string_2": [
+       "32",
+       0
+      ],
+      "string_3": [
+       "33",
+       0
+      ]
+     },
+     "class_type": "DrawerConcat",
+     "_meta": {
+      "title": "📝 Concat (Drawer)"
+     }
+    },
+    "31": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 1"
+     }
+    },
+    "32": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 2"
+     }
+    },
+    "33": {
+     "inputs": {
+      "value": "String 3"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 3"
+     }
+    },
+    "34": {
+     "inputs": {
+      "source": [
+       "30",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "36": {
+     "inputs": {
+      "source": [
+       "19",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝PreviewAny"
+     }
+    },
+    "37": {
+     "inputs": {
+      "A": [
+       "40",
+       0
+      ],
+      "B": [
+       "41",
+       0
+      ]
+     },
+     "class_type": "DrawerSwitch",
+     "_meta": {
+      "title": "Switch (Drawer)"
+     }
+    },
+    "40": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 1"
+     }
+    },
+    "41": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 2"
+     }
+    },
+    "42": {
+     "inputs": {
+      "source": [
+       "37",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "46": {
+     "inputs": {
+      "text": "CLIPTextEncode 1",
+      "clip": [
+       "47",
+       0
+      ]
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 1"
+     }
+    },
+    "47": {
+     "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+     },
+     "class_type": "CLIPLoader",
+     "_meta": {
+      "title": "📝CLIPLoader"
+     }
+    },
+    "48": {
+     "inputs": {
+      "text": "",
+      "clip": [
+       "47",
+       0
+      ]
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 2"
+     }
+    },
+    "49": {
+     "inputs": {
+      "A": [
+       "46",
+       0
+      ],
+      "B": [
+       "48",
+       0
+      ]
+     },
+     "class_type": "DrawerSwitch",
+     "_meta": {
+      "title": "Switch (Drawer)"
+     }
+    },
+    "50": {
+     "inputs": {
+      "source": [
+       "49",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "52": {
+     "inputs": {
+      "value": "This is not a comment.//Nor is this.  //This is a comment\nThis is not a comment.  # Nor is this.\n# This is a comment\nThis is not a comment, but /* this is a comment */. Drawer's comment processing can be disabled from the tab bar > burger menu > Settings.\n(Unescaped, so this acts as emphasis syntax in CLIPTextEncode)\n\\(This is escaped\\)\nValid __wildcards__ are highlighted."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "53": {
+     "inputs": {
+      "source": [
+       "52",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝PreviewAny"
+     }
+    },
+    "56": {
+     "inputs": {
+      "ratio_": "1:1",
+      "megapixels_": 1,
+      "width_": 1024,
+      "height_": 1024
+     },
+     "class_type": "DrawerSize",
+     "_meta": {
+      "title": "📝 Size (Drawer)"
+     }
+    },
+    "61": {
+     "inputs": {
+      "seed": 0,
+      "steps": [
+       "77",
+       0
+      ],
+      "cfg": [
+       "77",
+       1
+      ],
+      "sampler_name": [
+       "77",
+       5
+      ],
+      "scheduler": "simple",
+      "denoise": 1
+     },
+     "class_type": "KSampler",
+     "_meta": {
+      "title": "Kサンプラー"
+     }
+    },
+    "62": {
+     "inputs": {
+      "value": [
+       "77",
+       4
+      ]
+     },
+     "class_type": "PrimitiveBoolean",
+     "_meta": {
+      "title": "ブール値"
+     }
+    },
+    "77": {
+     "inputs": {
+      "value_1": "5",
+      "def_1": "int | INT Slider | 1 | 10 | 1",
+      "value_2": "5",
+      "def_2": "float | FLOAT Slider | 1 | 10 | 0.1 | 1",
+      "value_3": "String",
+      "def_3": "string | String",
+      "value_4": "String multiline",
+      "def_4": "string | String multiline | multiline",
+      "value_5": "true",
+      "def_5": "boolean | BOOLEAN",
+      "value_6": "euler",
+      "def_6": "combo | COMBO Selector",
+      "value_7": "",
+      "def_7": "",
+      "value_8": "",
+      "def_8": ""
+     },
+     "class_type": "DrawerControls8",
+     "_meta": {
+      "title": "📝 Controls 8 (Drawer)"
+     }
+    },
+    "80": {
+     "inputs": {
+      "value": [
+       "77",
+       2
+      ]
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "文字列"
+     }
+    },
+    "82": {
+     "inputs": {
+      "value": [
+       "77",
+       3
+      ]
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "文字列（複数行）"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "mix1",
+   "modes": {
+    "2": 0,
+    "3": 0,
+    "7": 4,
+    "8": 4,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 4,
+    "15": 0,
+    "19": 4,
+    "21": 2,
+    "29": 0,
+    "30": 4,
+    "31": 0,
+    "32": 0,
+    "33": 4,
+    "34": 0,
+    "36": 4,
+    "37": 4,
+    "38": 0,
+    "40": 0,
+    "41": 0,
+    "42": 0,
+    "46": 0,
+    "47": 4,
+    "48": 0,
+    "49": 4,
+    "50": 4,
+    "52": 0,
+    "53": 4,
+    "56": 0,
+    "61": 0,
+    "62": 0,
+    "63": 4,
+    "64": 4,
+    "66": 2,
+    "68": 4,
+    "69": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "77": 0,
+    "80": 0,
+    "82": 0
+   },
+   "expected": {
+    "31": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 1"
+     }
+    },
+    "32": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 2"
+     }
+    },
+    "34": {
+     "inputs": {
+      "source": [
+       "31",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "40": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 1"
+     }
+    },
+    "41": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 2"
+     }
+    },
+    "42": {
+     "inputs": {
+      "source": [
+       "40",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "46": {
+     "inputs": {
+      "text": "CLIPTextEncode 1"
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 1"
+     }
+    },
+    "48": {
+     "inputs": {
+      "text": ""
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 2"
+     }
+    },
+    "52": {
+     "inputs": {
+      "value": "This is not a comment.//Nor is this.  //This is a comment\nThis is not a comment.  # Nor is this.\n# This is a comment\nThis is not a comment, but /* this is a comment */. Drawer's comment processing can be disabled from the tab bar > burger menu > Settings.\n(Unescaped, so this acts as emphasis syntax in CLIPTextEncode)\n\\(This is escaped\\)\nValid __wildcards__ are highlighted."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "56": {
+     "inputs": {
+      "ratio_": "1:1",
+      "megapixels_": 1,
+      "width_": 1024,
+      "height_": 1024
+     },
+     "class_type": "DrawerSize",
+     "_meta": {
+      "title": "📝 Size (Drawer)"
+     }
+    },
+    "61": {
+     "inputs": {
+      "seed": 0,
+      "steps": [
+       "77",
+       0
+      ],
+      "cfg": [
+       "77",
+       1
+      ],
+      "sampler_name": [
+       "77",
+       5
+      ],
+      "scheduler": "simple",
+      "denoise": 1
+     },
+     "class_type": "KSampler",
+     "_meta": {
+      "title": "Kサンプラー"
+     }
+    },
+    "62": {
+     "inputs": {
+      "value": [
+       "77",
+       4
+      ]
+     },
+     "class_type": "PrimitiveBoolean",
+     "_meta": {
+      "title": "ブール値"
+     }
+    },
+    "77": {
+     "inputs": {
+      "value_1": "5",
+      "def_1": "int | INT Slider | 1 | 10 | 1",
+      "value_2": "5",
+      "def_2": "float | FLOAT Slider | 1 | 10 | 0.1 | 1",
+      "value_3": "String",
+      "def_3": "string | String",
+      "value_4": "String multiline",
+      "def_4": "string | String multiline | multiline",
+      "value_5": "true",
+      "def_5": "boolean | BOOLEAN",
+      "value_6": "euler",
+      "def_6": "combo | COMBO Selector",
+      "value_7": "",
+      "def_7": "",
+      "value_8": "",
+      "def_8": ""
+     },
+     "class_type": "DrawerControls8",
+     "_meta": {
+      "title": "📝 Controls 8 (Drawer)"
+     }
+    },
+    "80": {
+     "inputs": {
+      "value": [
+       "77",
+       2
+      ]
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "文字列"
+     }
+    },
+    "82": {
+     "inputs": {
+      "value": [
+       "77",
+       3
+      ]
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "文字列（複数行）"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "name": "mix2",
+   "modes": {
+    "2": 0,
+    "3": 4,
+    "7": 4,
+    "8": 0,
+    "10": 0,
+    "11": 0,
+    "12": 4,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "19": 0,
+    "21": 0,
+    "29": 4,
+    "30": 0,
+    "31": 0,
+    "32": 0,
+    "33": 0,
+    "34": 0,
+    "36": 4,
+    "37": 0,
+    "38": 4,
+    "40": 0,
+    "41": 0,
+    "42": 0,
+    "46": 4,
+    "47": 0,
+    "48": 0,
+    "49": 2,
+    "50": 4,
+    "52": 0,
+    "53": 0,
+    "56": 0,
+    "61": 4,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "66": 0,
+    "68": 0,
+    "69": 4,
+    "71": 0,
+    "72": 4,
+    "73": 2,
+    "74": 0,
+    "77": 4,
+    "80": 4,
+    "82": 4
+   },
+   "expected": {
+    "19": {
+     "inputs": {
+      "value": "A small ▸ mark appears at the start of output node titles.\nRight-click / long-tap an output node title to execute it partially.\nNote: PreviewAny values can be copied via the context menu on the Deck."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "21": {
+     "inputs": {
+      "seed_value": 3638847588,
+      "mode": "randomize"
+     },
+     "class_type": "DrawerSeed",
+     "_meta": {
+      "title": "📝 Seed (Drawer)"
+     }
+    },
+    "30": {
+     "inputs": {
+      "delimiter": ", ",
+      "skip_empty": true,
+      "string_1": [
+       "31",
+       0
+      ],
+      "string_2": [
+       "32",
+       0
+      ],
+      "string_3": [
+       "33",
+       0
+      ]
+     },
+     "class_type": "DrawerConcat",
+     "_meta": {
+      "title": "📝 Concat (Drawer)"
+     }
+    },
+    "31": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 1"
+     }
+    },
+    "32": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 2"
+     }
+    },
+    "33": {
+     "inputs": {
+      "value": "String 3"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝String 3"
+     }
+    },
+    "34": {
+     "inputs": {
+      "source": [
+       "30",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "37": {
+     "inputs": {
+      "A": [
+       "40",
+       0
+      ],
+      "B": [
+       "41",
+       0
+      ]
+     },
+     "class_type": "DrawerSwitch",
+     "_meta": {
+      "title": "Switch (Drawer)"
+     }
+    },
+    "40": {
+     "inputs": {
+      "value": "String 1"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 1"
+     }
+    },
+    "41": {
+     "inputs": {
+      "value": "String 2"
+     },
+     "class_type": "PrimitiveString",
+     "_meta": {
+      "title": "📝⚡️String 2"
+     }
+    },
+    "42": {
+     "inputs": {
+      "source": [
+       "37",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝Result"
+     }
+    },
+    "47": {
+     "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+     },
+     "class_type": "CLIPLoader",
+     "_meta": {
+      "title": "📝CLIPLoader"
+     }
+    },
+    "48": {
+     "inputs": {
+      "text": "",
+      "clip": [
+       "47",
+       0
+      ]
+     },
+     "class_type": "CLIPTextEncode",
+     "_meta": {
+      "title": "📝⚡️CLIPTextEncode 2"
+     }
+    },
+    "52": {
+     "inputs": {
+      "value": "This is not a comment.//Nor is this.  //This is a comment\nThis is not a comment.  # Nor is this.\n# This is a comment\nThis is not a comment, but /* this is a comment */. Drawer's comment processing can be disabled from the tab bar > burger menu > Settings.\n(Unescaped, so this acts as emphasis syntax in CLIPTextEncode)\n\\(This is escaped\\)\nValid __wildcards__ are highlighted."
+     },
+     "class_type": "PrimitiveStringMultiline",
+     "_meta": {
+      "title": "📝Description"
+     }
+    },
+    "53": {
+     "inputs": {
+      "source": [
+       "52",
+       0
+      ]
+     },
+     "class_type": "PreviewAny",
+     "_meta": {
+      "title": "📝PreviewAny"
+     }
+    },
+    "56": {
+     "inputs": {
+      "ratio_": "1:1",
+      "megapixels_": 1,
+      "width_": 1024,
+      "height_": 1024
+     },
+     "class_type": "DrawerSize",
+     "_meta": {
+      "title": "📝 Size (Drawer)"
+     }
+    },
+    "62": {
+     "inputs": {
+      "value": false
+     },
+     "class_type": "PrimitiveBoolean",
+     "_meta": {
+      "title": "ブール値"
+     }
+    }
+   },
+   "error": null
+  }
+ ]
+}
