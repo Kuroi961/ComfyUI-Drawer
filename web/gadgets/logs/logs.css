@@ -1,0 +1,304 @@
+/* ═══════════════════════════════════════════════════════
+   ComfyDrawer — Logs Gadget CSS
+   Log view fills the panel; bottom-pinned toolbar like Gallery / Models.
+   ═══════════════════════════════════════════════════════ */
+@layer gadget-logs {
+
+    .gadget-logs {
+        --lg-warn: #d9a43a;
+        container-type: inline-size;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        color: var(--cd-text);
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .gadget-logs .lg-view {
+        position: relative;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 8px 0;
+        outline: none;
+    }
+
+    .gadget-logs .lg-lines {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .gadget-logs .lg-line {
+        display: flex;
+        gap: 10px;
+        padding: 0 16px;
+        border-left: 3px solid transparent;
+    }
+
+    .gadget-logs .lg-time {
+        flex-shrink: 0;
+        color: var(--cd-text-dim);
+        opacity: 0.7;
+        user-select: none;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gadget-logs .lg-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .gadget-logs .lg-lvl-1 {
+        color: var(--lg-warn);
+        border-left-color: var(--lg-warn);
+    }
+
+    .gadget-logs .lg-lvl-2 {
+        color: var(--cd-danger);
+        border-left-color: var(--cd-danger);
+        background: var(--cd-danger-subtle);
+    }
+
+    .gadget-logs .lg-line {
+        cursor: pointer;
+    }
+
+    .gadget-logs .lg-line.selected {
+        background: var(--cd-accent-subtle);
+        border-left-color: var(--cd-accent);
+    }
+
+    .gadget-logs .lg-lvl-2.selected {
+        background: color-mix(in srgb, var(--cd-danger-subtle) 50%, var(--cd-accent-subtle));
+    }
+
+    .gadget-logs .lg-current .lg-text {
+        color: var(--cd-accent);
+    }
+
+    .gadget-logs mark {
+        background: var(--cd-accent-mid);
+        color: inherit;
+        border-radius: 2px;
+    }
+
+    .gadget-logs .lg-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+        color: var(--cd-text-dim);
+        font-size: 13px;
+        pointer-events: none;
+    }
+
+    .gadget-logs .lg-empty[hidden] {
+        display: none;
+    }
+
+    /* ── Toolbar ── */
+    .gadget-logs .lg-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 52px;
+        padding: 6px 16px;
+        flex-shrink: 0;
+        border-top: 1px solid var(--cd-divider);
+    }
+
+    .gadget-logs .lg-levels {
+        display: flex;
+        flex-shrink: 0;
+        border: 1px solid var(--cd-divider);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .gadget-logs .lg-level {
+        background: var(--cd-shell);
+        border: none;
+        color: var(--cd-text-dim);
+        font: inherit;
+        font-size: 12px;
+        padding: 0 10px;
+        height: 36px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .gadget-logs .lg-level + .lg-level {
+        border-left: 1px solid var(--cd-divider);
+    }
+
+    .gadget-logs .lg-level.active {
+        background: var(--cd-accent-subtle);
+        color: var(--cd-text);
+    }
+
+    .gadget-logs .lg-search {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 1 1 0;
+        min-width: 60px;
+        height: 36px;
+        padding: 0 10px;
+        background: var(--cd-shell);
+        border: 1px solid var(--cd-divider);
+        border-radius: 16px;
+        color: var(--cd-text-dim);
+    }
+
+    .gadget-logs .lg-search:focus-within {
+        border-color: var(--cd-accent);
+        box-shadow: 0 0 0 3px var(--cd-accent-glow);
+    }
+
+    .gadget-logs .lg-search svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+
+    .gadget-logs .lg-search-input {
+        flex: 1;
+        min-width: 0;
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--cd-text);
+        font: inherit;
+        font-size: 12px;
+    }
+
+    .gadget-logs .lg-count {
+        flex-shrink: 0;
+        font-size: 11px;
+        color: var(--cd-text-dim);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gadget-logs .lg-selection {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+        padding-left: 10px;
+        height: 28px;
+        border-radius: 14px;
+        background: var(--cd-accent-subtle);
+        color: var(--cd-text);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+
+    .gadget-logs .lg-selection[hidden],
+    .gadget-logs .lg-count[hidden] {
+        display: none;
+    }
+
+    .gadget-logs .lg-deselect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--cd-text-dim);
+        cursor: pointer;
+    }
+
+    .gadget-logs .lg-deselect svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    .gadget-logs .lg-deselect:hover {
+        color: var(--cd-text);
+    }
+
+    .gadget-logs .lg-break {
+        display: none;
+    }
+
+    .gadget-logs .lg-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        background: var(--cd-shell);
+        border: 1px solid var(--cd-divider);
+        border-radius: 6px;
+        color: var(--cd-text-dim);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .gadget-logs .lg-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .gadget-logs .lg-btn:hover,
+    .gadget-logs .lg-level:hover {
+        color: var(--cd-text);
+    }
+
+    .gadget-logs .lg-btn.active {
+        color: var(--cd-accent);
+        border-color: var(--cd-accent-dim);
+        background: var(--cd-accent-subtle);
+    }
+
+    /* Narrow (phone, or a narrow drawer panel): two toolbar rows —
+       level filter and buttons, then search with the count / selection. */
+    @container (max-width: 560px) {
+        .gadget-logs .lg-toolbar {
+            flex-wrap: wrap;
+            row-gap: 6px;
+            height: auto;
+            padding: 6px 10px;
+        }
+
+        .gadget-logs .lg-levels { order: 0; }
+        .gadget-logs .lg-follow { order: 1; margin-left: auto; }
+        .gadget-logs .lg-copy,
+        .gadget-logs .lg-clear { order: 1; }
+
+        .gadget-logs .lg-break {
+            display: block;
+            order: 2;
+            flex-basis: 100%;
+            height: 0;
+        }
+
+        .gadget-logs .lg-search { order: 3; }
+        .gadget-logs .lg-count,
+        .gadget-logs .lg-selection { order: 4; }
+
+        .gadget-logs .lg-line {
+            padding: 0 10px;
+            gap: 6px;
+        }
+
+        .gadget-logs .lg-time {
+            display: none;
+        }
+    }
+
+}
