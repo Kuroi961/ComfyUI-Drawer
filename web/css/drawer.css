@@ -32,7 +32,7 @@
     --mv-accent-glow: var(--cd-accent-glow);
 
     /* Shell Color — overall window/panel tint ──────────────────────────────
-       _applyShell() in comfy-drawer.js computes ALL of these from a single
+       _applyShell() in drawer-platform.js computes ALL of these from a single
        hex input using HSL lightness steps. --cd-panel is the exact base
        color. The values here are defaults overwritten at runtime by JS.     */
 
@@ -221,8 +221,10 @@
        Only the pill itself captures pointer events. */
     .comfy-drawer-tabs {
         display: inline-flex;
-        align-items: center;
-        gap: 2px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        max-width: 100%;
         padding: 4px 6px;
         margin-bottom: 6px;
         background: var(--cd-panel-d);
@@ -238,6 +240,49 @@
         display: none;
     }
 
+    /* Row 1: run progress strip (header). Row 2: gadgets | actions + menu. */
+    .comfy-drawer-tabs-header:empty {
+        display: none;
+    }
+
+    .comfy-drawer-tabs-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .comfy-drawer-tabs-gadgets,
+    .comfy-drawer-tabs-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .comfy-drawer-tabs-gadgets {
+        min-width: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;   /* Firefox */
+    }
+
+    .comfy-drawer-tabs-gadgets::-webkit-scrollbar {
+        display: none;           /* Chrome / Safari */
+    }
+
+    .comfy-drawer-tabs-actions {
+        flex-shrink: 0;
+    }
+
+    /* Divider between gadgets and menu actions */
+    .comfy-drawer-tabs-sep {
+        flex-shrink: 0;
+        width: 1px;
+        height: 22px;
+        margin: 0 4px;
+        background: var(--cd-divider);
+    }
+
     /* When panel is open, tab bar docks to panel bottom edge */
     .comfy-drawer.open .comfy-drawer-tabs {
         margin-bottom: 0;
@@ -249,15 +294,22 @@
         box-shadow: none;
         display: flex;
         width: 100%;
-        justify-content: center;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-width: none;   /* Firefox */
+        padding: 0 6px 4px;
         zoom: 1;  /* Reset zoom — with zoom:1.05 the rendered width exceeds JS-set maxWidth */
     }
 
-    .comfy-drawer.open .comfy-drawer-tabs::-webkit-scrollbar {
-        display: none;           /* Chrome / Safari */
+    .comfy-drawer.open .comfy-drawer-tabs-header {
+        margin: 0 -6px;
+    }
+
+    /* Docked: gadgets, divider and menu items centred together; when they
+       do not fit, the gadgets scroll and the menu stays visible */
+    .comfy-drawer.open .comfy-drawer-tabs-row {
+        justify-content: safe center;
+    }
+
+    .comfy-drawer.open .comfy-drawer-tabs-row {
+        padding-top: 4px;
     }
 
     .comfy-drawer-tab {
@@ -360,7 +412,8 @@
         }
 
         /* Burger menu: larger touch targets */
-        .comfy-drawer-burger-menu {
+        .comfy-drawer-burger-menu,
+        .cd-workflow-menu {
             min-width: 220px;
             padding: 6px;
         }
@@ -486,7 +539,8 @@
         opacity: 1;
     }
 
-    .comfy-drawer-burger-menu {
+    .comfy-drawer-burger-menu,
+    .cd-workflow-menu {
         /* position set dynamically by JS */
         min-width: 180px;
         padding: 4px;
@@ -498,6 +552,57 @@
         z-index: 100;
         pointer-events: auto;
         animation: drawerBurgerIn 0.15s ease-out;
+    }
+
+    .comfy-drawer-burger-menu {
+        max-height: min(75vh, 720px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .comfy-drawer-burger-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+    }
+
+    /* Pin toggle: shown in the tab bar (filled) or kept in the menu */
+    .comfy-drawer-burger-pin {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        margin: -6px -8px -6px 0;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--cd-text-dim);
+        opacity: 0.45;
+        cursor: pointer;
+    }
+
+    .comfy-drawer-burger-pin svg {
+        width: 15px;
+        height: 15px;
+    }
+
+    .comfy-drawer-burger-pin:hover {
+        opacity: 1;
+        background: var(--cd-shell);
+    }
+
+    .comfy-drawer-burger-pin.on {
+        opacity: 1;
+        color: var(--cd-accent);
+    }
+
+    .comfy-drawer-burger-pin.on svg {
+        fill: currentColor;
     }
 
     @keyframes drawerBurgerIn {
@@ -556,5 +661,355 @@
     .comfy-drawer-burger-icon svg {
         width: 20px;
         height: 20px;
+    }
+
+    /* ── Standalone page (standalone.html) ──
+       The panel is the whole app: full viewport, square corners, no
+       resize handle, no focus border (there is no ComfyUI to defocus to). */
+    .comfy-drawer.standalone {
+        top: 0;
+        pointer-events: auto;
+    }
+
+    .comfy-drawer.standalone .comfy-drawer-resize {
+        display: none;
+    }
+
+    .comfy-drawer.standalone.open .comfy-drawer-panel,
+    .comfy-drawer.standalone.open.focused .comfy-drawer-panel {
+        border: none;
+        border-radius: 0;
+        transition: none;
+    }
+
+    /* Workflow button (tab bar) and picker — standalone only */
+    .cd-standalone-workflow .comfy-drawer-tab-label {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .cd-standalone-workflow[data-unsaved="true"] .comfy-drawer-tab-label {
+        font-style: italic;
+    }
+
+    .cd-workflow-state {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: transparent;
+    }
+
+    .cd-standalone-workflow[data-save-state="modified"] .cd-workflow-state,
+    .cd-standalone-workflow[data-save-state="saving"] .cd-workflow-state {
+        background: var(--cd-accent);
+    }
+
+    .cd-standalone-workflow[data-save-state="error"] .cd-workflow-state,
+    .cd-standalone-workflow[data-save-state="conflict"] .cd-workflow-state {
+        background: var(--cd-danger);
+    }
+
+    /* Workflow menu: open workflows, bookmarks, saved-workflow tree */
+    .cd-workflow-menu {
+        position: absolute;
+        width: min(360px, calc(100vw - 8px));
+        display: flex;
+        flex-direction: column;
+    }
+
+    .cd-wf-body {
+        max-height: min(70vh, 640px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .cd-wf-section {
+        padding: 10px 14px 4px;
+        color: var(--cd-text-dim);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+    }
+
+    .cd-wf-search {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 6px 0 2px;
+    }
+
+    .cd-wf-row {
+        text-align: left;
+    }
+
+    .cd-wf-row.active {
+        background: var(--cd-s1);
+    }
+
+    .cd-wf-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cd-wf-open[data-unsaved="true"] .cd-wf-label {
+        font-style: italic;
+    }
+
+    .cd-wf-open[data-save-state="modified"] .cd-workflow-state,
+    .cd-wf-open[data-save-state="saving"] .cd-workflow-state {
+        background: var(--cd-accent);
+    }
+
+    .cd-wf-open[data-save-state="error"] .cd-workflow-state,
+    .cd-wf-open[data-save-state="conflict"] .cd-workflow-state {
+        background: var(--cd-danger);
+    }
+
+    .cd-wf-chevron {
+        display: flex;
+        width: 14px;
+        height: 14px;
+        margin-right: -4px;
+        color: var(--cd-text-dim);
+        transition: transform 0.12s;
+    }
+
+    .cd-wf-chevron.open {
+        transform: rotate(90deg);
+    }
+
+    .cd-wf-chevron svg,
+    .cd-wf-action svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .cd-wf-count {
+        padding: 0 7px;
+        border-radius: 9px;
+        background: var(--cd-s2);
+        color: var(--cd-text-dim);
+        font-size: 11px;
+        line-height: 18px;
+    }
+
+    .cd-wf-action {
+        display: flex;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        color: var(--cd-text-dim);
+        border-radius: 4px;
+    }
+
+    .cd-wf-action:hover {
+        color: var(--cd-text);
+    }
+
+    /* Bookmark toggle: faint until hovered on pointer devices, always shown on touch */
+    .cd-wf-bookmark {
+        opacity: 0;
+    }
+
+    .cd-wf-row:hover .cd-wf-bookmark,
+    .cd-wf-bookmark.on {
+        opacity: 1;
+    }
+
+    .cd-wf-bookmark.on svg {
+        fill: currentColor;
+    }
+
+    @media (hover: none) {
+        .cd-wf-bookmark {
+            opacity: 0.35;
+        }
+    }
+
+    .cd-wf-save:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .cd-wf-hint {
+        color: var(--cd-text-dim);
+        font-size: 11px;
+    }
+
+    .cd-wf-empty {
+        padding: 8px 14px;
+        color: var(--cd-text-dim);
+        font-size: 12px;
+    }
+
+    /* ── Run progress strip (above the tabs), queue tab and popover ── */
+    .cd-run-strip {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 18px;
+        padding: 0 8px;
+        overflow: hidden;
+        border-radius: 5px;
+        background: var(--cd-shell);
+        color: var(--cd-text-dim);
+        font-size: 11px;
+        line-height: 18px;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+    }
+
+    .comfy-drawer.open .cd-run-strip {
+        border-radius: 0;
+    }
+
+    .cd-run-strip[hidden] {
+        display: none;
+    }
+
+    .cd-run-strip.running {
+        color: var(--cd-text);
+    }
+
+    .cd-run-label {
+        position: relative;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cd-run-stripmeta {
+        position: relative;
+        flex-shrink: 0;
+        white-space: pre;
+    }
+
+    .cd-queue-tab {
+        position: relative;
+    }
+
+    .cd-queue-count {
+        min-width: 16px;
+        padding: 0 4px;
+        border-radius: 8px;
+        background: var(--cd-s2);
+        color: var(--cd-text);
+        font-size: 10px;
+        line-height: 16px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cd-queue-count:empty {
+        display: none;
+    }
+
+    .cd-queue-tab.running .cd-queue-count {
+        background: var(--cd-accent-mid);
+    }
+
+    .cd-run-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: var(--cd-accent-low);
+        transition: width 0.3s ease;
+        pointer-events: none;
+    }
+
+    .cd-run-overall {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        height: 2px;
+        width: 0;
+        background: var(--cd-accent);
+        transition: width 0.3s ease;
+        pointer-events: none;
+    }
+
+    .cd-run-strip.indeterminate .cd-run-fill {
+        width: 30% !important;
+        animation: cdRunSweep 1.2s ease-in-out infinite;
+    }
+
+    @keyframes cdRunSweep {
+        from { left: -30%; }
+        to   { left: 100%; }
+    }
+
+    .cd-run-row {
+        cursor: default;
+    }
+
+    .cd-run-recent {
+        cursor: pointer;
+    }
+
+    .cd-run-meta {
+        flex-shrink: 0;
+        color: var(--cd-text-dim);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cd-run-node {
+        padding: 0 14px 6px;
+        color: var(--cd-text-dim);
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cd-run-bar {
+        height: 4px;
+        margin: 0 14px 8px;
+        border-radius: 2px;
+        background: var(--cd-s2);
+        overflow: hidden;
+    }
+
+    .cd-run-bar span {
+        display: block;
+        height: 100%;
+        background: var(--cd-accent);
+        transition: width 0.3s ease;
+    }
+
+    .cd-run-thumb {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--cd-s1);
+        color: var(--cd-text-dim);
+    }
+
+    .cd-run-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .cd-run-thumb svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .cd-run-recent.failed .cd-run-thumb {
+        color: var(--cd-danger);
     }
 }

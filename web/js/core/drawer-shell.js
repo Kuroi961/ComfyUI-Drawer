@@ -3,6 +3,8 @@
  * The visual container: tab bar + sliding panel + resize handle.
  * Manages gadget panels and their lifecycle.
  */
+import { placeAboveTabBar } from '../services/popover.js';
+
 export class DrawerShell {
     /** @type {import('./message-bus.js').MessageBus} */
     #bus;
@@ -55,11 +57,17 @@ export class DrawerShell {
     #alignBtn = null;
     #desktopMQ = null;
     /** @type {HTMLElement[]} Persistent elements appended after tabs (e.g. settings button) */
-    #tabBarSuffix = [];
+    /** Tab bar rows: header (run progress strip) and the tabs themselves */
+    #tabHeader = null;
+    #tabRow = null;
+    /** Ids of menu actions shown in the tab bar */
+    #pinnedActions = new Set();
     /** @type {Set<string>} Gadget IDs hidden from the tab bar */
     #hiddenGadgets = new Set();
     /** @type {boolean} True until the platform marks itself ready (built-in gadget registration pass has run). External gadgets registering before then must not cause the tab bar to surface alone. */
     #loading = true;
+    /** @type {boolean} Standalone page: panel fills the viewport and never closes. */
+    #standalone = false;
 
     static PANEL_MIN = 50;
     static PANEL_DEFAULT = 460;
@@ -69,6 +77,9 @@ export class DrawerShell {
     static ALIGN_KEY = 'comfy-drawer-align';
     static PANEL_MIN_WIDTH = 320;
     static HIDDEN_KEY = 'comfy-drawer-hidden-gadgets';
+    static PINNED_KEY = 'comfy-drawer-pinned-actions';
+    /** Gadgets whose default visibility was applied once (defaultHidden). */
+    static SEEN_KEY = 'comfy-drawer-seen-gadgets';
 
     /** ComfyUI DOM selectors for panel snap points.
      *  Centralised here so a single edit fixes breakage from ComfyUI UI updates. */
@@ -84,20 +95,34 @@ export class DrawerShell {
         return !!target.closest('.comfy-drawer, .cd-dialog-backdrop, .cd-dialog, .cd-lightbox-root, .cd-ctxmenu, .cd-ctxmenu-backdrop');
     }
 
-    constructor(bus, bridge) {
+    /**
+     * @param {import('./message-bus.js').MessageBus} bus
+     * @param {import('./comfy-bridge.js').ComfyBridge} bridge
+     * @param {object} [options]
+     * @param {boolean} [options.standalone=false] - Fill the viewport, never close,
+     *   and leave the in-ComfyUI panel geometry in localStorage untouched.
+     */
+    constructor(bus, bridge, { standalone = false } = {}) {
         this.#bus = bus;
         this.#bridge = bridge;
-        // Restore saved top offset; fall back to a default that gives PANEL_DEFAULT height
-        const savedTop = parseInt(localStorage.getItem(DrawerShell.STORAGE_KEY), 10);
-        this.#topOffset = isNaN(savedTop) ? null : savedTop;
-        this.#panelHeight = this.#topOffsetToHeight(this.#topOffset) || DrawerShell.PANEL_DEFAULT;
-        this.#panelWidth = parseInt(localStorage.getItem(DrawerShell.WIDTH_KEY), 10) || null;
-        this.#panelAlign = localStorage.getItem(DrawerShell.ALIGN_KEY) || 'left';
+        this.#standalone = !!standalone;
+        if (this.#standalone) {
+            this.#topOffset = null;
+            this.#panelHeight = DrawerShell.PANEL_DEFAULT;
+        } else {
+            // Restore saved top offset; fall back to a default that gives PANEL_DEFAULT height
+            const savedTop = parseInt(localStorage.getItem(DrawerShell.STORAGE_KEY), 10);
+            this.#topOffset = isNaN(savedTop) ? null : savedTop;
+            this.#panelHeight = this.#topOffsetToHeight(this.#topOffset) || DrawerShell.PANEL_DEFAULT;
+            this.#panelWidth = parseInt(localStorage.getItem(DrawerShell.WIDTH_KEY), 10) || null;
+            this.#panelAlign = localStorage.getItem(DrawerShell.ALIGN_KEY) || 'left';
+        }
         this.#desktopMQ = window.matchMedia('(min-width: 601px)');
         this.#desktopMQ.addEventListener('change', () => this.#applyLayout());
         this.#clampHeight();  // Ensure stored height fits current viewport
-        this.#saveTopOffset(); // Persist corrected value in case it was out-of-bounds
+        if (!this.#standalone) this.#saveTopOffset(); // Persist corrected value in case it was out-of-bounds
         this.#loadHiddenGadgets();
+        this.#loadPinnedActions();
         this.#buildDOM();
         this.#watchGraphChanges();
         this.#watchWindowResize();
@@ -117,6 +142,7 @@ export class DrawerShell {
         this.#root = document.createElement('div');
         this.#root.id = 'comfy-drawer';
         this.#root.className = 'comfy-drawer';
+        if (this.#standalone) this.#root.classList.add('standalone');
 
         // Suppress native context menu (except in input/textarea)
         // Use capture phase to ensure this runs before any child stopPropagation
@@ -162,6 +188,11 @@ export class DrawerShell {
         // Tab bar (floating pill when closed, docked when open)
         this.#tabBar = document.createElement('div');
         this.#tabBar.className = 'comfy-drawer-tabs';
+        this.#tabHeader = document.createElement('div');
+        this.#tabHeader.className = 'comfy-drawer-tabs-header';
+        this.#tabRow = document.createElement('div');
+        this.#tabRow.className = 'comfy-drawer-tabs-row';
+        this.#tabBar.append(this.#tabHeader, this.#tabRow);
 
         // Align toggle button (desktop, shown when custom width is active)
         this.#alignBtn = document.createElement('button');
@@ -214,6 +245,7 @@ export class DrawerShell {
         this.#containers.set(gadget.id, container);
 
         this.#gadgets.set(gadget.id, gadget);
+        this.#applyDefaultVisibility(gadget.id, !!options.defaultHidden);
         if (!options.lazyMount) {
             this.#mountGadget(gadget.id);
         }
@@ -286,6 +318,23 @@ export class DrawerShell {
         this.#bus.emit('drawer:gadget-unregistered', { id });
     }
 
+    /**
+     * A gadget registered with `defaultHidden` starts in the menu the first
+     * time this browser sees it; after that the user's choice stands.
+     */
+    #applyDefaultVisibility(id, defaultHidden) {
+        let seen = [];
+        try { seen = JSON.parse(localStorage.getItem(DrawerShell.SEEN_KEY) || '[]'); } catch { /* ignore */ }
+        if (!Array.isArray(seen)) seen = [];
+        if (seen.includes(id)) return;
+        seen.push(id);
+        try { localStorage.setItem(DrawerShell.SEEN_KEY, JSON.stringify(seen)); } catch { /* ignore */ }
+        if (defaultHidden && id !== 'home' && !this.#hiddenGadgets.has(id)) {
+            this.#hiddenGadgets.add(id);
+            this.#saveHiddenGadgets();
+        }
+    }
+
     static TAB_ORDER_KEY = 'comfy-drawer-tab-order';
 
     /* ═══════════════════════════════════════════════════════
@@ -306,7 +355,9 @@ export class DrawerShell {
     }
 
     #renderTabs() {
-        this.#tabBar.innerHTML = '';
+        this.#tabRow.replaceChildren();
+        const gadgetGroup = document.createElement('div');
+        gadgetGroup.className = 'comfy-drawer-tabs-gadgets';
         const gadgets = [...this.#gadgets.values()];
         const customOrder = this.#getTabOrder();
 
@@ -327,9 +378,7 @@ export class DrawerShell {
             gadgets.sort((a, b) => a.order - b.order);
         }
 
-        // Separate visible vs hidden
         const visible = gadgets.filter(g => !this.#hiddenGadgets.has(g.id));
-        const hidden  = gadgets.filter(g => this.#hiddenGadgets.has(g.id));
 
         for (const gadget of visible) {
             const tab = document.createElement('button');
@@ -390,10 +439,15 @@ export class DrawerShell {
                 this.#renderTabs();
             });
 
-            this.#tabBar.appendChild(tab);
+            gadgetGroup.appendChild(tab);
         }
 
-        // ── Hamburger menu (always present) ──
+        // Gadgets | pinned menu actions + menu button (always last).
+        const actionGroup = document.createElement('div');
+        actionGroup.className = 'comfy-drawer-tabs-actions';
+        for (const a of this.#burgerActions) {
+            if (this.#pinnedActions.has(a.id)) actionGroup.appendChild(this.#actionTab(a));
+        }
         const burger = document.createElement('button');
         burger.className = 'comfy-drawer-tab comfy-drawer-burger';
         burger.title = 'Menu';
@@ -401,9 +455,42 @@ export class DrawerShell {
         burger.addEventListener('click', (e) => {
             e.stopPropagation();
             this.#bus.emit('drawer:close-popovers', { source: 'burger' });
-            this.#toggleBurgerMenu(burger, hidden);
+            this.#toggleBurgerMenu(burger);
         });
-        this.#tabBar.appendChild(burger);
+        actionGroup.appendChild(burger);
+        const sep = document.createElement('span');
+        sep.className = 'comfy-drawer-tabs-sep';
+        this.#tabRow.append(gadgetGroup, sep, actionGroup);
+    }
+
+    /** The tab-bar element of a pinned action: its own element, or an icon button. */
+    #actionTab(a) {
+        if (a.tabElement) {
+            a.tabElement.dataset.actionId = a.id;
+            return a.tabElement;
+        }
+        a.builtTab ??= (() => {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'comfy-drawer-tab comfy-drawer-action-tab';
+            tab.dataset.actionId = a.id;
+            const icon = document.createElement('span');
+            icon.className = 'comfy-drawer-tab-icon';
+            icon.innerHTML = a.icon ?? '';
+            tab.appendChild(icon);
+            tab.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.#bus.emit('drawer:close-popovers', { source: 'action' });
+                a.action(tab);
+            });
+            return tab;
+        })();
+        a.builtTab.title = DrawerShell.#actionLabel(a);
+        return a.builtTab;
+    }
+
+    static #actionLabel(a) {
+        return String((typeof a.label === 'function' ? a.label() : a.label) ?? a.id);
     }
 
     /** Update active class without rebuilding DOM */
@@ -416,6 +503,7 @@ export class DrawerShell {
 
     #onTabClick(id) {
         if (this.#isOpen && this.#activeId === id) {
+            if (this.#standalone) return;
             // Same tab clicked while open → close
             this.close();
         } else {
@@ -454,6 +542,10 @@ export class DrawerShell {
         this.#clampHeight();
         this.#panel.style.height = `${this.#panelHeight}px`;
         this.#root.classList.add('open');
+        // Standalone fills the viewport: re-measure with the tab bar docked.
+        if (this.#standalone && this.#clampHeight()) {
+            this.#panel.style.height = `${this.#panelHeight}px`;
+        }
         this.#updateTabActive();
         this.#attachFocusGuard();
         this.#pushHistory();
@@ -475,7 +567,8 @@ export class DrawerShell {
     }
 
     close() {
-        if (!this.#isOpen) return;
+        // Standalone page: the panel is the whole app; there is nothing to reveal.
+        if (!this.#isOpen || this.#standalone) return;
 
         // Deactivate current
         if (this.#activeId) {
@@ -562,106 +655,170 @@ export class DrawerShell {
 
     /* ── Hamburger Menu ── */
 
-    /** @type {{ icon: string, label: string, action: Function }[]} */
+    /** @type {{ id: string, icon: string, label: string|Function, action: Function, tabElement?: HTMLElement }[]} */
     #burgerActions = [];
 
     /**
-     * Register a persistent action item in the burger menu.
-     * @param {{ icon: string, label: string, action: Function }} actionDef
+     * Register an action in the menu. The user can pin it to the tab bar
+     * (pin toggle on its menu row); `pinned` sets the initial placement.
+     * @param {object} def
+     * @param {string} [def.id] - stable id for the pinned state (defaults to the label)
+     * @param {string} def.icon - SVG markup
+     * @param {string|(() => string)} def.label
+     * @param {(anchor: HTMLElement) => void} def.action - `anchor` is the element
+     *        it was invoked from (the pinned tab, or the menu button) for popovers
+     * @param {HTMLElement} [def.tabElement] - owner-managed element shown when
+     *        pinned instead of a plain icon button; it handles its own clicks
+     * @param {boolean} [def.pinned=false] - pinned until the user changes it
+     * @param {number} [def.order=0] - position in the menu and tab bar (lower first)
      */
-    addBurgerAction(actionDef) {
-        this.#burgerActions.push(actionDef);
+    addBurgerAction(def) {
+        const id = String(def.id ?? (typeof def.label === 'function' ? def.label() : def.label));
+        if (this.#burgerActions.some(a => a.id === id)) return;
+        const action = { ...def, id };
+        this.#burgerActions.push(action);
+        this.#burgerActions.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        if (def.pinned && !this.#pinState().has(id)) this.#pinnedActions.add(id);
+        this.#renderTabs();
     }
 
-    #toggleBurgerMenu(anchor, hiddenGadgets) {
+    /** Whether a menu action is shown in the tab bar. */
+    isActionPinned(id) {
+        return this.#pinnedActions.has(id);
+    }
+
+    setActionPinned(id, pinned) {
+        if (pinned) this.#pinnedActions.add(id);
+        else this.#pinnedActions.delete(id);
+        const state = this.#pinState();
+        state.set(id, !!pinned);
+        try { localStorage.setItem(DrawerShell.PINNED_KEY, JSON.stringify(Object.fromEntries(state))); } catch { /* ignore */ }
+        this.#renderTabs();
+        this.#bus.emit('drawer:action-pin-changed', { id, pinned: !!pinned });
+    }
+
+    /** Saved pin choices: id → pinned (only actions the user toggled). */
+    #pinState() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(DrawerShell.PINNED_KEY) || '{}');
+            if (saved && typeof saved === 'object' && !Array.isArray(saved)) return new Map(Object.entries(saved));
+        } catch { /* ignore */ }
+        return new Map();
+    }
+
+    #loadPinnedActions() {
+        for (const [id, pinned] of this.#pinState()) if (pinned) this.#pinnedActions.add(id);
+    }
+
+    static PIN_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+
+    #toggleBurgerMenu(anchor) {
         // Close existing menu
         const existing = this.#root.querySelector('.comfy-drawer-burger-menu');
         if (existing) { existing.remove(); return; }
 
         const menu = document.createElement('div');
         menu.className = 'comfy-drawer-burger-menu';
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('pointerdown', closeHandler, true);
+        };
 
-        // Helper: build a burger menu item with the label set via
-        // textContent. Labels come from gadget definitions / action defs
-        // (some authored by third parties) so they cannot be trusted as
-        // HTML. Icons remain innerHTML because the convention is raw SVG.
+        // Labels come from gadget definitions / action defs (some authored
+        // by third parties) so they are set as text. Icons stay innerHTML
+        // because the convention is raw SVG.
         const _buildBurgerItem = (iconHTML, labelText, iconClass = 'comfy-drawer-tab-icon') => {
-            const item = document.createElement('button');
+            const item = document.createElement('div');
             item.className = 'comfy-drawer-burger-item';
+            item.setAttribute('role', 'button');
+            item.tabIndex = 0;
             const iconSpan = document.createElement('span');
             iconSpan.className = iconClass;
             iconSpan.innerHTML = iconHTML ?? '';
             const labelSpan = document.createElement('span');
+            labelSpan.className = 'comfy-drawer-burger-label';
             labelSpan.textContent = labelText ?? '';
             item.append(iconSpan, labelSpan);
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+            });
             return item;
         };
-
-        // Section 1: Hidden gadgets
-        if (hiddenGadgets.length > 0) {
-            for (const g of hiddenGadgets) {
-                const item = _buildBurgerItem(g.icon, g.label);
-                item.addEventListener('click', () => {
-                    menu.remove();
-                    this.open(g.id);
-                });
-                menu.appendChild(item);
-            }
-            // Divider
+        const t = (key, fallback) => window.ComfyDrawer?.t?.(key) ?? fallback;
+        /** Pin toggle at the end of a row: shown in the tab bar or kept here. */
+        const addPin = (item, pinned, onToggle) => {
+            const pin = document.createElement('button');
+            pin.type = 'button';
+            pin.className = `comfy-drawer-burger-pin${pinned ? ' on' : ''}`;
+            pin.innerHTML = DrawerShell.PIN_ICON;
+            pin.title = pinned ? t('menu.unpin', 'Move to menu') : t('menu.pin', 'Show in tab bar');
+            pin.setAttribute('aria-pressed', String(pinned));
+            pin.addEventListener('click', (e) => {
+                e.stopPropagation();
+                onToggle(!pinned);
+                close();
+                this.#toggleBurgerMenu(this.#tabRow.querySelector('.comfy-drawer-burger') ?? anchor);
+            });
+            item.appendChild(pin);
+        };
+        const addSep = () => {
             const sep = document.createElement('div');
             sep.className = 'comfy-drawer-burger-sep';
             menu.appendChild(sep);
+        };
+
+        // Section 1: gadgets (Home always stays in the tab bar)
+        const gadgets = [...this.#gadgets.values()].filter(g => g.id !== 'home')
+            .sort((a, b) => a.order - b.order);
+        for (const g of gadgets) {
+            const item = _buildBurgerItem(g.icon, g.label);
+            item.addEventListener('click', () => {
+                close();
+                this.open(g.id);
+            });
+            addPin(item, !this.#hiddenGadgets.has(g.id), (pin) => (pin ? this.showGadget(g.id) : this.hideGadget(g.id)));
+            menu.appendChild(item);
         }
 
-        // Section 2: Registered actions (settings, reload, align, etc.)
+        // Section 2: actions (workflow, queue, settings, …)
+        if (gadgets.length && this.#burgerActions.length) addSep();
         for (const a of this.#burgerActions) {
-            const item = _buildBurgerItem(a.icon, a.label, 'comfy-drawer-burger-icon');
+            const item = _buildBurgerItem(a.icon, DrawerShell.#actionLabel(a), 'comfy-drawer-burger-icon');
             item.addEventListener('click', () => {
-                menu.remove();
-                a.action();
+                close();
+                a.action(anchor);
             });
+            addPin(item, this.#pinnedActions.has(a.id), (pin) => this.setActionPinned(a.id, pin));
             menu.appendChild(item);
         }
 
         // Align action (desktop only, when custom width is active)
         if (this.#desktopMQ?.matches && this.#panelWidth) {
+            addSep();
             const alignLabel = this.#panelAlign === 'left' ? '→ Right' : '← Left';
-            const alignItem = _buildBurgerItem(
-                this.#alignIcon(),
-                `Panel: ${alignLabel}`,
-                'comfy-drawer-burger-icon',
-            );
+            const alignItem = _buildBurgerItem(this.#alignIcon(), `Panel: ${alignLabel}`, 'comfy-drawer-burger-icon');
             alignItem.addEventListener('click', () => {
-                menu.remove();
+                close();
                 this.#cycleAlign();
             });
             menu.appendChild(alignItem);
         }
 
-        // Position: append to root, placed above the burger button
-        const rect = anchor.getBoundingClientRect();
-        const rootRect = this.#root.getBoundingClientRect();
-        menu.style.position = 'absolute';
-        menu.style.bottom = `${rootRect.bottom - rect.top + 4}px`;
-        menu.style.right = `${rootRect.right - rect.right}px`;
-        this.#root.appendChild(menu);
+        placeAboveTabBar(menu, anchor, this.#root);
 
         // Close on outside click
         const closeHandler = (e) => {
-            if (!menu.contains(e.target) && !anchor.contains(e.target)) {
-                menu.remove();
-                document.removeEventListener('pointerdown', closeHandler, true);
-            }
+            if (!menu.contains(e.target) && !anchor.contains(e.target)) close();
         };
         setTimeout(() => document.addEventListener('pointerdown', closeHandler, true), 0);
     }
 
     /**
-     * @deprecated Use addBurgerAction() instead.
+     * Add a persistent element above the tabs (the run progress strip).
+     * It survives every tab rebuild.
      */
-    addTabBarAction(element) {
-        this.#tabBarSuffix.push(element);
-        this.#tabBar.appendChild(element);
+    addTabBarHeader(element) {
+        this.#tabHeader.appendChild(element);
     }
 
     /* ═══════════════════════════════════════════════════════
@@ -681,6 +838,10 @@ export class DrawerShell {
 
         // Default: drawer gets focus when opened
         this.#setFocus(true);
+
+        // Standalone page: no ComfyUI canvas to shield from keystrokes, and
+        // Escape must not try to close the panel.
+        if (this.#standalone) return;
 
         // --- Click tracking: which zone was last clicked? ---
         // Use capture phase so we fire BEFORE ComfyUI's canvas consumes the event.
@@ -994,7 +1155,8 @@ export class DrawerShell {
         const hasWidth = isDesktop && this.#panelWidth;
 
         // Handles: show/hide based on alignment and width state
-        if (isDesktop && this.#isOpen) {
+        // (standalone page: fixed full-viewport panel, no resize handles)
+        if (isDesktop && this.#isOpen && !this.#standalone) {
             if (this.#panelWidth) {
                 // Custom width: show resize handles on the opposite side of alignment
                 const showL = this.#panelAlign === 'right' ? 'block' : 'none';
@@ -1183,6 +1345,13 @@ export class DrawerShell {
      * @returns {boolean} true if the height was changed
      */
     #clampHeight() {
+        if (this.#standalone) {
+            const tabBarH = this.#tabBar?.offsetHeight || 0;
+            const fullH = Math.max(DrawerShell.PANEL_MIN, window.innerHeight - tabBarH);
+            const changed = fullH !== this.#panelHeight;
+            this.#panelHeight = fullH;
+            return changed;
+        }
         // Recalculate height from stored top offset
         if (this.#topOffset != null) {
             const fromTop = this.#topOffsetToHeight(this.#topOffset);
