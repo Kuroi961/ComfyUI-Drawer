@@ -8,15 +8,29 @@ import { sanitizeComfyDrawerWorkflowExtra } from '../utils.js';
 export class ComfyBridge {
     #app = null;
     #api = null;
+    #standalone = false;
 
     /** Frontend versions this code has been tested against */
     static TESTED_VERSIONS = ['1.41', '1.42'];
 
-    constructor(app, api) {
+    /**
+     * @param {object} app - ComfyUI app, or HeadlessApp on the standalone page
+     * @param {object} api - ComfyUI api, or StandaloneApi
+     * @param {object} [options]
+     * @param {boolean} [options.standalone=false] - Running without the ComfyUI frontend
+     */
+    constructor(app, api, { standalone = false } = {}) {
         this.#app = app;
         this.#api = api;
-        this.#checkFrontendVersion();
+        this.#standalone = !!standalone;
+        if (!this.#standalone) this.#checkFrontendVersion();
     }
+
+    /**
+     * True on the standalone page: no ComfyUI frontend; the graph is a
+     * HeadlessGraph opened from a saved workflow (web/js/headless).
+     */
+    get isStandalone() { return this.#standalone; }
 
     /**
      * Log a warning if the frontend version is untested.
@@ -424,7 +438,8 @@ export class ComfyBridge {
             if (nx == null || ny == null) return false;
             const cx = nx + nw / 2;
             const cy = ny + nh / 2;
-            return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+            // LiteGraph containsCentre/isInRect: right and bottom edges are outside.
+            return cx >= gx && cx < gx + gw && cy >= gy && cy < gy + gh;
         });
     }
 
@@ -588,6 +603,7 @@ export class ComfyBridge {
      */
     isOutputNode(node) {
         if (!node) return false;
+        if (node.nodeData?.output_node) return true;
         const classType = node.comfyClass ?? node.type;
         // LiteGraph stores the registered node definitions; ComfyUI's app
         // caches /object_info as nodeData on each registered nodeType.
@@ -620,6 +636,7 @@ export class ComfyBridge {
      * @returns {() => void} Dispose function to remove the listener
      */
     onGraphSwitch(callback) {
+        if (this.#standalone) return () => {};
         // Find the canvas element: LiteGraph fires custom events on the canvas DOM
         const canvasEl = this.#app?.canvas?.canvas
             ?? document.querySelector('#graph-canvas-container canvas');
@@ -659,16 +676,20 @@ export class ComfyBridge {
 
     /** Read a ComfyUI setting value */
     getSetting(key, defaultValue) {
-        return this.#app?.ui?.settings?.getSettingValue(key, defaultValue) ?? defaultValue;
+        return this.#uiSettings?.getSettingValue(key, defaultValue) ?? defaultValue;
     }
 
     /** Write a ComfyUI setting value */
     setSetting(key, value) {
-        this.#app?.ui?.settings?.setSettingValue(key, value);
+        this.#uiSettings?.setSettingValue(key, value);
     }
 
     /** Register a new ComfyUI setting (shows in Settings panel) */
     addSetting(config) {
-        this.#app?.ui?.settings?.addSetting(config);
+        this.#uiSettings?.addSetting(config);
+    }
+
+    get #uiSettings() {
+        return this.#app?.ui?.settings;
     }
 }

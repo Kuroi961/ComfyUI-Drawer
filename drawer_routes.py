@@ -13,6 +13,7 @@ import random
 import re
 import threading
 import time
+import urllib.parse
 import tempfile
 import uuid as _uuid
 from pathlib import Path
@@ -112,6 +113,37 @@ def _drawer_version(default="0.0.0"):
 async def get_drawer_version(request):
     """Return the Python package version used by the current Drawer backend."""
     return web.json_response({"version": _drawer_version()})
+
+
+def _standalone_page_path():
+    """URL path (no leading slash) of web/standalone.html as ComfyUI serves it.
+
+    ComfyUI mounts each web directory at /extensions/<key>, where <key> is
+    the custom-node folder name (or the pyproject project name), so look the
+    key up instead of assuming the repository name.
+    """
+    web_dir = os.path.normcase(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
+    key = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import nodes  # populated after custom nodes load; import lazily
+        for name, path in nodes.EXTENSION_WEB_DIRS.items():
+            if os.path.normcase(os.path.abspath(path)) == web_dir:
+                key = name
+                break
+    except Exception:
+        pass
+    return f"extensions/{urllib.parse.quote(key)}/standalone.html"
+
+
+@_routes.get("/drawer/app")
+async def get_standalone_app(request):
+    """Redirect to the standalone Drawer page (no ComfyUI frontend).
+
+    The Location is relative so it keeps working behind a reverse proxy
+    that mounts ComfyUI under a sub-path, and for the /api/ route alias.
+    """
+    ups = max(request.path.count("/") - 1, 0)
+    raise web.HTTPFound("../" * ups + _standalone_page_path())
 
 
 @_routes.get("/drawer/changelog")
@@ -2023,6 +2055,7 @@ async def fs_rename(request):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import time
+import urllib.parse
 import re
 import base64
 from io import BytesIO

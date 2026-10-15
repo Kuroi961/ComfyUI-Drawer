@@ -111,7 +111,9 @@ export async function initLocale(bridge) {
 
     // ── Detect locale ──
     // Priority: ComfyUI setting > browser language > 'en'
-    let detected = 'en';
+    // (The standalone page has no ComfyUI frontend to default Comfy.Locale,
+    // so an absent setting must fall through to the browser language.)
+    let detected = null;
 
     // 1. ComfyUI Settings > Locale
     try {
@@ -122,7 +124,7 @@ export async function initLocale(bridge) {
     } catch { /* setting not available */ }
 
     // 2. Browser language fallback
-    if (!_bundles[detected]) {
+    if (!detected || !_bundles[detected]) {
         const browserLang = (navigator.language || 'en').split('-')[0].toLowerCase();
         if (_bundles[browserLang]) {
             detected = browserLang;
