@@ -168,7 +168,7 @@ When adding, removing, or renaming anything exposed through `window.ComfyDrawer`
 
 | File | What to sync |
 |---|---|
-| `web/js/comfy-drawer.js` | Public API export object and header comment |
+| `web/js/drawer-platform.js` | Public API export object and header comment |
 | `GADGET_API.md` | Detailed usage and signatures |
 | `ARCHITECTURE.md` | Public API overview tables |
 | `README.md` / `README_ja.md` / `README_zh.md` | Only if the change is user-facing |

@@ -59,14 +59,17 @@ ComfyUI-Drawer/
 ├── web/
 │   ├── css/                  # Global CSS (drawer, lightbox, dialog, etc.)
 │   ├── locales/              # i18n: en.json, ja.json, zh.json
+│   ├── standalone.html       # Standalone page (no ComfyUI frontend); /drawer/app redirects here
 │   ├── js/
-│   │   ├── comfy-drawer.js   # Entry point (loaded by ComfyUI)
+│   │   ├── comfy-drawer.js   # ComfyUI extension entry (app/api hooks, then boots the platform)
+│   │   ├── drawer-platform.js # Host-agnostic platform bootstrap + window.ComfyDrawer
+│   │   ├── headless/         # Standalone graph engine (prompt builder, HeadlessApp)
 │   │   ├── ext-*.js          # Single-file gadgets (auto-loaded)
 │   │   ├── utils.js
 │   │   ├── core/             # Platform core (shell, bus, bridge, gadget-base)
 │   │   ├── services/         # Platform services
 │   │   └── components/       # Shared UI (media-card)
-│   └── gadgets/              # Built-in gadgets (home, deck, gallery, modelviewer, xyzplot)
+│   └── gadgets/              # Built-in gadgets (home, deck, gallery, modelviewer, xyzplot, logs)
 ├── ARCHITECTURE.md
 ├── CONVENTIONS.md
 ├── GADGET_API.md
@@ -87,7 +90,8 @@ Gadgets (Deck, Gallery, XYZ, 3rd-party)
 | Rule | Reason |
 |---|---|
 | Gadgets must NOT import other gadgets | Independent units; communicate via Bus |
-| Platform core/services/components must NOT reference `gadgets/` | Dependency inversion; `comfy-drawer.js` is the composition root and may import built-in gadgets |
+| Platform core/services/components must NOT reference `gadgets/` | Dependency inversion; `drawer-platform.js` is the composition root and may import built-in gadgets |
+| Only `comfy-drawer.js` may import ComfyUI's `scripts/app.js` / `scripts/api.js` | Those shims throw outside the ComfyUI frontend; anything reachable from `standalone.html` must stay host-agnostic. Modules without a bridge use `core/api-utils.js` (the host installs its api via `setApiProvider`) |
 | Gadgets may use `window.ComfyDrawer` | Recommended public API access |
 | No 3rd-party extension imports | Loose coupling via Bus events only |
 | ComfyUI DOM selectors must be centralized as constants | Minimize breakage on ComfyUI updates |
@@ -108,6 +112,35 @@ Gadgets should use `ComfyBridge` for ComfyUI graph, queue, file, setting, and ev
 
 New repeated gadget access to `bridge.app` should usually become a focused Bridge method. One-off compatibility hooks may stay as escape hatches when they are documented near the call site.
 
+## Hosts: ComfyUI and Standalone
+
+The platform (`drawer-platform.js` → `startDrawerPlatform({ bridge, ... })`) runs on either host:
+
+| | ComfyUI extension | Standalone page |
+|---|---|---|
+| Entry | `comfy-drawer.js` (`registerExtension`) | `standalone.html` (`/drawer/app`) |
+| Bridge | `new ComfyBridge(app, api)` | `new ComfyBridge(new HeadlessApp(api, settings), new StandaloneApi(), { standalone: true })` |
+| Graph | LiteGraph graph of the open workflow tab | `HeadlessGraph` of a saved workflow, opened from the tab-bar workflow button |
+| Prompt | frontend `graphToPrompt` | `headless/prompt-builder.js` (port of `graphToPrompt` + `ExecutableNodeDTO`) |
+| Saving | the user saves in ComfyUI | explicit save (menu, Ctrl+S); unsaved edits are a localStorage draft; a file changed elsewhere asks overwrite / reload |
+| Built-in gadgets | all | all |
+| Shell | bottom drawer, resizable, closable | fills the viewport, never closes, does not touch the drawer's saved geometry |
+| Generation events | ComfyUI api | `StandaloneApi` socket (`/ws`) — ComfyUI sends per-prompt events only to the queuing client |
+
+Gadgets reach the graph through `ComfyBridge`; on the standalone page `bridge.app` is a `HeadlessApp`, which implements the slice of ComfyUI's `app` the bridge uses. Settings, theme, dictionaries and search-index state are shared between hosts through localStorage and the backend.
+
+### Headless engine (`web/js/headless`)
+
+| Module | Role |
+|---|---|
+| `node-defs.js` | Widget layout from `/object_info` (V3 dynamic inputs, seed controls, upload buttons, extension widgets via `widgets_values_named`), text replacements |
+| `headless-graph.js` | `HeadlessGraph`: nodes/widgets/groups/links from saved JSON, subgraph instances and id deduplication, serialization of only changed values |
+| `prompt-builder.js` | API prompt: subgraph flattening, bypass/mute, virtual nodes (Reroute, KJ Set/Get), dynamic prompts, PresetText |
+| `value-control.js` | control-after-generate (fixed / increment / decrement / randomize) |
+| `headless-app.js` | `HeadlessApp`: open/save workflows, queue (DrawerSeed, rgthree Seed), node outputs from server events |
+
+The engine must never send a prompt that differs from the frontend's: a node it cannot reproduce exactly (unknown type, values that no longer line up with its inputs, extension widgets it cannot place) makes `buildPrompt` throw `HeadlessPromptError` with the reason. `tests/fixtures/headless` holds prompts captured from the real frontend; `tests/js/headless_golden.mjs` replays them (see `tests/fixtures/headless/README.md`). When the frontend changes how it serializes widgets or resolves links, re-capture the fixtures.
+
 ## Security Boundary
 
 Drawer mutates local files and proxies external downloads on behalf of the browser. Several invariants must hold across the platform:
@@ -117,6 +150,7 @@ Drawer mutates local files and proxies external downloads on behalf of the brows
 | Filesystem | All paths from request bodies go through `safe_path()` (in Python) / are validated against `ALLOWED_ROOTS` before any `os.listdir` / `shutil.move` / `_trash_file`. `os.listdir`/`os.walk` results may contain symlinks — refuse them (`os.path.islink`) before recursing or trashing. |
 | Image bytes | Anything Drawer accepts as an image (uploads, output→preview copies, CivitAI downloads) must pass `image_safety.open_image_checked(..., verify=True)`. Extension checks alone are insufficient. |
 | External HTTP | Drawer's outbound HTTP (CivitAI, etc.) must size-cap the response stream, validate `Content-Type`, write to a temp file, and `os.replace`. Unbounded `await resp.read()` is forbidden. |
+| Run progress relay | `progress_relay.py` broadcasts per-prompt events to every client. Only ids, node, step counts and an error summary (`RELAYED_FIELDS`) are sent — never previews, inputs or tracebacks. |
 | Deletion | Gallery-browsed media (`fs_delete`, `fs_move` overwrite, etc.) goes to `send2trash`. Permanent `os.remove` is reserved for plugin-owned caches and sidecars whose author confirmed the destructive action. |
 | State-changing routes | All POST/PUT/PATCH/DELETE routes call `require_same_origin(request)` near the top. Browsers cannot be assumed to enforce CORS for everyone — ComfyUI is regularly launched with custom origins enabled. |
 | Frontend URL surfaces | Any `src`/`href`/`window.open` argument originating from server metadata is sanitized with the `URL` constructor + scheme allowlist (same-origin `http(s)` only) before reaching the browser. |

@@ -8,7 +8,7 @@ ComfyUI-Drawer は、ComfyUI のノードグラフを別アプリに置き換え
 
 デスクトップでは、Drawer はキャンバス上のワークフローを操作するリモコンのように使えます。モバイルや小さな画面では、Drawer 自体が主な操作画面になります。パラメータ調整、出力確認、モデル選択、検索、辞書、マスク編集、XYZ 検証を同じ場所で扱えるようにすることが目的です。
 
-Drawer 内で動作する各ツールは「ガジェット」と呼ばれます。標準では Home、Deck、XYZ Plot、Gallery、Model Viewer などが入っており、外部カスタムノードから独自ガジェットを追加することもできます。
+Drawer 内で動作する各ツールは「ガジェット」と呼ばれます。標準では Home、Deck、XYZ Plot、Gallery、Model Viewer、Logs などが入っており、外部カスタムノードから独自ガジェットを追加することもできます。
 
 ## まず使う場所
 
@@ -21,6 +21,7 @@ ComfyUI-Drawer をインストールすると、ComfyUI 画面下部に Drawer �
 - XYZ Plot: パラメータを変えながら連続生成
 - Gallery: output/input/temp のメディア管理
 - Model Viewer: models 配下のモデル閲覧と適用
+- Logs: ComfyUI サーバーのコンソールをライブ表示し、警告やエラーで絞り込み
 - Settings: テーマ、辞書、検索インデックス、キャッシュなどの設定
 
 ## Home

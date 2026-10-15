@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import os
 import sys
 import tempfile
@@ -601,9 +603,9 @@ class DrawerShellLoadingGateTests(unittest.TestCase):
         self.assertRegex(source, r"classList\.toggle\(\s*'loading'\s*,\s*this\.#loading\s*\)")
 
     def test_platform_calls_mark_ready_after_built_in_registration(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         self.assertIn("shell.markReady()", source,
-            "comfy-drawer.js must call shell.markReady() after the built-in registration pass.")
+            "drawer-platform.js must call shell.markReady() after the built-in registration pass.")
 
 
 class GallerySelectModeExitTests(unittest.TestCase):
@@ -897,7 +899,7 @@ class LocaleParityTests(unittest.TestCase):
             "metaRawJson",
         ):
             self.assertIn(k, en["menu"], f"missing: menu.{k}")
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         # The previous hardcoded strings are gone; the new keys are used.
         self.assertNotIn("textContent = 'Summary'", source)
         self.assertNotIn("textContent = 'Raw JSON'", source)
@@ -971,15 +973,28 @@ class ToastServiceTests(unittest.TestCase):
         self.assertIn("'region'", source)
 
     def test_comfy_drawer_imports_and_exports_show_toast(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         self.assertIn('from "./services/toast.js"', source)
         # The local function-scoped showToast definition is gone — the
         # imported one takes over.
         self.assertNotIn("function showToast(message, { duration", source)
 
-    def test_gallery_delegates_to_platform_show_toast(self):
-        source = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
-        self.assertIn("window.ComfyDrawer?.showToast", source)
+    def test_no_inline_toasts(self):
+        # Gallery, XYZ Plot, the mask editor and the platform's index notices
+        # use the shared service instead of building their own fixed <div>.
+        web = REPO_ROOT / "web"
+        for rel, import_line in (
+            ("gadgets/gallery/gallery-gadget.js", "import { showToast } from '../../js/services/toast.js';"),
+            ("gadgets/xyzplot/xyzplot-gadget.js", "import { showToast } from '../../js/services/toast.js';"),
+            ("js/services/mask-service.js", "import { showToast } from './toast.js';"),
+        ):
+            source = (web / rel).read_text(encoding="utf-8")
+            self.assertIn(import_line, source, rel)
+            self.assertNotIn("_showToast", source, rel)
+            self.assertNotIn("#showToast", source, rel)
+        platform = (web / "js" / "drawer-platform.js").read_text(encoding="utf-8")
+        self.assertNotIn("showDrawerToast", platform)
+        self.assertNotIn("gg-toast", (web / "gadgets" / "gallery" / "gallery.css").read_text(encoding="utf-8"))
 
     def test_modelviewer_delegates_to_platform_show_toast(self):
         source = (REPO_ROOT / "web" / "gadgets" / "modelviewer" / "modelviewer-gadget.js").read_text(encoding="utf-8")
@@ -1609,13 +1624,13 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("name: result.name", source)
 
     def test_metadata_display_accepts_raw_metadata_without_workflow(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
 
         self.assertIn("Object.keys(meta).length", source)
         self.assertNotIn("return (meta && (meta.prompt || meta.workflow)) ? meta : null", source)
 
     def test_metadata_display_builds_workflow_overview_from_prompt_only_metadata(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
 
         self.assertIn("const promptNodes = prompt", source)
         self.assertIn("const overviewNodes = nodes.length ? nodes : promptNodes", source)
@@ -1624,7 +1639,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("if (workflow || promptNodes.length)", source)
 
     def test_a1111_metadata_delegates_workflow_open_to_native_handle_file(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
 
         self.assertIn("function canOpenWorkflowFromMeta(meta, item = {})", source)
         self.assertIn("return isPng && !!meta?.a1111", source)
@@ -1633,7 +1648,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("if (canOpenWorkflowFromMeta(meta, { ...item, name }))", source)
 
     def test_generation_metadata_has_formatted_overview(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         css = (REPO_ROOT / "web" / "css" / "dialog.css").read_text(encoding="utf-8")
         en = json.loads((REPO_ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
 
@@ -1648,7 +1663,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertIn("cd-meta-setting-grid", css)
 
     def test_home_storage_widget_uses_cache_and_model_category_breakdown(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
 
         self.assertIn("STORAGE_WIDGET_CACHE_MS", source)
@@ -1662,7 +1677,8 @@ class RouteHardeningSourceTests(unittest.TestCase):
     def test_frontend_version_is_served_without_import_time_file_write(self):
         init_source = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
         routes_source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
-        frontend_source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        frontend_source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
+        entry_source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
         pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         version_js = (REPO_ROOT / "web" / "js" / "version.js").read_text(encoding="utf-8")
 
@@ -1670,7 +1686,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertNotIn("write_text", init_source)
         self.assertIn('@_routes.get("/drawer/version")', routes_source)
         self.assertIn("async function loadDrawerVersion", frontend_source)
-        self.assertIn("await loadDrawerVersion(DRAWER_VERSION)", frontend_source)
+        self.assertIn("await loadDrawerVersion(api, DRAWER_VERSION)", entry_source)
         self.assertIn(r'^version\s*=\s*"', init_source)
         version = pyproject.split('version = "', 1)[1].split('"', 1)[0]
         self.assertIn(f"DRAWER_VERSION = '{version}'", version_js)
@@ -1687,7 +1703,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
         self.assertNotIn("normalizePath(info.path || modelPath)", frontend_source)
 
     def test_context_menu_can_resync_file_metadata_from_disk(self):
-        source = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
         index = (REPO_ROOT / "search_index.py").read_text(encoding="utf-8")
         toast_module = (REPO_ROOT / "web" / "js" / "services" / "toast.js").read_text(encoding="utf-8")
@@ -1712,7 +1728,7 @@ class RouteHardeningSourceTests(unittest.TestCase):
 
     def test_context_menu_supports_compact_footer_actions(self):
         service = (REPO_ROOT / "web" / "js" / "services" / "context-menu.js").read_text(encoding="utf-8")
-        drawer = (REPO_ROOT / "web" / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        drawer = (REPO_ROOT / "web" / "js" / "drawer-platform.js").read_text(encoding="utf-8")
         gallery = (REPO_ROOT / "web" / "gadgets" / "gallery" / "gallery-gadget.js").read_text(encoding="utf-8")
         css = (REPO_ROOT / "web" / "css" / "context-menu.css").read_text(encoding="utf-8")
 
@@ -1984,6 +2000,216 @@ class XyzPlotWorkflowBindingTests(unittest.TestCase):
         window = source[max(0, idx_export - 400):idx_export]
         self.assertIn("this.#bindStateToWorkflow()", window,
                       "#bindStateToWorkflow() must run before exportWorkflow() so the embedded workflow carries the latest binding")
+
+
+class StandalonePageTests(unittest.TestCase):
+    """standalone.html runs Drawer without the ComfyUI frontend bundle.
+    ComfyUI's /scripts/app.js and /scripts/api.js shims read window.comfyAPI
+    and throw outside the frontend, so nothing the page imports may reach
+    them — not even transitively through a shared service module."""
+
+    WEB = REPO_ROOT / "web"
+
+    def _static_imports(self, path):
+        import re
+        source = path.read_text(encoding="utf-8")
+        specs = re.findall(r'^\s*import\s[^;]*?from\s+["\']([^"\']+)["\']', source, re.M)
+        specs += re.findall(r'^\s*import\s+["\']([^"\']+)["\']', source, re.M)
+        return specs
+
+    def test_standalone_import_graph_never_reaches_comfyui_scripts(self):
+        import re
+        html = (self.WEB / "standalone.html").read_text(encoding="utf-8")
+        roots = re.findall(r'import\s[^;]*?from\s+["\'](\./[^"\']+)["\']', html)
+        self.assertTrue(roots, "standalone.html must import its entry modules")
+        seen = set()
+        stack = [(self.WEB / spec).resolve() for spec in roots]
+        while stack:
+            path = stack.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            for spec in self._static_imports(path):
+                self.assertNotIn("scripts/app.js", spec, f"{path.name} imports ComfyUI app")
+                self.assertNotIn("scripts/api.js", spec, f"{path.name} imports ComfyUI api")
+                if spec.startswith("."):
+                    stack.append((path.parent / spec).resolve())
+        self.assertIn((self.WEB / "js" / "drawer-platform.js").resolve(), seen)
+
+    def test_page_boots_platform_over_headless_app(self):
+        html = (self.WEB / "standalone.html").read_text(encoding="utf-8")
+        self.assertIn("new HeadlessApp(api, await api.loadSettings())", html)
+        self.assertIn("new ComfyBridge(app, api, { standalone: true })", html)
+        self.assertIn("setApiProvider(api)", html)
+        self.assertIn("startDrawerPlatform(", html)
+        self.assertIn("attachStandaloneWorkflowBar(window.ComfyDrawer.shell, app)", html)
+
+    def test_comfyui_entry_installs_api_provider(self):
+        entry = (self.WEB / "js" / "comfy-drawer.js").read_text(encoding="utf-8")
+        self.assertIn("setApiProvider(api);", entry)
+        self.assertIn("startDrawerPlatform({ bridge, drawerVersion, bootPlaceholder })", entry)
+
+    def test_only_embedded_workflow_json_opens_on_standalone(self):
+        platform = (self.WEB / "js" / "drawer-platform.js").read_text(encoding="utf-8")
+        # No frontend importer for A1111/NAI metadata on the standalone page.
+        self.assertIn("if (standalone) return !!meta?.workflow;", platform)
+
+    def test_xyz_sweep_does_not_hang_on_a_refused_cell(self):
+        xyz = (self.WEB / "gadgets" / "xyzplot" / "xyzplot-gadget.js").read_text(encoding="utf-8")
+        self.assertIn("if (queued === false && this.bridge.isStandalone) finish();", xyz)
+
+    def test_standalone_never_writes_a_workflow_on_its_own(self):
+        # Edits only mark the workflow modified (and keep a browser draft);
+        # the file is written by an explicit save.
+        app = (self.WEB / "js" / "headless" / "headless-app.js").read_text(encoding="utf-8")
+        self.assertNotIn("saveTimer", app)
+        self.assertNotIn("this.save(", app.split("    async save(", 1)[0])
+        self.assertIn("this.#emitSaveState(wf, wf.modified ? 'modified' : '');", app)
+        bridge = (self.WEB / "js" / "core" / "comfy-bridge.js").read_text(encoding="utf-8")
+        set_extra = bridge.split("setWorkflowExtra(path, value) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("graph.change?.();", set_extra)
+
+    def test_headless_app_refuses_to_overwrite_a_file_changed_elsewhere(self):
+        app = (self.WEB / "js" / "headless" / "headless-app.js").read_text(encoding="utf-8")
+        self.assertIn("onDisk.modified !== wf.file.modified", app)
+        self.assertIn("throw new SaveConflictError(path);", app)
+
+    def test_workflow_menu_shares_bookmarks_with_the_comfyui_sidebar(self):
+        app = (self.WEB / "js" / "headless" / "headless-app.js").read_text(encoding="utf-8")
+        self.assertIn("const INDEX_PATH = '.index.json';", app)
+        self.assertIn("JSON.stringify({ ...index, favorites })", app)
+
+    def test_standalone_shell_never_closes_and_keeps_panel_geometry(self):
+        shell = (self.WEB / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8")
+        self.assertIn("if (!this.#isOpen || this.#standalone) return;", shell)
+        self.assertIn("if (!this.#standalone) this.#saveTopOffset();", shell)
+
+    def test_locale_falls_back_to_browser_language_without_comfy_setting(self):
+        # The standalone page has no frontend to default Comfy.Locale; starting
+        # from 'en' would skip the browser-language fallback entirely.
+        locale = (self.WEB / "js" / "services" / "locale.js").read_text(encoding="utf-8")
+        self.assertIn("let detected = null;", locale)
+        self.assertIn("if (!detected || !_bundles[detected]) {", locale)
+
+    def test_tab_bar_rebuild_keeps_persistent_controls(self):
+        # #renderTabs() rebuilds only the tab row on every hide/show/reorder:
+        # the header (progress strip) survives, pinned menu actions (workflow,
+        # queue) come back after the gadgets, and the menu button stays last.
+        shell = (self.WEB / "js" / "core" / "drawer-shell.js").read_text(encoding="utf-8").replace("\r\n", "\n")
+        render = shell.split("#renderTabs() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("this.#tabRow.replaceChildren();", render)
+        self.assertNotIn("#tabHeader", render)
+        self.assertIn("if (this.#pinnedActions.has(a.id)) actionGroup.appendChild(this.#actionTab(a));", render)
+        self.assertLess(render.index("actionGroup.appendChild(this.#actionTab(a))"), render.index("actionGroup.appendChild(burger);"))
+        self.assertIn("this.#tabRow.append(gadgetGroup, sep, actionGroup);", render)
+
+    def test_no_secure_context_only_apis(self):
+        # The page is opened over plain http from phones (LAN / Tailscale
+        # address), where crypto.randomUUID() is undefined: opening an image's
+        # workflow threw before it was replaced.
+        for path in (self.WEB / "js").rglob("*.js"):
+            self.assertNotIn("crypto.randomUUID", path.read_text(encoding="utf-8"), str(path))
+
+    def test_clipboard_goes_through_copy_text(self):
+        # navigator.clipboard is undefined over plain http; every copy goes
+        # through utils.copyText, which falls back to execCommand.
+        for path in self.WEB.rglob("*.js"):
+            if path.name == "utils.js" and path.parent.name == "js":
+                continue
+            self.assertNotIn("navigator.clipboard", path.read_text(encoding="utf-8"), str(path))
+        toast = (self.WEB / "js" / "services" / "toast.js").read_text(encoding="utf-8")
+        self.assertIn("user-select: none;", toast)
+        self.assertIn("_container.addEventListener('contextmenu', (e) => e.preventDefault());", toast)
+
+    def test_menu_layout_defaults(self):
+        # XYZ Plot, Models and Logs start in the menu; the workflow and queue
+        # are menu actions that can be pinned to the tab bar.
+        platform = (self.WEB / "js" / "drawer-platform.js").read_text(encoding="utf-8")
+        for gid in ("xyzplot", "modelviewer", "logs"):
+            line = next(l for l in platform.splitlines() if f"{{ id: '{gid}'," in l)
+            self.assertIn("defaultHidden: true", line)
+        self.assertIn("defaultHidden: !!spec.defaultHidden", platform)
+        for path, action_id in (("services/progress.js", "queue"), ("services/standalone-workflow.js", "workflow")):
+            source = (self.WEB / "js" / path).read_text(encoding="utf-8")
+            self.assertIn(f"id: '{action_id}',", source)
+            self.assertNotIn("addTabBarAction", source)
+
+    def test_app_route_redirects_relatively_to_served_page(self):
+        routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn('@_routes.get("/drawer/app")', routes)
+        self.assertIn('raise web.HTTPFound("../" * ups + _standalone_page_path())', routes)
+        self.assertIn("nodes.EXTENSION_WEB_DIRS.items()", routes)
+
+
+class ProgressRelayTests(unittest.TestCase):
+    """ComfyUI sends run events only to the queuing client; Drawer relays a
+    trimmed copy to everyone so the progress pill follows any run."""
+
+    class FakeServer:
+        def __init__(self):
+            self.sent = []
+            self.workflow_metadata = {"workflow_id": "wf-1"}
+
+        def send_sync(self, event, data, sid=None):
+            self.sent.append((event, data, sid))
+
+    def setUp(self):
+        self.relay = _load_repo_module("progress_relay")
+        self.server = self.FakeServer()
+        self.relay.install(self.server)
+
+    def test_per_client_events_are_relayed_trimmed(self):
+        self.server.send_sync("execution_error", {
+            "prompt_id": "p", "node_id": "3", "node_type": "KSampler",
+            "exception_message": "boom", "traceback": ["secret"], "current_inputs": {"x": 1},
+        }, "client-a")
+        self.assertEqual(len(self.server.sent), 2)
+        event, data, sid = self.server.sent[1]
+        self.assertEqual((event, sid), ("drawer.progress", None))
+        self.assertEqual(data, {"event": "execution_error", "prompt_id": "p", "node_id": "3",
+                                "node_type": "KSampler", "exception_message": "boom", "workflow_id": "wf-1"})
+
+    def test_broadcasts_and_unrelated_events_are_not_duplicated(self):
+        self.server.send_sync("status", {"status": {}}, None)
+        self.server.send_sync("progress", {"prompt_id": "p", "value": 1, "max": 2}, None)
+        self.server.send_sync("executed", {"prompt_id": "p", "output": {}}, "client-a")
+        self.assertEqual([e for e, _, _ in self.server.sent], ["status", "progress", "executed"])
+
+    def test_install_is_idempotent(self):
+        self.relay.install(self.server)
+        self.server.send_sync("progress", {"prompt_id": "p", "value": 1, "max": 2}, "client-a")
+        self.assertEqual(len(self.server.sent), 2)
+
+    def test_workflow_names_map_ids_to_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "sub"))
+            for rel, body in (("a.json", {"id": "id-a"}), ("sub/b.json", {"id": "id-b"}),
+                              (".index.json", {"id": "hidden"}), ("c.json.bak", {"id": "bak"}),
+                              ("broken.json", None)):
+                with open(os.path.join(tmp, rel), "w", encoding="utf-8") as f:
+                    f.write("{" if body is None else json.dumps(body))
+            self.assertEqual(self.relay.workflow_names(tmp), {"id-a": "a.json", "id-b": "sub/b.json"})
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required for the headless engine tests")
+class HeadlessEngineTests(unittest.TestCase):
+    """web/js/headless rebuilds API prompts without the ComfyUI frontend.
+    The golden fixtures hold prompts captured from the real frontend for
+    several node-mode variants each; the engine must reproduce them exactly
+    and serialize an untouched workflow back byte-identical."""
+
+    def _run(self, *args):
+        result = subprocess.run(["node", *args], cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_prompts_match_frontend_golden_fixtures(self):
+        self._run("tests/js/headless_golden.mjs", "tests/fixtures/headless")
+
+    def test_engine_unit_checks(self):
+        self._run("tests/js/headless_unit.mjs")
+
+    def test_log_buffer_unit_checks(self):
+        self._run("tests/js/logs_unit.mjs")
 
 
 if __name__ == "__main__":

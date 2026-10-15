@@ -614,7 +614,17 @@ shell.unregisterGadget('my-gadget');
 shell.hideGadget('xyzplot');
 shell.showGadget('xyzplot');
 shell.isGadgetHidden('xyzplot');
-shell.addBurgerAction({ icon: '⚙️', label: 'Settings', action: () => { ... } });
+shell.addBurgerAction({
+    id: 'my-settings',            // stable id: the user's pin choice is saved under it
+    icon: '⚙️',
+    label: 'Settings',            // or () => string, read each time the menu opens
+    action: (anchor) => { ... },  // anchor: the pinned tab or the ☰ button, for popovers
+    order: 0,                     // optional: lower comes first
+    pinned: false,                // optional: start in the tab bar
+});
+shell.isActionPinned('my-settings');
+shell.setActionPinned('my-settings', true);
+shell.addTabBarHeader(element); // a persistent row above the tabs
 ```
 
 ---

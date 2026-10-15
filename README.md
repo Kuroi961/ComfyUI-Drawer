@@ -202,6 +202,40 @@ A gadget for browsing models and folders under ComfyUI's models directory and mo
 
 ---
 
+### Logs
+
+The ComfyUI server console inside Drawer — what the terminal window shows, readable from a phone. It works on both the in-ComfyUI drawer and the standalone page.
+
+- Live: new lines arrive as the server writes them; progress bars redraw in place
+- Filter by All / Warnings / Errors (a whole Python traceback counts as one error), and search with highlighting
+- Follow keeps the newest line in view; scrolling up pauses it
+- Tap lines to select them; long-press (or Shift+click) selects a range from the last tapped line. Copy takes the selected lines, or all shown lines when none are selected (also over plain-http Tailscale); clear empties the view
+- On narrow screens the toolbar uses two rows
+- The "Generation failed" toast has a **View logs** button that opens this gadget
+
+---
+
+## Standalone Page
+
+Run Drawer **without loading the ComfyUI frontend** — Home, Gallery, Model Viewer, **Deck** and **XYZ Plot** — handy when the full node editor is too heavy (large workflows, phones, a second monitor).
+
+```
+http://<comfyui-host>:8188/drawer/app
+```
+
+- Talks to the same ComfyUI server directly; nothing extra to install or run
+- The workflow button in the tab bar opens a menu like ComfyUI's workflow sidebar: open workflows (switch / close) on top, then bookmarks — the same ones as the sidebar — and the saved workflows (`user/default/workflows`). Deck edits — values, bypass switches, seeds — are not written to the file until you save (Save in the menu, Ctrl+S / ⌘S); unsaved changes are marked with a dot and kept in the browser across reloads
+- If the file was changed elsewhere since it was opened (for example saved from a ComfyUI tab), you are asked whether to overwrite it or reload it. A ComfyUI tab that still has the workflow open keeps its old copy; saving there overwrites the standalone edits
+- "Open as Workflow" on a Gallery image opens its embedded workflow unsaved; use **Save as…** in the workflow picker to keep it
+- Prompts are built by Drawer itself and match what the ComfyUI frontend would send. A workflow that cannot be reproduced exactly is refused with the reason instead of being run differently — node types that are not installed, or a node whose saved values predate its current inputs or extension-added widgets (open and save the workflow once in ComfyUI to fix those)
+- Not supported: Comfy.org API nodes that need the account login of the ComfyUI frontend
+- Settings, theme, dictionaries and the search index are shared with the in-ComfyUI Drawer
+- A progress bar above the tab bar (also inside ComfyUI) follows the running run — from any tab, phone or script — showing the workflow and node, the current node's steps (the thin line underneath is the whole run) and how many are waiting; tap it for the queue (stop / remove) and recent results. It can be hidden in Settings › Utility
+- Tab bar: gadgets on the left, a divider, then pinned menu items and the ☰ menu, centred together. XYZ Plot, Models and Logs start in the menu. Every gadget and menu item (Workflow, Queue, Settings, Unload models, …) has a pin in the ☰ menu to show it in the tab bar or keep it in the menu
+- The ☰ menu switches between this page and the ComfyUI frontend: "Open ComfyUI" here, "Open Drawer standalone" inside ComfyUI
+
+---
+
 ## Workflow Utilities
 
 <p align="left">

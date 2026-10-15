@@ -8,7 +8,7 @@ ComfyUI-Drawer does not replace the ComfyUI node graph with a separate app. The 
 
 On desktop, Drawer works like a remote-control layer for the workflow on the canvas. On mobile and small screens, the Drawer itself becomes the main working surface. The goal is to keep parameter editing, output review, model selection, search, dictionaries, mask editing, and XYZ testing in one place.
 
-Tools that run inside Drawer are called gadgets. Built-in gadgets include Home, Deck, XYZ Plot, Gallery, and Model Viewer. Custom nodes can also add their own gadgets.
+Tools that run inside Drawer are called gadgets. Built-in gadgets include Home, Deck, XYZ Plot, Gallery, Model Viewer, and Logs. Custom nodes can also add their own gadgets.
 
 ## Where To Start
 
@@ -21,6 +21,7 @@ Main entry points:
 - XYZ Plot: batch generation while sweeping parameters
 - Gallery: media management for output/input/temp
 - Model Viewer: browse and apply models under models paths
+- Logs: read the ComfyUI server console live, filter warnings and errors
 - Settings: themes, dictionaries, search index, cache, and maintenance
 
 ## Home

@@ -8,7 +8,7 @@ ComfyUI-Drawer 并不是把 ComfyUI 节点图替换成另一个独立应用。�
 
 在桌面端，Drawer 像是画布上工作流的遥控层。在移动端和小屏幕上，Drawer 本身可以成为主要操作界面。它的目标是把参数调整、输出查看、模型选择、搜索、词典、蒙版编辑和 XYZ 测试集中到同一个地方。
 
-Drawer 内运行的工具称为 gadget。内置 gadget 包括 Home、Deck、XYZ Plot、Gallery、Model Viewer 等。外部自定义节点也可以添加自己的 gadget。
+Drawer 内运行的工具称为 gadget。内置 gadget 包括 Home、Deck、XYZ Plot、Gallery、Model Viewer、Logs 等。外部自定义节点也可以添加自己的 gadget。
 
 ## 从哪里开始
 
@@ -21,6 +21,7 @@ Drawer 内运行的工具称为 gadget。内置 gadget 包括 Home、Deck、XYZ 
 - XYZ Plot：改变参数并批量生成
 - Gallery：管理 output/input/temp 中的媒体
 - Model Viewer：浏览并应用 models 路径下的模型
+- Logs：实时查看 ComfyUI 服务器控制台，按警告和错误筛选
 - Settings：主题、词典、搜索索引、缓存和维护操作
 
 ## Home
