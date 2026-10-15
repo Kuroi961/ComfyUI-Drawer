@@ -17,7 +17,7 @@
 import { GadgetBase } from '../../js/core/gadget-base.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
 import { attachSwipeNav } from '../../js/services/swipe-nav.js';
-import { escapeHTML, normalizePath } from '../../js/utils.js';
+import { escapeHTML, normalizePath, copyText } from '../../js/utils.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { isLightboxOpen } from '../../js/services/lightbox.js';
 import { enumerateModelValueTargets } from '../../js/utils/widget-targets.js';
@@ -940,7 +940,7 @@ export class ModelViewerGadget extends GadgetBase {
                 icon: 'copy',
                 order: 20,
                 action: (ctx) => {
-                    navigator.clipboard?.writeText(ctx.filename).catch(() => { });
+                    copyText(ctx.filename);
                 },
             },
             {
@@ -1284,7 +1284,8 @@ export class ModelViewerGadget extends GadgetBase {
             text.textContent = embeddingStr;
             chip.appendChild(text);
             chip.addEventListener('click', () => {
-                navigator.clipboard.writeText(embeddingStr).then(() => {
+                copyText(embeddingStr).then((ok) => {
+                    if (!ok) return;
                     text.textContent = '✓ ' + embeddingStr;
                     chip.classList.add('copied');
                     setTimeout(() => {
@@ -1531,7 +1532,8 @@ export class ModelViewerGadget extends GadgetBase {
 
                 chip.addEventListener('click', (e) => {
                     if (e.target.classList.contains('mv-info-trigger-remove')) return;
-                    navigator.clipboard.writeText(word).then(() => {
+                    copyText(word).then((ok) => {
+                        if (!ok) return;
                         text.textContent = '✓ ' + word;
                         chip.classList.add('copied');
                         setTimeout(() => {

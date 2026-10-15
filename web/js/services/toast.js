@@ -50,6 +50,9 @@ function _ensureStyle() {
     gap: 8px;
     pointer-events: none;
     max-width: min(90vw, 480px);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 #${CONTAINER_ID} > .cd-toast {
     position: static;
@@ -66,6 +69,16 @@ function _ensureStyle() {
 #${CONTAINER_ID} > .cd-toast-success { border-color: var(--cd-accent); }
 #${CONTAINER_ID} > .cd-toast-warning { border-color: var(--cd-accent); }
 #${CONTAINER_ID} > .cd-toast-danger  { border-color: var(--cd-danger); }
+#${CONTAINER_ID} .cd-toast-action {
+    margin-left: 8px;
+    padding: 2px 10px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
 `;
     document.head.appendChild(style);
 }
@@ -82,6 +95,8 @@ function _ensureContainer() {
         _container.setAttribute('role', 'region');
         _container.setAttribute('aria-live', 'polite');
         _container.setAttribute('aria-label', 'Notifications');
+        // Toasts are not text to select or right-click (lives outside the drawer root).
+        _container.addEventListener('contextmenu', (e) => e.preventDefault());
         document.body.appendChild(_container);
     }
     return _container;
@@ -93,6 +108,7 @@ function _ensureContainer() {
  * @param {object} [options]
  * @param {number} [options.duration=2500] - Visible duration in ms.
  * @param {'info'|'success'|'warning'|'danger'} [options.variant='info']
+ * @param {{label: string, onClick: Function}} [options.action] - a button in the toast
  */
 export function showToast(message, options = {}) {
     if (!message && message !== 0) return;
@@ -107,13 +123,27 @@ export function showToast(message, options = {}) {
     el.className = `cd-toast cd-toast-${variant}`;
     el.textContent = text;
     container.appendChild(el);
+    let fadeTimer = 0;
+    if (options.action?.label && typeof options.action.onClick === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cd-toast-action';
+        btn.textContent = options.action.label;
+        btn.addEventListener('click', () => {
+            clearTimeout(fadeTimer);
+            _liveTimers.delete(fadeTimer);
+            el.remove();
+            options.action.onClick();
+        });
+        el.append(' ', btn);
+    }
 
     // Defer the visible class so the CSS transition runs.
     requestAnimationFrame(() => {
         el.classList.add('cd-toast-visible');
     });
 
-    const fadeTimer = setTimeout(() => {
+    fadeTimer = setTimeout(() => {
         _liveTimers.delete(fadeTimer);
         el.classList.remove('cd-toast-visible');
         const removeTimer = setTimeout(() => {

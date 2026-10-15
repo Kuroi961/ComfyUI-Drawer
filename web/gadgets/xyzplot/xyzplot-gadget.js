@@ -9,6 +9,7 @@ import { openLightbox } from '../../js/services/lightbox.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { attachDictAutocomplete } from '../../js/services/dict-service.js';
+import { showToast } from '../../js/services/toast.js';
 import {
   escapeHTML,
   getLinkedInputNames,
@@ -2017,7 +2018,7 @@ export class XYZPlotGadget extends GadgetBase {
         }
       }
       if (finishedNaturally) {
-        this.#showToast(_t('xyzplot.completeToast', { count: completed }));
+        showToast(_t('xyzplot.completeToast', { count: completed }), { variant: 'success', duration: 3500 });
       }
     }
   }
@@ -2156,29 +2157,6 @@ export class XYZPlotGadget extends GadgetBase {
     return { config, serialized };
   }
 
-  #showToast(msg) {
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      position: 'fixed',
-      bottom: '24px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      padding: '10px 20px',
-      background: 'rgba(0,0,0,.85)',
-      color: '#fff',
-      borderRadius: '8px',
-      fontSize: '13px',
-      fontFamily: 'system-ui, sans-serif',
-      zIndex: '230000',
-      pointerEvents: 'none',
-      transition: 'opacity .3s',
-      boxShadow: '0 4px 16px rgba(0,0,0,.4)',
-    });
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3500);
-  }
-
   // ── Pre-sweep caution dialog (dismissable) ──
   async #showSweepCaution(onProceed) {
     const LS_KEY = 'xyz-sweep-caution-dismissed';
@@ -2301,7 +2279,11 @@ export class XYZPlotGadget extends GadgetBase {
 
       // Use the saved original queuePrompt to bypass our own lock
       const queueFn = this.#origQueuePrompt || this.bridge.app.queuePrompt.bind(this.bridge.app);
-      queueFn(0, 1).catch(() => finish());
+      // The standalone page's HeadlessApp resolves false when the prompt was
+      // refused or rejected; no execution events will follow.
+      queueFn(0, 1)
+        .then((queued) => { if (queued === false && this.bridge.isStandalone) finish(); })
+        .catch(() => finish());
     });
   }
 

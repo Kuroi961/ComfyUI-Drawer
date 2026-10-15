@@ -197,6 +197,35 @@ export function sanitizeComfyDrawerWorkflowExtra(workflow) {
 export const normalizePath = (p) => String(p).replaceAll('\\', '/');
 
 /**
+ * Copy text to the clipboard. navigator.clipboard exists only in secure
+ * contexts (https / localhost); over plain http — a LAN or Tailscale address
+ * from a phone — fall back to execCommand on a temporary textarea, placed in
+ * the open dialog when there is one so its focus trap keeps the selection.
+ * @param {string} text
+ * @returns {Promise<boolean>} whether the text was copied
+ */
+export async function copyText(text) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { /* fall back below */ }
+  }
+  const host = document.activeElement?.closest?.('[role="dialog"], dialog') ?? document.body;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+  host.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { /* unsupported */ }
+  ta.remove();
+  return ok;
+}
+
+/**
  * Persistent collapse state backed by localStorage.
  * Shared by gadgets that have collapsible sections (Deck, XYZ Plot).
  *

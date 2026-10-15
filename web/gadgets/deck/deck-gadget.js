@@ -10,7 +10,7 @@ import { attachDictAutocomplete } from '../../js/services/dict-service.js';
 import { openLightbox } from '../../js/services/lightbox.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
-import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers } from '../../js/utils.js';
+import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers, copyText } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 
 /** @private Locale helper — falls back to key on missing translation. */
@@ -41,23 +41,6 @@ const VIDEO_FILE_RE = /\.(mp4|webm|mkv|mov|m4v|avi)$/i;
 /** True when a saved output file needs a <video> element rather than an <img>. */
 function isVideoFilename(filename) {
   return VIDEO_FILE_RE.test(String(filename || ''));
-}
-
-/**
- * Copy text to clipboard using the legacy execCommand approach.
- * Works in non-secure contexts (plain http) where navigator.clipboard is unavailable.
- */
-function copyViaExecCommand(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try {
-    document.execCommand('copy');
-  } catch { /* silent */ }
-  ta.remove();
 }
 
 
@@ -415,17 +398,7 @@ export class DeckGadget extends GadgetBase {
       label: 'Copy',
       icon: 'copy',
       order: 10,
-      action: (ctx) => {
-        // navigator.clipboard requires a secure context (https or localhost).
-        // When accessed over plain http from LAN/mobile it will throw or be undefined.
-        // Fall back to the legacy execCommand approach as a universal alternative.
-        const text = ctx.text ?? '';
-        if (navigator.clipboard?.writeText) {
-          navigator.clipboard.writeText(text).catch(() => copyViaExecCommand(text));
-        } else {
-          copyViaExecCommand(text);
-        }
-      },
+      action: (ctx) => { copyText(ctx.text ?? ''); },
     });
 
     // Register context menu for node sections (partial execution)

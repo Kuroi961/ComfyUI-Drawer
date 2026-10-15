@@ -5,9 +5,10 @@
  *   await MaskService.open({ url, filename, bridge });
  *   // Applies to the selected LoadImageMask node, or all LoadImageMask nodes in auto mode.
  *
- * Exposed as window.ComfyDrawer.maskService via comfy-drawer.js.
+ * Exposed as window.ComfyDrawer.maskService via drawer-platform.js.
  */
 import { enumerateLoadImageTargets } from '../utils/widget-targets.js';
+import { showToast } from './toast.js';
 
 const MaskService = (() => {
 
@@ -591,7 +592,7 @@ const MaskService = (() => {
           if (target.setValue(widgetValue)) applied = true;
         }
       }
-      _showToast(applied
+      showToast(applied
         ? _t('maskeditor.applied', { name: widgetValue })
         : _t('maskeditor.saved', { name: widgetValue }));
       close({ applied, filename: widgetValue });
@@ -602,18 +603,6 @@ const MaskService = (() => {
     } finally {
       btnSend.disabled = false; btnSend.innerHTML = _iconLabel(ICON_CHECK, _t('common.ok'));
     }
-  }
-
-  // ── Toast ─────────────────────────────────────────────────────────────────
-  function _showToast(msg) {
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-      padding: '8px 18px', background: 'rgba(0,0,0,.85)', color: 'var(--cd-text)',
-      borderRadius: '8px', fontSize: '13px', zIndex: '230000', transition: 'opacity .3s',
-    });
-    el.textContent = msg; document.body.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
   }
 
   // Document-level Escape handler registered while the overlay is visible.

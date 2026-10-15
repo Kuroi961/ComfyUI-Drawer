@@ -1372,25 +1372,6 @@
         transform: none;
     }
 
-    /* ── Toast ── */
-    .gg-toast,
-    .gadget-gallery .gg-toast {
-        position: fixed;
-        bottom: 24px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--cd-panel);
-        color: #fff;
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-size: 13px;
-        z-index: 230000;
-        backdrop-filter: blur(8px);
-        font-family: var(--gg-font);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-        transition: opacity 0.3s;
-    }
-
     /* ── Scrollbar ── */
     .gadget-gallery .gg-content::-webkit-scrollbar {
         width: 6px;

@@ -10,6 +10,7 @@ import { attachDictAutocomplete } from '../../js/services/dict-service.js';
 import { openLightbox, getLightboxIndex, removeLightboxItem, isLightboxOpen } from '../../js/services/lightbox.js';
 import { attachSwipeNav } from '../../js/services/swipe-nav.js';
 import { escapeHTML } from '../../js/utils.js';
+import { showToast } from '../../js/services/toast.js';
 
 /** @private Locale helper */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
@@ -1213,23 +1214,6 @@ export class GalleryGadget extends GadgetBase {
             this.#setStatus(_t('common.loading'));
         } else if (this.#el.status.textContent === _t('common.loading')) {
             this.#hideStatus();
-        }
-    }
-
-    #showToast(msg) {
-        // Delegate to the platform toast. Older builds inlined a DOM toast
-        // here; that pattern leaked elements on destroy and stacked
-        // overlapping toasts at the same fixed position on rapid actions.
-        const showToast = window.ComfyDrawer?.showToast;
-        if (typeof showToast === 'function') {
-            showToast(msg);
-        } else {
-            // Fallback for the unlikely case the platform isn't ready yet.
-            const el = document.createElement('div');
-            el.className = 'gg-toast';
-            el.textContent = msg;
-            document.body.appendChild(el);
-            setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
         }
     }
 
@@ -2498,7 +2482,7 @@ export class GalleryGadget extends GadgetBase {
                     }],
                 });
                 if (data.renamed?.length) {
-                    this.#showToast(_t('gallery.renamedAndMoved', { name: data.renamed[0].renamed }));
+                    showToast(_t('gallery.renamedAndMoved', { name: data.renamed[0].renamed }));
                 }
             }
             if (data.errors?.length) console.warn('[Gallery] Move errors:', data.errors);
@@ -2654,7 +2638,7 @@ export class GalleryGadget extends GadgetBase {
 
         // Gallery-specific actions only.
         // Shared actions (open-tab, send, workflow, download) are registered
-        // at the platform level in comfy-drawer.js.
+        // at the platform level in drawer-platform.js.
         this.#contextMenu.register('media-file', [
             {
                 id: 'gallery:rename',
@@ -2838,14 +2822,14 @@ export class GalleryGadget extends GadgetBase {
             });
             const data = await r.json();
             if (data.error) {
-                this.#showToast(_t('common.errorWith', { message: data.error }));
+                showToast(_t('common.errorWith', { message: data.error }));
             } else if (data.renamed) {
                 this.#emitFsRenamed({ root, subfolder, oldName: file.name, newName: finalName, isFolder: false });
-                this.#showToast(_t('common.done'));
+                showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
         } catch (e) {
-            this.#showToast(_t('common.errorWith', { message: e.message }));
+            showToast(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -2868,14 +2852,14 @@ export class GalleryGadget extends GadgetBase {
             });
             const data = await r.json();
             if (data.error) {
-                this.#showToast(_t('common.errorWith', { message: data.error }));
+                showToast(_t('common.errorWith', { message: data.error }));
             } else if (data.renamed) {
                 this.#emitFsRenamed({ root, subfolder, oldName: name, newName, isFolder: true });
-                this.#showToast(_t('common.done'));
+                showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             }
         } catch (e) {
-            this.#showToast(_t('common.errorWith', { message: e.message }));
+            showToast(_t('common.errorWith', { message: e.message }));
         }
     }
 
@@ -2904,7 +2888,7 @@ export class GalleryGadget extends GadgetBase {
                     continue;
                 }
                 if (data.error) {
-                    this.#showToast(_t('common.errorWith', { message: data.error }));
+                    showToast(_t('common.errorWith', { message: data.error }));
                     return;
                 }
                 this.#emitFsCreated({
@@ -2914,11 +2898,11 @@ export class GalleryGadget extends GadgetBase {
                     path: data.path || [parentPath, name].filter(Boolean).join('/'),
                     isFolder: true,
                 });
-                this.#showToast(_t('common.done'));
+                showToast(_t('common.done'));
                 this.#browse(this.#state.path);
                 return;
             } catch (e) {
-                this.#showToast(_t('common.errorWith', { message: e.message }));
+                showToast(_t('common.errorWith', { message: e.message }));
                 return;
             }
         }
@@ -2952,13 +2936,13 @@ export class GalleryGadget extends GadgetBase {
                     files: [{ subfolder, name, isFolder: true }],
                     deletedFolders: data.deleted_folders,
                 });
-                this.#showToast(_t('common.done'));
+                showToast(_t('common.done'));
                 this.#browse(this.#state.path);
             } else {
-                this.#showToast(_t('common.error'));
+                showToast(_t('common.error'));
             }
         } catch (e) {
-            this.#showToast(e.message);
+            showToast(e.message);
         }
     }
 
@@ -2974,11 +2958,11 @@ export class GalleryGadget extends GadgetBase {
         try {
             const result = await this.#deleteFiles([file]);
             if (result.deleted > 0) {
-                this.#showToast(_t('gallery.deletedSingle', { name: file.name }));
+                showToast(_t('gallery.deletedSingle', { name: file.name }));
                 await this.#applyDeletedItems(result, [file]);
             }
         } catch (e) {
-            this.#showToast(e.message);
+            showToast(e.message);
         }
     }
 
@@ -3153,7 +3137,7 @@ export class GalleryGadget extends GadgetBase {
         } catch (e) {
             if (e.name !== 'AbortError') {
                 console.warn('[Gallery] Select all search results failed:', e);
-                this.#showToast(_t('common.errorWith', { message: e.message }));
+                showToast(_t('common.errorWith', { message: e.message }));
             }
         } finally {
             s.searchSelectingAll = false;
@@ -3191,7 +3175,7 @@ export class GalleryGadget extends GadgetBase {
             for (const file of s.files) s.selected.add(file.path);
         } catch (e) {
             console.warn('[Gallery] Select all browse results failed:', e);
-            this.#showToast(_t('common.errorWith', { message: e.message }));
+            showToast(_t('common.errorWith', { message: e.message }));
         } finally {
             s.browseSelectingAll = false;
             this.#updateSelCount();
@@ -3401,32 +3385,32 @@ export class GalleryGadget extends GadgetBase {
                                     to_name: renameByName.get(f.name) || f.name,
                                 })),
                             });
-                            this.#showToast(_t('gallery.itemsMoved', { count: data.moved + data2.moved }));
+                            showToast(_t('gallery.itemsMoved', { count: data.moved + data2.moved }));
                         }
                         if (data2.errors?.length) {
                             console.warn('[Gallery] Move errors:', data2.errors);
                         }
                     } else {
                         if (data.moved > 0) {
-                            this.#showToast(_t('gallery.movedSkipped', { moved: data.moved, skipped: data.skipped }));
+                            showToast(_t('gallery.movedSkipped', { moved: data.moved, skipped: data.skipped }));
                         } else {
-                            this.#showToast(_t('gallery.itemsSkipped', { count: data.skipped }));
+                            showToast(_t('gallery.itemsSkipped', { count: data.skipped }));
                         }
                     }
                 } else {
-                    this.#showToast(_t('gallery.movedSkipped', { moved: data.moved, skipped: data.skipped }));
+                    showToast(_t('gallery.movedSkipped', { moved: data.moved, skipped: data.skipped }));
                 }
             } else if (data.moved > 0) {
-                this.#showToast(_t('gallery.itemsMoved', { count: data.moved }));
+                showToast(_t('gallery.itemsMoved', { count: data.moved }));
             }
 
             if (data.errors?.length) {
                 console.warn('[Gallery] Move errors:', data.errors);
-                this.#showToast(_t('gallery.errorsCount', { count: data.errors.length }));
+                showToast(_t('gallery.errorsCount', { count: data.errors.length }));
             }
         } catch (e) {
             console.error('[Gallery] Move failed:', e);
-            this.#showToast(_t('common.errorWith', { message: e.message }));
+            showToast(_t('common.errorWith', { message: e.message }));
         }
 
         // Stay at move destination and exit selection
@@ -3505,9 +3489,9 @@ export class GalleryGadget extends GadgetBase {
             const parts = [];
             if (result.deleted > 0) parts.push(_t('gallery.filesCount', { count: result.deleted }));
             if (result.deleted_folders > 0) parts.push(_t('gallery.foldersCount', { count: result.deleted_folders }));
-            this.#showToast(_t('gallery.deletedItems', { items: parts.join(' / ') }));
+            showToast(_t('gallery.deletedItems', { items: parts.join(' / ') }));
         } catch (e) {
-            this.#showToast(e.message);
+            showToast(e.message);
             return;
         }
         // Exit select mode and apply the deletion without rebuilding unaffected cards.
@@ -3536,7 +3520,7 @@ export class GalleryGadget extends GadgetBase {
         try {
             const result = await this.#deleteFiles([targetFile]);
             if (result.deleted > 0) {
-                this.#showToast(_t('gallery.deletedSingle', { name: targetFile.name }));
+                showToast(_t('gallery.deletedSingle', { name: targetFile.name }));
                 if (lightboxIndex >= 0) {
                     removeLightboxItem(lightboxIndex);
                 }
@@ -3544,7 +3528,7 @@ export class GalleryGadget extends GadgetBase {
                 await this.#applyDeletedItems(result, [targetFile]);
             }
         } catch (e) {
-            this.#showToast(e.message);
+            showToast(e.message);
         }
     }
 }
