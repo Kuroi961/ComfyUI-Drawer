@@ -10,7 +10,9 @@
  *
  * Edits are never written to the file on their own. Like the frontend, an
  * open workflow with unsaved changes is kept as a draft in localStorage, so
- * a reload (or a phone dropping the page) restores it still unsaved.
+ * a reload (or a phone dropping the page) restores it still unsaved. Tabs
+ * and drafts use the frontend's own keys and format (workflow-persistence.js),
+ * so ComfyUI and this page in one browser show the same ones.
  *
  * `graph`, `file`, `nodeOutputs` and `saveState` are those of the active
  * workflow, which is what ComfyBridge and the gadgets see.
@@ -25,12 +27,14 @@ import { HeadlessGraph } from './headless-graph.js';
 import { buildPrompt } from './prompt-builder.js';
 import { applyValueControls } from './value-control.js';
 import { sanitizeComfyDrawerWorkflowExtra } from '../utils.js';
+import { WORKFLOW_PREFIX, readOpenTabs, writeOpenTabs, readDraft, writeDraft, removeDraft } from './workflow-persistence.js';
 
 const WORKFLOW_DIR = 'workflows';
 /** The frontend's workflow sidebar index; `favorites` are its bookmarks. */
 const INDEX_PATH = '.index.json';
-const OPEN_WORKFLOWS_KEY = 'comfy-drawer-standalone-open-workflows';
-const DRAFT_KEY_PREFIX = 'comfy-drawer-standalone-draft:';
+/** Where this page kept tabs and drafts before it shared the frontend's (moved once, then removed). */
+const LEGACY_OPEN_KEY = 'comfy-drawer-standalone-open-workflows';
+const LEGACY_DRAFT_PREFIX = 'comfy-drawer-standalone-draft:';
 const DRAFT_DELAY_MS = 500;
 const PRESET_TEXT_KEY = 'pysssss.PresetText.Presets';
 const PRESET_TEXT_REGEX = '(?:^|[^\\w])(?<replace>@(?<id>[\\w-]+))';
@@ -49,15 +53,22 @@ export class SaveConflictError extends Error {
 
 /** One open workflow (a frontend workflow tab). */
 export class OpenWorkflow {
-    // Not randomUUID: it exists only in secure contexts, and the page is often
-    // opened over plain http (a LAN or Tailscale address).
-    constructor(graph, file, key = file.path ?? `unsaved:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`) {
+    constructor(graph, file, key = WORKFLOW_PREFIX + file.path) {
         this.graph = graph;
         /** @type {{path: string|null, name: string, modified: number|null}} */
         this.file = file;
-        /** Identity for the open-workflow list and its draft (the path, once saved). */
+        /**
+         * The frontend's workflow path: "workflows/<file>", or for a workflow
+         * never saved "workflows/<name>.json" with no file behind it. Keys
+         * the open-tab list and the draft.
+         */
         this.key = key;
         this.nodeOutputs = {};
+        /**
+         * Opened from a draft (which may hold the frontend's structural edits,
+         * moved nodes, view): unsaved until saved or reloaded from the file.
+         */
+        this.fromDraft = false;
         /** '' | modified | saving | saved | conflict | error */
         this.saveState = '';
         this.saving = null;
@@ -66,13 +77,23 @@ export class OpenWorkflow {
 
     /** Unsaved changes: edited since the last save, or never saved at all. */
     get modified() {
-        return !this.file.path || this.graph.isModified();
+        return !this.file.path || this.fromDraft || this.graph.isModified();
     }
 }
 
 const readJSON = (key) => {
     try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 };
+
+/** The frontend's getUnconflictedPath: "dir/name (2).json", "(3)", … */
+function unconflictedPath(path, taken) {
+    const slash = path.lastIndexOf('/');
+    const dot = path.lastIndexOf('.');
+    const [dir, stem, ext] = [path.slice(0, slash), path.slice(slash + 1, dot), path.slice(dot + 1)];
+    let candidate = path;
+    for (let n = 2; taken.has(candidate); n++) candidate = `${dir}/${stem} (${n}).${ext}`;
+    return candidate;
+}
 
 export class HeadlessApp extends EventTarget {
     #presetTextInstalled = false;
@@ -197,7 +218,7 @@ export class HeadlessApp extends EventTarget {
         const open = this.workflows.find(wf => wf.file.path === path);
         if (open) return this.activate(open);
         const { graph, file } = await this.#load(path);
-        this.#add(new OpenWorkflow(graph, file));
+        this.#add(this.#fromFile(graph, file));
         await this.activate(this.workflows.at(-1));
         this.dispatchEvent(new CustomEvent('tabs-changed'));
     }
@@ -207,6 +228,7 @@ export class HeadlessApp extends EventTarget {
         const { graph, file } = await this.#load(wf.file.path);
         wf.graph = graph;
         wf.file = file;
+        wf.fromDraft = false;
         wf.nodeOutputs = {};
         this.#track(wf);
         this.#dropDraft(wf);
@@ -217,16 +239,20 @@ export class HeadlessApp extends EventTarget {
 
     /** ComfyUI app.loadGraphData: open workflow JSON as a new unsaved workflow. */
     async loadGraphData(workflow, _clean, _restoreView, name) {
-        const wf = new OpenWorkflow(new HeadlessGraph(workflow, this.objectInfo), {
-            path: null,
-            name: String(name || '').replace(/\.[^.]+$/, '') || 'Untitled',
-            modified: null,
-        });
+        const file = { path: null, name: String(name || '').replace(/\.[^.]+$/, '') || 'Untitled', modified: null };
+        const wf = new OpenWorkflow(new HeadlessGraph(workflow, this.objectInfo), file, await this.#temporaryPath(file.name));
         this.#add(wf);
         wf.saveState = 'modified';
         this.#writeDraft(wf);
         await this.activate(wf);
         this.dispatchEvent(new CustomEvent('tabs-changed'));
+    }
+
+    /** A frontend path for a never-saved workflow, clear of open tabs and files. */
+    async #temporaryPath(name) {
+        const files = await this.listWorkflows().catch(() => []);
+        const taken = new Set([...files.map(f => WORKFLOW_PREFIX + f.path), ...this.workflows.map(wf => wf.key)]);
+        return unconflictedPath(`${WORKFLOW_PREFIX}${name}.json`, taken);
     }
 
     /** Make an open workflow the active one. */
@@ -252,62 +278,77 @@ export class HeadlessApp extends EventTarget {
     }
 
     /**
-     * Reopen the workflows that were open last time. A workflow with a draft
-     * comes back from the draft, still unsaved; files that are gone are skipped.
+     * Reopen the tabs the frontend or this page had open last (shared
+     * storage). Like the frontend: a saved workflow takes its draft unless
+     * the file is newer (the draft is then dropped), a never-saved one comes
+     * back from its draft, and files that are gone are skipped.
      */
     async restoreOpenWorkflows() {
-        const saved = readJSON(OPEN_WORKFLOWS_KEY);
-        if (!Array.isArray(saved?.open)) return;
-        for (const entry of saved.open) {
-            const draft = readJSON(DRAFT_KEY_PREFIX + entry.key);
+        this.#moveLegacyStorage();
+        const tabs = readOpenTabs();
+        if (!tabs) return;
+        const files = new Map((await this.listWorkflows().catch(() => [])).map(f => [WORKFLOW_PREFIX + f.path, f]));
+        for (const key of tabs.paths) {
+            const draft = readDraft(key);
             try {
-                if (draft?.workflow) {
-                    const wf = new OpenWorkflow(new HeadlessGraph(draft.workflow, this.objectInfo), draft.file, entry.key);
-                    // The draft is the edited state; diff against the file to know what changed.
-                    if (wf.file.path) {
-                        const onDisk = await this.#load(wf.file.path).catch(() => null);
-                        if (onDisk) wf.graph = this.#graphWithBaseline(draft.workflow, onDisk.graph);
-                    }
+                if (files.has(key)) {
+                    const { graph, file } = await this.#load(key.slice(WORKFLOW_PREFIX.length));
+                    this.#add(this.#fromFile(graph, file));
+                } else if (draft?.isTemporary) {
+                    const file = { path: null, name: draft.name.split('/').pop().replace(/\.json$/, ''), modified: null };
+                    const wf = new OpenWorkflow(new HeadlessGraph(draft.workflow, this.objectInfo), file, key);
                     this.#add(wf);
-                    wf.saveState = wf.modified ? 'modified' : '';
-                } else if (entry.path) {
-                    const { graph, file } = await this.#load(entry.path);
-                    this.#add(new OpenWorkflow(graph, file));
+                    wf.saveState = 'modified';
                 }
-            } catch { /* renamed or deleted since */ }
+            } catch { /* unreadable: skipped */ }
         }
-        const active = this.workflows.find(wf => wf.key === saved.active) ?? this.workflows[0];
+        const active = this.workflows.find(wf => wf.key === tabs.paths[tabs.activeIndex]) ?? this.workflows[0];
         if (active) await this.activate(active);
         this.dispatchEvent(new CustomEvent('tabs-changed'));
     }
 
     /**
-     * The file's graph with the draft's widget values and modes applied, so
-     * isModified() compares the draft against what is on disk.
+     * Tabs and drafts this page saved under its own keys before it used the
+     * frontend's: drafts move over, tabs not already open are appended.
      */
-    #graphWithBaseline(draftWorkflow, fileGraph) {
-        const draft = new HeadlessGraph(draftWorkflow, this.objectInfo);
-        const byKey = (graph) => new Map([...graph.allNodesDeep()].map(n => [`${n.graph.id ?? ''}/${n.id}`, n]));
-        const drafted = byKey(draft);
-        for (const [key, node] of byKey(fileGraph)) {
-            const edited = drafted.get(key);
-            if (!edited) continue;
-            node.mode = edited.mode;
-            node.widgets.forEach((w, i) => {
-                if (!w.promoted && edited.widgets[i] && !edited.widgets[i].promoted) w.value = edited.widgets[i].value;
-            });
+    #moveLegacyStorage() {
+        const legacy = readJSON(LEGACY_OPEN_KEY);
+        if (!legacy) return;
+        const tabs = readOpenTabs() ?? { paths: [], activeIndex: 0 };
+        for (const entry of Array.isArray(legacy.open) ? legacy.open : []) {
+            const draft = readJSON(LEGACY_DRAFT_PREFIX + entry.key);
+            const key = entry.path
+                ? WORKFLOW_PREFIX + entry.path
+                : unconflictedPath(`${WORKFLOW_PREFIX}${draft?.file?.name || 'Untitled'}.json`, new Set(tabs.paths));
+            if (draft?.workflow) writeDraft(key, draft.workflow, { name: key.slice(WORKFLOW_PREFIX.length), isTemporary: !entry.path });
+            if ((entry.path || draft?.workflow) && !tabs.paths.includes(key)) tabs.paths.push(key);
+            if (entry.key === legacy.active) tabs.activeIndex = tabs.paths.indexOf(key);
+            try { localStorage.removeItem(LEGACY_DRAFT_PREFIX + entry.key); } catch { /* unavailable */ }
         }
-        fileGraph.extra = draft.extra;
-        return fileGraph;
+        if (tabs.paths.length) writeOpenTabs(tabs.paths, Math.max(0, Math.min(tabs.activeIndex, tabs.paths.length - 1)));
+        try { localStorage.removeItem(LEGACY_OPEN_KEY); } catch { /* unavailable */ }
+    }
+
+    /**
+     * A saved workflow opened from its draft (left by this page or the
+     * frontend) when there is one, as the frontend's ComfyWorkflow.load does:
+     * a draft older than the file is stale and dropped. The draft is taken
+     * whole — the frontend's may move or rewire nodes — and the frontend
+     * keeps a draft only while there are unsaved changes.
+     */
+    #fromFile(graph, file) {
+        const key = WORKFLOW_PREFIX + file.path;
+        const draft = readDraft(key);
+        if (draft && draft.updatedAt < file.modified) removeDraft(key);
+        if (!draft || draft.updatedAt < file.modified) return new OpenWorkflow(graph, file);
+        const wf = new OpenWorkflow(new HeadlessGraph(draft.workflow, this.objectInfo), file);
+        wf.fromDraft = true;
+        wf.saveState = 'modified';
+        return wf;
     }
 
     #rememberOpen() {
-        try {
-            localStorage.setItem(OPEN_WORKFLOWS_KEY, JSON.stringify({
-                open: this.workflows.map(wf => ({ key: wf.key, path: wf.file.path })),
-                active: this.active?.key ?? null,
-            }));
-        } catch { /* storage unavailable */ }
+        writeOpenTabs(this.workflows.map(wf => wf.key), Math.max(0, this.workflows.indexOf(this.active)));
     }
 
     #writeDraft(wf) {
@@ -317,14 +358,13 @@ export class HeadlessApp extends EventTarget {
             this.#dropDraft(wf);
             return;
         }
-        try {
-            localStorage.setItem(DRAFT_KEY_PREFIX + wf.key, JSON.stringify({ file: wf.file, workflow: wf.graph.serialize() }));
-        } catch { /* storage full or unavailable: the in-memory edits remain */ }
+        // Storage full or unavailable: the in-memory edits remain.
+        writeDraft(wf.key, wf.graph.serialize(), { name: wf.key.slice(WORKFLOW_PREFIX.length), isTemporary: !wf.file.path });
         this.#rememberOpen();
     }
 
     #dropDraft(wf) {
-        try { localStorage.removeItem(DRAFT_KEY_PREFIX + wf.key); } catch { /* storage unavailable */ }
+        removeDraft(wf.key);
     }
 
     #announceActive() {
@@ -372,8 +412,9 @@ export class HeadlessApp extends EventTarget {
                 clearTimeout(wf.draftTimer);
                 this.#dropDraft(wf);
                 wf.graph.markSaved();
+                wf.fromDraft = false;
                 wf.file = { path, name: workflowName(path), modified: info?.modified ?? null };
-                wf.key = path;
+                wf.key = WORKFLOW_PREFIX + path;
                 this.#emitSaveState(wf, 'saved');
                 this.#rememberOpen();
                 if (!sameFile) {

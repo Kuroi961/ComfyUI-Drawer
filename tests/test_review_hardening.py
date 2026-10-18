@@ -2175,6 +2175,14 @@ class ProgressRelayTests(unittest.TestCase):
         self.server.send_sync("executed", {"prompt_id": "p", "output": {}}, "client-a")
         self.assertEqual([e for e, _, _ in self.server.sent], ["status", "progress", "executed"])
 
+    def test_events_of_the_running_prompt_carry_its_start_time(self):
+        self.server.send_sync("execution_start", {"prompt_id": "p", "timestamp": 1000}, "client-a")
+        self.server.send_sync("progress", {"prompt_id": "p", "node": "3", "value": 1, "max": 2}, "client-a")
+        self.server.send_sync("execution_start", {"prompt_id": "q", "timestamp": 2000}, "client-a")
+        self.server.send_sync("progress", {"prompt_id": "p", "node": "3", "value": 2, "max": 2}, "client-a")
+        relayed = [d for e, d, _ in self.server.sent if e == "drawer.progress"]
+        self.assertEqual([d.get("started") for d in relayed], [1000, 1000, 2000, None])
+
     def test_install_is_idempotent(self):
         self.relay.install(self.server)
         self.server.send_sync("progress", {"prompt_id": "p", "value": 1, "max": 2}, "client-a")
@@ -2189,6 +2197,61 @@ class ProgressRelayTests(unittest.TestCase):
                 with open(os.path.join(tmp, rel), "w", encoding="utf-8") as f:
                     f.write("{" if body is None else json.dumps(body))
             self.assertEqual(self.relay.workflow_names(tmp), {"id-a": "a.json", "id-b": "sub/b.json"})
+
+
+class GpuMemoryTests(unittest.TestCase):
+    """The queue panel's VRAM meter reads the driver's figure through NVML
+    (ctypes, no package): /system_stats counts comfy-aimdo's evictable
+    weights as free, so it disagreed with Task Manager / nvidia-smi."""
+
+    def setUp(self):
+        from unittest import mock
+        self.mock = mock
+        self.gm = _load_repo_module("gpu_memory")
+        self.gm._lib = None  # the loaded library is cached per process
+        self.cuda = types.SimpleNamespace(type="cuda")
+        props = mock.patch.object(self.gm.torch.cuda, "get_device_properties",
+                                  return_value=types.SimpleNamespace(uuid="1234"))
+        props.start()
+        self.addCleanup(props.stop)
+
+    def fake_nvml(self, used, total):
+        calls = {}
+
+        def get_handle(uuid, handle):
+            calls["uuid"] = uuid
+            return 0
+
+        def get_memory(handle, info):
+            calls["version"] = info._obj.version
+            info._obj.used, info._obj.total = used, total
+            return 0
+
+        lib = types.SimpleNamespace(nvmlInit_v2=lambda: 0,
+                                    nvmlDeviceGetHandleByUUID=get_handle,
+                                    nvmlDeviceGetMemoryInfo_v2=get_memory)
+        for fn in vars(lib).values():
+            fn.argtypes = fn.restype = None
+        return lib, calls
+
+    def test_reads_driver_memory_by_device_uuid(self):
+        lib, calls = self.fake_nvml(used=14, total=16)
+        with self.mock.patch.object(self.gm.ctypes, "CDLL", return_value=lib):
+            self.assertEqual(self.gm.device_memory(self.cuda), (14, 16))
+        self.assertEqual(calls["uuid"], b"GPU-1234")
+        self.assertEqual(calls["version"] >> 24, 2)  # nvmlMemory_v2: reserved area excluded
+
+    def test_without_nvml_or_cuda_the_caller_falls_back(self):
+        with self.mock.patch.object(self.gm.ctypes, "CDLL", side_effect=OSError("no nvml")):
+            self.assertIsNone(self.gm.device_memory(self.cuda))
+        self.assertIsNone(self.gm.device_memory(types.SimpleNamespace(type="cpu")))
+
+    def test_route_and_meter_use_it(self):
+        routes = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn('@_routes.get("/drawer/system/vram")', routes)
+        self.assertIn("await asyncio.to_thread(gpu_memory.device_memory", routes)
+        progress = (REPO_ROOT / "web" / "js" / "services" / "progress.js").read_text(encoding="utf-8")
+        self.assertIn("readJson('/drawer/system/vram')", progress)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required for the headless engine tests")
@@ -2210,6 +2273,9 @@ class HeadlessEngineTests(unittest.TestCase):
 
     def test_log_buffer_unit_checks(self):
         self._run("tests/js/logs_unit.mjs")
+
+    def test_workflow_persistence_matches_frontend_storage(self):
+        self._run("tests/js/workflow_persistence_unit.mjs")
 
 
 if __name__ == "__main__":
