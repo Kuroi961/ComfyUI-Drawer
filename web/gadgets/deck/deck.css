@@ -561,6 +561,28 @@
   background: var(--cd-s2);
   color: var(--cd-text);
 }
+.dk-upload-row { display: flex; gap: 4px; }
+.dk-upload-row .dk-btn-paste {
+  width: 40px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.dk-paste-target {
+  min-height: 96px;
+  padding: 12px;
+  border: 1px dashed var(--cd-divider);
+  border-radius: 8px;
+  color: var(--cd-text);
+  outline: none;
+  overflow: hidden;
+}
+.dk-paste-target:focus { border-color: var(--cd-accent); }
+.dk-paste-target:empty::before {
+  content: attr(data-placeholder);
+  color: var(--cd-text-dim);
+}
 
 /* Seed row */
 .dk-seed-row { display: flex; gap: 4px; align-items: stretch; }

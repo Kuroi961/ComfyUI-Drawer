@@ -10,11 +10,58 @@ import { attachDictAutocomplete } from '../../js/services/dict-service.js';
 import { openLightbox } from '../../js/services/lightbox.js';
 import { createMediaCard } from '../../js/components/media-card.js';
 import { ContextMenuService } from '../../js/services/context-menu.js';
-import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers, copyText } from '../../js/utils.js';
+import { showDialog } from '../../js/services/dialog.js';
+import { showToast } from '../../js/services/toast.js';
+import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers, copyText, readClipboardFiles } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
 
 /** @private Locale helper — falls back to key on missing translation. */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
+
+/** Combo input option → files its upload button takes. */
+const UPLOAD_ACCEPT = {
+  image_upload: 'image/*',
+  animated_image_upload: 'image/*',
+  video_upload: 'video/*',
+  audio_upload: 'audio/*',
+};
+
+/**
+ * A clipboard file matching `accept`, or null (after telling the user).
+ * Without the async clipboard API (plain http from a phone) or when reading
+ * is refused, a paste target takes Ctrl+V or the long-press Paste instead.
+ */
+async function readClipboardFile(accept) {
+  const prefix = accept.replace('*', '');
+  const files = await readClipboardFiles(prefix);
+  if (!files) {
+    return showDialog({
+      title: _t('deck.pasteUpload'),
+      confirmLabel: '',
+      content: (body) => {
+        const target = document.createElement('div');
+        target.className = 'dk-paste-target';
+        target.contentEditable = 'true';
+        target.dataset.placeholder = _t('deck.pasteHint');
+        body.appendChild(target);
+      },
+      onOpen: ({ close, body }) => {
+        const target = body.querySelector('.dk-paste-target');
+        target.addEventListener('paste', (e) => {
+          e.preventDefault();
+          const pasted = [...(e.clipboardData?.files ?? [])].find(f => f.type.startsWith(prefix));
+          if (pasted) close(pasted);
+          else showToast(_t('deck.pasteNoFile'), { variant: 'warning' });
+        });
+        // Only pasted files count; typed or pasted text is dropped.
+        target.addEventListener('input', () => { target.textContent = ''; });
+        setTimeout(() => target.focus(), 0);
+      },
+    });
+  }
+  if (!files.length) showToast(_t('deck.pasteNoFile'), { variant: 'warning' });
+  return files[0] ?? null;
+}
 
 const EMOJI_EDIT = "\u{1F4DD}"; // 📝
 
@@ -1775,14 +1822,13 @@ export class DeckGadget extends GadgetBase {
 
     // Button
     if (widget.type === 'button') {
+      const upload = this.#uploadTarget(node, widget);
+      if (upload) return this.#buildUploadRow(container, node, widget, upload);
       const btn = document.createElement('button');
-      btn.className = 'dk-btn' + (widget.name?.toLowerCase().includes('upload') ? ' dk-btn-upload' : '');
+      btn.className = 'dk-btn';
       btn.textContent = widget.label || widget.name;
       btn.addEventListener('click', () => {
         this.bridge.invokeWidgetCallback(node, widget, widget.value);
-        if (widget.name?.toLowerCase().includes('upload')) {
-          this.#watchUpload(node);
-        }
       });
       container.appendChild(btn);
       return container;
@@ -2710,22 +2756,73 @@ export class DeckGadget extends GadgetBase {
   }
 
 
-  /* ═══ Upload Watcher ═══ */
+  /* ═══ Upload ═══ */
 
-  #watchUpload(node) {
-    const imageWidget = (node.widgets || []).find(w => w.name === 'image' || w.name === 'Image');
-    if (!imageWidget) return;
-    const oldVal = imageWidget.value;
-    const tid = setInterval(() => {
-      if (imageWidget.value !== oldVal) {
-        clearInterval(tid);
-        clearTimeout(bail);
-        this.#scanNodes();
-        this.#renderSections();
+  /**
+   * The combo an upload button fills and the files it takes, from the node
+   * definition's *_upload option; null for kinds Deck does not handle
+   * (those keep the button's own callback).
+   * Deck uploads itself instead of calling the frontend's button: the
+   * standalone page has no frontend, and in ComfyUI the file dialog result
+   * arrived with no event for Deck to follow.
+   */
+  #uploadTarget(node, button) {
+    if (!button.name?.toLowerCase().includes('upload')) return null;
+    const def = node.constructor?.nodeData ?? node.nodeData;
+    for (const w of node.widgets || []) {
+      if (w.type !== 'combo') continue;
+      const opts = (def?.input?.required?.[w.name] ?? def?.input?.optional?.[w.name])?.[1];
+      const kind = Object.keys(UPLOAD_ACCEPT).find(k => opts?.[k]);
+      if (kind) return { combo: w, accept: UPLOAD_ACCEPT[kind] };
+    }
+    return null;
+  }
+
+  #buildUploadRow(container, node, button, { combo, accept }) {
+    container.classList.add('dk-upload-row');
+    const pick = document.createElement('button');
+    pick.className = 'dk-btn dk-btn-upload';
+    // The frontend labels its button; HeadlessWidget has no label.
+    pick.textContent = button.label || _t('deck.chooseFile');
+    const paste = document.createElement('button');
+    paste.className = 'dk-btn dk-btn-upload dk-btn-paste';
+    paste.title = _t('deck.pasteUpload');
+    paste.setAttribute('aria-label', _t('deck.pasteUpload'));
+    paste.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>';
+
+    pick.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.addEventListener('change', () => {
+        if (input.files?.[0]) this.#uploadTo(node, combo, input.files[0], '');
+      });
+      input.click();
+    });
+    paste.addEventListener('click', async () => {
+      const file = await readClipboardFile(accept);
+      if (file) this.#uploadTo(node, combo, file, 'pasted');
+    });
+    container.append(pick, paste);
+    return container;
+  }
+
+  async #uploadTo(node, combo, file, subfolder) {
+    if (window.__xyzSweepActive) return;
+    try {
+      // overwrite=false: the server renames on a clash ("image (1).png"),
+      // like the frontend's own upload.
+      const result = await this.bridge.uploadImage(file, subfolder, false);
+      const value = result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
+      if (Array.isArray(combo.options?.values) && !combo.options.values.includes(value)) {
+        combo.options.values.push(value);
       }
-    }, 500);
-    const bail = setTimeout(() => clearInterval(tid), 15000);
-    this.addDisposable(() => { clearInterval(tid); clearTimeout(bail); });
+      this.bridge.invokeWidgetCallback(node, combo, value);
+      this.#scanNodes();
+      this.#renderSections();
+    } catch (e) {
+      showToast(_t('common.errorWith', { message: e.message }), { variant: 'danger' });
+    }
   }
 
   /* ═══ Graph → Deck Sync Polling ═══ */

@@ -226,6 +226,30 @@ export async function copyText(text) {
 }
 
 /**
+ * Files on the clipboard whose type starts with `typePrefix` (e.g. "image/"),
+ * through the async clipboard API. Returns null when that API is missing —
+ * it needs a secure context, which plain http from a phone is not — or the
+ * read is refused; callers then take a paste event instead.
+ * @param {string} typePrefix
+ * @returns {Promise<File[]|null>}
+ */
+export async function readClipboardFiles(typePrefix) {
+  if (!window.isSecureContext || !navigator.clipboard?.read) return null;
+  try {
+    const files = [];
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find(t => t.startsWith(typePrefix));
+      if (!type) continue;
+      const [kind, sub] = type.split('/');
+      files.push(new File([await item.getType(type)], `${kind}.${sub.split('+')[0]}`, { type }));
+    }
+    return files;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Persistent collapse state backed by localStorage.
  * Shared by gadgets that have collapsible sections (Deck, XYZ Plot).
  *
