@@ -5,7 +5,9 @@ the client that queued the prompt. Drawer's progress indicator also follows
 runs queued elsewhere (another browser tab, a phone watching a PC run, API
 scripts), so a compact copy of those events is broadcast as `drawer.progress`.
 Only ids, step counts and an error summary are relayed — no previews, inputs
-or tracebacks.
+or tracebacks. Each relayed event of the running prompt also carries
+`started` (server ms of its execution_start), so a page opened mid-run can
+show the elapsed time.
 """
 
 import json
@@ -22,6 +24,10 @@ RELAYED_FIELDS = {
 }
 
 
+# prompt_id -> execution_start timestamp; only the running prompt is kept.
+_run_started = {}
+
+
 def install(prompt_server):
     """Wrap PromptServer.send_sync to broadcast a relay copy (idempotent)."""
     original = prompt_server.send_sync
@@ -35,6 +41,12 @@ def install(prompt_server):
         if sid is None or fields is None or not isinstance(data, dict):
             return
         relay = {key: data[key] for key in fields if key in data}
+        if event == "execution_start":
+            _run_started.clear()
+            _run_started[data.get("prompt_id")] = data.get("timestamp")
+        started = _run_started.get(data.get("prompt_id"))
+        if started:
+            relay["started"] = started
         workflow_id = (getattr(prompt_server, "workflow_metadata", None) or {}).get("workflow_id")
         if workflow_id:
             relay["workflow_id"] = workflow_id

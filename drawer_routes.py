@@ -26,6 +26,7 @@ except ImportError:
 from aiohttp import web
 import server
 import folder_paths
+import comfy.model_management
 
 from .dict_store import (
     count_entries as _count_entries,
@@ -75,6 +76,7 @@ from .media_metadata import (
     read_media_meta_with_source as _read_media_meta_with_source,
 )
 from .prompt_processor import setup_prompt_processing
+from . import gpu_memory
 from . import progress_relay
 from .request_guards import require_same_origin as _require_same_origin
 from .search_query import (
@@ -137,6 +139,16 @@ def _standalone_page_path():
 
 
 progress_relay.install(server.PromptServer.instance)
+
+
+@_routes.get("/drawer/system/vram")
+async def get_system_vram(request):
+    """Physical VRAM use of ComfyUI's GPU from NVML; {} when it is unavailable."""
+    try:
+        memory = await asyncio.to_thread(gpu_memory.device_memory, comfy.model_management.get_torch_device())
+    except Exception as exc:
+        return _internal_error(exc, where="system vram")
+    return web.json_response({"used": memory[0], "total": memory[1]} if memory else {})
 
 
 @_routes.get("/drawer/workflows/names")

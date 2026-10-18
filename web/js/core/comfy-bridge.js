@@ -315,6 +315,12 @@ export class ComfyBridge {
         } catch { return 'default'; }
     }
 
+    /** Display name of the active workflow (file name without .json), or ''. */
+    get workflowName() {
+        const wfStore = this.#app?.extensionManager?.workflow ?? this.#app?.workflowManager;
+        return wfStore?.activeWorkflow?.filename ?? '';
+    }
+
     /** Get all graph nodes (raw LGraphNode array) */
     get allNodes() {
         return this.#app?.graph?._nodes || [];

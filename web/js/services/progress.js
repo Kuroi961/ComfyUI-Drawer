@@ -20,10 +20,13 @@ import { openLightbox } from './lightbox.js';
 import { placeAboveTabBar } from './popover.js';
 
 const RECENT_LIMIT = 8;
+/** /system_stats poll while the queue popover is open. */
+const SYSTEM_POLL_MS = 3000;
 const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const ICONS = {
     queue: svg('<path d="M3 12h4l3 8 4-16 3 8h4"/>'),
     stop: svg('<rect width="14" height="14" x="5" y="5" rx="2"/>'),
+    run: svg('<polygon points="6 3 20 12 6 21 6 3"/>'),
     remove: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
     failed: svg('<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>'),
     file: svg('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'),
@@ -40,7 +43,7 @@ class RunTracker {
     constructor(bridge, onChange) {
         this.bridge = bridge;
         this.onChange = onChange;
-        /** @type {null|{promptId, workflowId, node, value, max, done: Set<string>, total: number|null, titles: object, startedAt: number}} */
+        /** @type {null|{promptId, workflowId, node, value, max, done: Set<string>, total: number|null, titles: object, startedAt: number|null}} */
         this.running = null;
         this.queueRemaining = 0;
         this.names = {};
@@ -94,7 +97,8 @@ class RunTracker {
     }
 
     #start(promptId, workflowId) {
-        const run = { promptId, workflowId, node: null, value: 0, max: 0, done: new Set(), total: null, titles: {}, workflowName: '', startedAt: Date.now() };
+        // startedAt: the server's start time, relayed with every event of the run.
+        const run = { promptId, workflowId, node: null, value: 0, max: 0, done: new Set(), total: null, titles: {}, workflowName: '', startedAt: null };
         this.running = run;
         this.#describe(run);
         return run;
@@ -105,6 +109,7 @@ class RunTracker {
         if (event === 'execution_start' || (!run && event !== 'execution_success' && event !== 'execution_error' && event !== 'execution_interrupted')) {
             run = this.#start(promptId, workflowId);
         }
+        if (run && data.started) run.startedAt = data.started;
         switch (event) {
             case 'execution_cached':
                 for (const id of data.nodes ?? []) run.done.add(String(id));
@@ -209,12 +214,84 @@ function previewItem(bridge, output) {
     };
 }
 
+const GB = 1024 ** 3;
+
+function systemMeter(label, fraction, detail) {
+    const row = document.createElement('div');
+    row.className = 'cd-sys-row';
+    const name = document.createElement('span');
+    name.className = 'cd-sys-label';
+    name.textContent = label;
+    const bar = document.createElement('span');
+    bar.className = 'cd-sys-bar';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+    fill.classList.toggle('high', fraction >= 0.9);
+    bar.appendChild(fill);
+    const value = document.createElement('span');
+    value.className = 'cd-sys-value';
+    value.textContent = detail;
+    row.append(name, bar, value);
+    return row;
+}
+
+/** Meter rows for RAM and VRAM from ComfyUI's /system_stats. */
+function systemRows(stats, vram) {
+    const rows = [];
+    const gb = (bytes) => (bytes / GB).toFixed(1);
+    const sys = stats?.system;
+    if (sys?.ram_total) {
+        const used = sys.ram_total - sys.ram_free;
+        rows.push(['RAM', used / sys.ram_total, `${gb(used)} / ${gb(sys.ram_total)} GB`]);
+    }
+    // VRAM the driver has allocated (/drawer/system/vram, NVML) when known:
+    // /system_stats counts comfy-aimdo's evictable weights as free.
+    // --cpu reports the CPU as the device, with RAM as its "VRAM".
+    const gpu = stats?.devices?.find(d => d.type !== 'cpu');
+    const total = vram?.total ?? gpu?.vram_total;
+    if (total) {
+        const used = vram?.used ?? (gpu.vram_total - gpu.vram_free);
+        rows.push(['VRAM', used / total, `${gb(used)} / ${gb(total)} GB`]);
+    }
+    return rows;
+}
+
+/**
+ * Open the recent results in one lightbox (newest first) at `job`. A job with
+ * several outputs contributes every saved image / video from its details;
+ * the list only carries one preview per job.
+ */
+async function openRecentInLightbox(bridge, recent, job) {
+    const groups = await Promise.all(recent.map(async (j) => {
+        if (j.status === 'failed' || !j.preview_output) return [];
+        if ((j.previewable_outputs_count ?? 1) > 1) {
+            try {
+                const detail = await (await bridge.fetchApi(`/jobs/${encodeURIComponent(j.id)}`)).json();
+                const saved = Object.values(detail.outputs ?? {})
+                    .flatMap(node => Object.values(node).filter(Array.isArray).flat())
+                    .filter(o => o?.filename && o.type === 'output')
+                    .map(o => previewItem(bridge, o))
+                    .filter(item => item.type === 'image' || item.type === 'video');
+                if (saved.length) return saved;
+            } catch { /* fall back to the preview */ }
+        }
+        return [previewItem(bridge, j.preview_output)];
+    }));
+    const start = groups.slice(0, recent.indexOf(job)).reduce((n, g) => n + g.length, 0);
+    openLightbox(groups.flat(), start);
+}
+
 /**
  * @param {import('../core/drawer-shell.js').DrawerShell} shell
  * @param {import('../core/comfy-bridge.js').ComfyBridge} bridge
- * @param {{enabled: () => boolean}} opts - whether the indicator may show
+ * @param {object} opts
+ * @param {() => boolean} opts.enabled - whether the indicator may show
+ * @param {{icon: string, run: () => Promise<void>}} opts.unload - the platform's
+ *     "Unload models" action, offered in the panel as well
+ * @param {() => (() => void)|null} [opts.showLogs] - opener for the server log
+ *     (the composition root knows the Logs gadget), or null while unavailable
  */
-export function attachProgressIndicator(shell, bridge, { enabled }) {
+export function attachProgressIndicator(shell, bridge, { enabled, unload, showLogs }) {
     // Strip: fill = the current node's steps (a sampler), or the whole run
     // when that node reports no steps; bottom line = the whole run.
     const strip = document.createElement('div');
@@ -247,15 +324,25 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
     let menu = null;
     let menuAnchor = null;
     let renderMenu = () => {};
+    let systemTimer = 0;
+    let elapsedTimer = 0;
+    let refreshMenuLists = () => {};
+    let listsKey = '';
 
     const tracker = new RunTracker(bridge, () => {
         render();
         renderMenu();
+        // The popover's lists come from /jobs: re-read them when a run starts
+        // or ends or the queue count changes (the count drops once the
+        // finished run is in the history).
+        const key = `${tracker.running?.promptId ?? ''}:${tracker.queueRemaining}`;
+        if (key !== listsKey) {
+            listsKey = key;
+            refreshMenuLists();
+        }
     });
-    // The failure toast links to the Logs gadget while it is registered.
-    Object.defineProperty(tracker, 'showLogs', {
-        get: () => (shell.getGadgets().some(g => g.id === 'logs') ? () => shell.open('logs') : null),
-    });
+    // The failure toast links to the logs while the host can show them.
+    Object.defineProperty(tracker, 'showLogs', { get: () => showLogs?.() ?? null });
 
     function render() {
         strip.hidden = !enabled();
@@ -270,10 +357,13 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
         strip.classList.toggle('running', !!run);
         strip.classList.toggle('indeterminate', !!run && shown == null);
         const node = run?.node ? (run.titles[run.node] ?? '') : '';
+        // Idle: the open workflow, with the idle state moved to the right.
+        const openName = run ? '' : bridge.workflowName;
         label.textContent = run
             ? [run.workflowName, node].filter(Boolean).join(' › ') || t('progress.untitled')
-            : t('progress.idleStrip');
+            : openName || t('progress.idleStrip');
         const parts = [];
+        if (openName) parts.push(t('progress.idleStrip'));
         if (run?.max) parts.push(`${run.value}/${run.max}`);
         if (run) parts.push(shown == null ? '…' : `${shown}%`);
         if (tracker.pending) parts.push(`+${tracker.pending}`);
@@ -296,6 +386,9 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
         menu = null;
         menuAnchor = null;
         renderMenu = () => {};
+        clearInterval(systemTimer);
+        clearInterval(elapsedTimer);
+        refreshMenuLists = () => {};
         document.removeEventListener('pointerdown', onOutside, true);
     }
     function onOutside(e) {
@@ -307,7 +400,73 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
         menuAnchor = anchor;
         menu = document.createElement('div');
         menu.className = 'cd-workflow-menu cd-run-menu';
-        const state = { pending: null, recent: null };
+        const state = { pending: null, recent: null, system: null, vram: null };
+        // Footer under the scrolling lists (meters, then run / stop / unload),
+        // kept across renderMenu() and updated in place, so the meters'
+        // refresh does not rebuild the lists (and reload their thumbnails).
+        const footer = document.createElement('div');
+        footer.className = 'cd-run-footer';
+        const systemBox = document.createElement('div');
+        systemBox.className = 'cd-sys';
+        const renderSystem = () => {
+            const rows = systemRows(state.system, state.vram);
+            systemBox.replaceChildren(...rows.map(r => systemMeter(...r)));
+            systemBox.hidden = !rows.length;
+        };
+        const controls = document.createElement('div');
+        controls.className = 'cd-run-controls';
+        const control = (icon, label, onClick, extraClass = '', title = label) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `cd-run-control${extraClass}`;
+            btn.title = title;
+            btn.innerHTML = icon;
+            const text = document.createElement('span');
+            text.textContent = label;
+            btn.appendChild(text);
+            btn.addEventListener('click', onClick);
+            return btn;
+        };
+        const runBtn = control(ICONS.run, t('progress.generate'), () => {
+            if (window.__xyzSweepActive) return;
+            bridge.queuePromptSimple(0, 1).catch((e) => {
+                showToast(t('common.errorWith', { message: e.message }), { variant: 'danger' });
+            });
+        }, ' primary');
+        const stopBtn = control(ICONS.stop, t('progress.stop'), () => {
+            const promptId = tracker.running?.promptId;
+            if (!promptId) return;
+            bridge.fetchApi('/interrupt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt_id: promptId }),
+            }).catch(() => {});
+        });
+        controls.append(runBtn, stopBtn, control(unload.icon, t('progress.unloadShort'), () => unload.run(), '', t('progress.unloadModels')));
+        footer.append(systemBox, controls);
+        const renderControls = () => {
+            runBtn.disabled = !!window.__xyzSweepActive;
+            stopBtn.disabled = !tracker.running;
+        };
+
+        const readJson = (path) => bridge.fetchApi(path)
+            .then(resp => (resp.ok ? resp.json() : null))
+            .catch(() => null);
+        const refreshSystem = () => Promise.all([readJson('/system_stats'), readJson('/drawer/system/vram')])
+            .then(([stats, vram]) => {
+                if (stats) state.system = stats;
+                state.vram = vram;
+                renderSystem();
+            });
+        refreshSystem();
+        systemTimer = setInterval(refreshSystem, SYSTEM_POLL_MS);
+
+        // Elapsed time of the running job, ticking in place between events.
+        const renderElapsed = (el = menu?.querySelector('.cd-run-elapsed')) => {
+            const startedAt = tracker.running?.startedAt;
+            if (el) el.textContent = startedAt ? formatDuration(Math.max(0, Date.now() - startedAt)) : '';
+        };
+        elapsedTimer = setInterval(renderElapsed, 1000);
         const refreshLists = () => Promise.all([
             fetchJobs(bridge, 'pending'),
             fetchJobs(bridge, 'completed,failed', RECENT_LIMIT),
@@ -333,6 +492,11 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
                 const steps = run.max ? ` ${run.value}/${run.max} (${Math.floor(step * 100)}%)` : '';
                 const item = row('cd-run-current', run.workflowName || t('progress.untitled'),
                     pct == null ? '' : t('progress.overall', { percent: pct }));
+                const elapsed = document.createElement('span');
+                elapsed.className = 'cd-run-meta cd-run-elapsed';
+                elapsed.title = t('progress.elapsed');
+                item.appendChild(elapsed);
+                renderElapsed(elapsed);
                 item.appendChild(action(ICONS.stop, t('progress.stop'), () => {
                     bridge.fetchApi('/interrupt', {
                         method: 'POST',
@@ -396,20 +560,22 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
                             showFailure(bridge, job);
                         } else if (preview) {
                             closeMenu();
-                            openLightbox([previewItem(bridge, preview)], 0);
+                            openRecentInLightbox(bridge, state.recent, job);
                         }
                     });
                     body.appendChild(item);
                 }
             }
             const scroll = menu.querySelector('.cd-wf-body')?.scrollTop ?? 0;
-            menu.replaceChildren(body);
+            renderControls();
+            menu.replaceChildren(body, footer);
             body.scrollTop = scroll;
         };
 
         renderMenu();
         placeAboveTabBar(menu, anchor, root);
         setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 0);
+        refreshMenuLists = refreshLists;
         refreshLists();
     }
 
@@ -440,6 +606,10 @@ export function attachProgressIndicator(shell, bridge, { enabled }) {
         },
     });
 
+    // Workflow switched or opened: the idle strip names it. Deferred so the
+    // frontend's activeWorkflow has caught up with the new graph.
+    document.addEventListener('drawer:graph-configured', () => setTimeout(render, 0));
+    bridge.onGraphSwitch(() => setTimeout(render, 0));
     bridge.onApiEvent('drawer.progress', (e) => tracker.handle(e.detail ?? {}));
     bridge.onApiEvent('status', (e) => tracker.setQueueRemaining(e.detail?.exec_info?.queue_remaining));
     // Seed from the server: a run may already be going when the page opens.

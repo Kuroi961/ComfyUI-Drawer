@@ -985,6 +985,104 @@
         transition: width 0.3s ease;
     }
 
+    .cd-run-footer {
+        flex-shrink: 0;
+        border-top: 1px solid var(--cd-divider);
+    }
+
+    .cd-run-controls {
+        display: flex;
+        gap: 6px;
+        padding: 6px 6px 2px;
+    }
+
+    .cd-run-control {
+        display: inline-flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 0;
+        min-height: 36px;
+        padding: 6px 8px;
+        border: none;
+        border-radius: 8px;
+        background: var(--cd-s2);
+        color: var(--cd-text);
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .cd-run-control span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cd-run-control svg {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+    }
+
+    .cd-run-control.primary {
+        background: var(--cd-accent);
+        color: #fff;
+    }
+
+    .cd-run-control:hover:not(:disabled) {
+        filter: brightness(1.15);
+    }
+
+    .cd-run-control:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+    .cd-sys {
+        display: grid;
+        gap: 4px;
+        padding: 8px 14px 2px;
+    }
+
+    .cd-sys-row {
+        display: grid;
+        grid-template-columns: 40px 1fr auto;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cd-sys-label {
+        color: var(--cd-text-dim);
+    }
+
+    .cd-sys-bar {
+        height: 6px;
+        border-radius: 3px;
+        background: var(--cd-s2);
+        overflow: hidden;
+    }
+
+    .cd-sys-bar span {
+        display: block;
+        height: 100%;
+        background: var(--cd-accent);
+        transition: width 0.3s ease;
+    }
+
+    .cd-sys-bar span.high {
+        background: var(--cd-danger);
+    }
+
+    .cd-sys-value {
+        min-width: 7.5em;
+        text-align: right;
+        color: var(--cd-text-dim);
+    }
+
     .cd-run-thumb {
         display: flex;
         flex-shrink: 0;

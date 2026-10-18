@@ -1581,8 +1581,26 @@ export async function startDrawerPlatform({ bridge, drawerVersion, bootPlacehold
         defaultValue: true,
         order: 60,
     });
+    // ComfyUI's /free: the same as the frontend's "Unload Models" + free cache.
+    // Shared by the menu action and the queue panel.
+    const unloadIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M11 2v2"/><path d="M12 3h-2"/><path d="M13.5 10.5 22 2"/><path d="M14.734 13.841a2 2 0 00-.314-2.42L12.58 9.58a2 2 0 00-2.421-.314l-7.657 4.461A1 1 0 002.3 15.3l6.403 6.403a1 1 0 001.571-.204z"/><path d="M20 15v4"/><path d="M22 17h-4"/><path d="M4 4v4"/><path d="m5 18 2-2"/><path d="M6 6H2"/><path d="m7.699 10.7 5.602 5.601"/></svg>';
+    const unloadModels = async () => {
+        try {
+            const resp = await bridge.fetchApi('/free', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ unload_models: true, free_memory: true }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            showToast(t('progress.modelsUnloaded'), { variant: 'success' });
+        } catch (e) {
+            showToast(t('common.errorWith', { message: e.message }), { variant: 'danger' });
+        }
+    };
     const progressIndicator = attachProgressIndicator(shell, bridge, {
         enabled: () => settings.get(PROGRESS_KEY, true),
+        unload: { icon: unloadIcon, run: unloadModels },
+        showLogs: () => (shell.getGadgets().some(g => g.id === 'logs') ? () => shell.open('logs') : null),
     });
     settings.onChange(PROGRESS_KEY, () => progressIndicator.refresh());
 
@@ -1602,24 +1620,11 @@ export async function startDrawerPlatform({ bridge, drawerVersion, bootPlacehold
         label: t('settings.title'),
         action: () => openSettingsPanel(),
     });
-    // ComfyUI's /free: the same as the frontend's "Unload Models" + free cache.
     shell.addBurgerAction({
-        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>',
+        icon: unloadIcon,
         id: 'unloadModels',
         label: t('progress.unloadModels'),
-        action: async () => {
-            try {
-                const resp = await bridge.fetchApi('/free', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ unload_models: true, free_memory: true }),
-                });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                showToast(t('progress.modelsUnloaded'), { variant: 'success' });
-            } catch (e) {
-                showToast(t('common.errorWith', { message: e.message }), { variant: 'danger' });
-            }
-        },
+        action: unloadModels,
     });
     shell.addBurgerAction({
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>',
