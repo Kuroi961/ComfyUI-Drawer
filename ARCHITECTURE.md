@@ -10,19 +10,19 @@ ComfyDrawer is a gadget platform for ComfyUI. **Drawer is the OS; gadgets are ap
 ┌──────────────────────────────────────────────────────────┐
 │  window.ComfyDrawer (Public API)                         │
 ├──────────────────────────────────────────────────────────┤
-│  ┌───────────┐  ┌────────────┐  ┌───────────────┐       │
-│  │ DrawerShell│  │ MessageBus │  │  ComfyBridge  │       │
-│  │ Panel/Tabs │  │ Pub/Sub    │  │ ComfyUI API   │       │
-│  └─────┬─────┘  └──────┬─────┘  └───────┬───────┘       │
-│  ┌─────┴───────────────┴────────────────┴──────────┐    │
-│  │  Shared Services                                │    │
-│  │  ContextMenu / Lightbox / Dialog / DictService  │    │
-│  │  ImagePicker / Settings / Locale / MaskService  │    │
-│  └─────────────────────────────────────────────────┘    │
+│  ┌─────────────┐  ┌────────────┐  ┌──────────────────┐   │
+│  │ DrawerShell │  │ MessageBus │  │ ComfyBridge      │   │
+│  │ Panel/Tabs/ │  │ Pub/Sub    │  │ ComfyUI app/api  │   │
+│  │ Menu        │  │            │  │ or HeadlessApp   │   │
+│  └─────────────┘  └────────────┘  └──────────────────┘   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ Shared Services                                    │  │
+│  │ ContextMenu / Lightbox / Dialog / Toast / Popover  │  │
+│  │ Dict / ImagePicker / Settings / Locale / Mask      │  │
+│  │ Progress (run strip + generation panel)            │  │
+│  └────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────┤
-│  ┌──────┐ ┌─────────┐ ┌───────────┐ ┌──────────┐ ┌────┐│
-│  │ Deck │ │ Gallery │ │ModelViewer│ │ XYZ Plot │ │ext ││
-│  └──────┘ └─────────┘ └───────────┘ └──────────┘ └────┘│
+│  Home · Deck · Gallery · Models · XYZ Plot · Logs · ext  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -30,12 +30,15 @@ ComfyDrawer is a gadget platform for ComfyUI. **Drawer is the OS; gadgets are ap
 
 | Component | Role |
 |---|---|
-| **DrawerShell** | Tab bar, panel open/close/resize, focus guard, back button |
+| **DrawerShell** | Tab bar (gadgets, pinned menu actions, ☰ menu, header row), panel open/close/resize, focus guard, back button |
 | **MessageBus** | Pub/sub + request/respond between gadgets |
 | **ComfyBridge** | Abstraction over ComfyUI `app`/`api` (nodes, groups, queue, files) |
 | **ContextMenuService** | Right-click / long-tap menu |
 | **Lightbox** | Fullscreen media viewer (image/video/audio) |
 | **DialogService** | Alert, confirm, prompt, custom form dialogs |
+| **ToastService** | Transient notices, optionally with one action button (`showToast`) |
+| **Popover** | Places tab-bar popovers (☰, workflow menu, generation panel) above the tab bar, inside the viewport |
+| **Progress** | Run strip above the tabs and the generation panel (queue, recent results, RAM/VRAM meters, run / stop / unload) |
 | **SettingsService** | localStorage-backed settings with auto-generated UI |
 | **DictService** | Multi-dictionary autocomplete (Danbooru, user, wildcard) |
 | **ImagePicker** | Media file picker popup (image/video/audio) |
@@ -51,6 +54,9 @@ ComfyUI-Drawer/
 ├── drawer_nodes.py           # Python node definitions and NODE_* mappings
 ├── drawer_routes.py          # Backend HTTP routes and prompt hooks
 ├── nodes_switch.py           # DrawerSwitch node (V3 API)
+├── progress_relay.py         # Broadcasts trimmed per-prompt events as drawer.progress
+├── gpu_memory.py             # Physical VRAM use through NVML (ctypes, no package)
+├── *.py                      # Backend helpers (fs_utils, search_index, metadata, thumbnails, …)
 ├── data/                     # Static data (danbooru_tags.csv, etc.)
 ├── docs/
 │   ├── top.webp              # README hero image
@@ -60,6 +66,7 @@ ComfyUI-Drawer/
 │   ├── css/                  # Global CSS (drawer, lightbox, dialog, etc.)
 │   ├── locales/              # i18n: en.json, ja.json, zh.json
 │   ├── standalone.html       # Standalone page (no ComfyUI frontend); /drawer/app redirects here
+│   ├── favicon.svg           # Standalone page tab icon
 │   ├── js/
 │   │   ├── comfy-drawer.js   # ComfyUI extension entry (app/api hooks, then boots the platform)
 │   │   ├── drawer-platform.js # Host-agnostic platform bootstrap + window.ComfyDrawer
@@ -70,6 +77,7 @@ ComfyUI-Drawer/
 │   │   ├── services/         # Platform services
 │   │   └── components/       # Shared UI (media-card)
 │   └── gadgets/              # Built-in gadgets (home, deck, gallery, modelviewer, xyzplot, logs)
+├── tests/                    # unittest suite, tests/js (node), headless golden fixtures
 ├── ARCHITECTURE.md
 ├── CONVENTIONS.md
 ├── GADGET_API.md
@@ -93,7 +101,8 @@ Gadgets (Deck, Gallery, XYZ, 3rd-party)
 | Platform core/services/components must NOT reference `gadgets/` | Dependency inversion; `drawer-platform.js` is the composition root and may import built-in gadgets |
 | Only `comfy-drawer.js` may import ComfyUI's `scripts/app.js` / `scripts/api.js` | Those shims throw outside the ComfyUI frontend; anything reachable from `standalone.html` must stay host-agnostic. Modules without a bridge use `core/api-utils.js` (the host installs its api via `setApiProvider`) |
 | Gadgets may use `window.ComfyDrawer` | Recommended public API access |
-| No 3rd-party extension imports | Loose coupling via Bus events only |
+| No dependency on other custom nodes or extensions | Drawer must work with only ComfyUI installed: no imports of, and no reliance on events or APIs of, other extensions (e.g. a system monitor's broadcasts). Loose, optional coupling goes through the Bus. Reading other nodes' saved formats (rgthree Seed, KJ Set/Get, pysssss PresetText in the headless engine) is compatibility, not a dependency |
+| No new Python packages | Use what ComfyUI itself requires (torch, psutil, aiohttp, …) or system libraries through `ctypes` (NVML in `gpu_memory.py`) with a fallback when they are missing |
 | ComfyUI DOM selectors must be centralized as constants | Minimize breakage on ComfyUI updates |
 
 ## Bridge Boundary
@@ -120,12 +129,15 @@ The platform (`drawer-platform.js` → `startDrawerPlatform({ bridge, ... })`) r
 |---|---|---|
 | Entry | `comfy-drawer.js` (`registerExtension`) | `standalone.html` (`/drawer/app`) |
 | Bridge | `new ComfyBridge(app, api)` | `new ComfyBridge(new HeadlessApp(api, settings), new StandaloneApi(), { standalone: true })` |
-| Graph | LiteGraph graph of the open workflow tab | `HeadlessGraph` of a saved workflow, opened from the tab-bar workflow button |
+| Graph | LiteGraph graph of the open workflow tab | `HeadlessGraph` of a saved workflow, opened from the workflow menu (☰ action, pinnable) |
 | Prompt | frontend `graphToPrompt` | `headless/prompt-builder.js` (port of `graphToPrompt` + `ExecutableNodeDTO`) |
-| Saving | the user saves in ComfyUI | explicit save (menu, Ctrl+S); unsaved edits are a localStorage draft; a file changed elsewhere asks overwrite / reload |
+| Saving | the user saves in ComfyUI | explicit save (menu, Ctrl+S); unsaved edits are a localStorage draft, shared with the frontend in the same browser; a file changed elsewhere asks overwrite / reload |
+| Open tabs / drafts | the frontend's | the same localStorage keys and format (`headless/workflow-persistence.js`): one browser shows the same tabs and unsaved edits on both hosts, after a reload of the other |
 | Built-in gadgets | all | all |
+| Third-party gadgets | registered from their ComfyUI extensions | not loaded — they register from a ComfyUI extension, which needs the frontend |
 | Shell | bottom drawer, resizable, closable | fills the viewport, never closes, does not touch the drawer's saved geometry |
 | Generation events | ComfyUI api | `StandaloneApi` socket (`/ws`) — ComfyUI sends per-prompt events only to the queuing client |
+| Run progress | `drawer.progress` relay (any client's runs) | same |
 
 Gadgets reach the graph through `ComfyBridge`; on the standalone page `bridge.app` is a `HeadlessApp`, which implements the slice of ComfyUI's `app` the bridge uses. Settings, theme, dictionaries and search-index state are shared between hosts through localStorage and the backend.
 
@@ -138,8 +150,15 @@ Gadgets reach the graph through `ComfyBridge`; on the standalone page `bridge.ap
 | `prompt-builder.js` | API prompt: subgraph flattening, bypass/mute, virtual nodes (Reroute, KJ Set/Get), dynamic prompts, PresetText |
 | `value-control.js` | control-after-generate (fixed / increment / decrement / randomize) |
 | `headless-app.js` | `HeadlessApp`: open/save workflows, queue (DrawerSeed, rgthree Seed), node outputs from server events |
+| `workflow-persistence.js` | Open tabs and unsaved drafts in the frontend's own localStorage keys and format (draft index v2), so ComfyUI and the standalone page in one browser show the same ones; `tests/js/workflow_persistence_unit.mjs` pins the format |
 
 The engine must never send a prompt that differs from the frontend's: a node it cannot reproduce exactly (unknown type, values that no longer line up with its inputs, extension widgets it cannot place) makes `buildPrompt` throw `HeadlessPromptError` with the reason. `tests/fixtures/headless` holds prompts captured from the real frontend; `tests/js/headless_golden.mjs` replays them (see `tests/fixtures/headless/README.md`). When the frontend changes how it serializes widgets or resolves links, re-capture the fixtures.
+
+### Run progress and system meters
+
+`progress_relay.py` wraps `PromptServer.send_sync`: ComfyUI sends per-prompt events (`executing`, `progress`, …) only to the queuing client, so a trimmed copy is broadcast as `drawer.progress` (fields in `RELAYED_FIELDS`, plus the workflow id and the running prompt's `started` time). `services/progress.js` follows any client's run from it: the strip above the tabs, and the generation panel (running job with elapsed time, pending queue, recent results that open together in the lightbox, run / stop / unload, RAM/VRAM meters). `/drawer/workflows/names` maps workflow ids to saved names.
+
+The meters read RAM from `/system_stats` and VRAM from `/drawer/system/vram` (`gpu_memory.py`, NVML via `ctypes`). `/system_stats` is not used for VRAM when NVML answers: its free VRAM comes from `cuMemGetInfo`, which comfy-aimdo hooks so evictable model weights count as free; NVML (`nvmlDeviceGetMemoryInfo_v2`, reserved area excluded) matches Task Manager / nvidia-smi and includes other processes. Without NVML (other vendors, `--cpu`) the route returns `{}` and the meter falls back to `/system_stats`.
 
 ## Security Boundary
 
@@ -150,7 +169,7 @@ Drawer mutates local files and proxies external downloads on behalf of the brows
 | Filesystem | All paths from request bodies go through `safe_path()` (in Python) / are validated against `ALLOWED_ROOTS` before any `os.listdir` / `shutil.move` / `_trash_file`. `os.listdir`/`os.walk` results may contain symlinks — refuse them (`os.path.islink`) before recursing or trashing. |
 | Image bytes | Anything Drawer accepts as an image (uploads, output→preview copies, CivitAI downloads) must pass `image_safety.open_image_checked(..., verify=True)`. Extension checks alone are insufficient. |
 | External HTTP | Drawer's outbound HTTP (CivitAI, etc.) must size-cap the response stream, validate `Content-Type`, write to a temp file, and `os.replace`. Unbounded `await resp.read()` is forbidden. |
-| Run progress relay | `progress_relay.py` broadcasts per-prompt events to every client. Only ids, node, step counts and an error summary (`RELAYED_FIELDS`) are sent — never previews, inputs or tracebacks. |
+| Run progress relay | `progress_relay.py` broadcasts per-prompt events to every client. Only ids, node, step counts, the run's start time and an error summary (`RELAYED_FIELDS`) are sent — never previews, inputs or tracebacks. |
 | Deletion | Gallery-browsed media (`fs_delete`, `fs_move` overwrite, etc.) goes to `send2trash`. Permanent `os.remove` is reserved for plugin-owned caches and sidecars whose author confirmed the destructive action. |
 | State-changing routes | All POST/PUT/PATCH/DELETE routes call `require_same_origin(request)` near the top. Browsers cannot be assumed to enforce CORS for everyone — ComfyUI is regularly launched with custom origins enabled. |
 | Frontend URL surfaces | Any `src`/`href`/`window.open` argument originating from server metadata is sanitized with the `URL` constructor + scheme allowlist (same-origin `http(s)` only) before reaching the browser. |
@@ -243,7 +262,7 @@ Shared menu types are extension points, but action IDs must keep ownership visib
 | `bus` | MessageBus | `on/off/emit`, `request/respond` |
 | `bridge` | ComfyBridge | Node ops, queue, file I/O |
 | `contextMenu` | ContextMenuService | `register/registerDefaults/show/hide/unregisterByPrefix` |
-| `shell` | DrawerShell | `open/close/isOpen`, gadget visibility, burger actions |
+| `shell` | DrawerShell | `open/close/isOpen`, gadget visibility, menu actions and pins, tab bar header |
 | `settings` | SettingsService | `get/set/delete/onChange/define` |
 | `dict` | DictService | `register/search/isEnabled` |
 | `maskService` | MaskService | `open/close` |
@@ -272,6 +291,7 @@ Shared menu types are extension points, but action IDs must keep ownership visib
 | `showAlert` | `(message, options?) → Promise<void>` |
 | `showConfirm` | `(message, options?) → Promise<boolean>` |
 | `showPrompt` | `(message, options?) → Promise<string|null>` |
+| `showToast` | `(message, options?) → void` |
 | `openImagePicker` | `(opts?) → Promise<string|null>` |
 | `attachContextTrigger` | `(el, handler) → cleanup` |
 | `attachDictAutocomplete` | `(textarea, opts?) → cleanup` |
@@ -287,8 +307,10 @@ Shared menu types are extension points, but action IDs must keep ownership visib
 | `getLinkedInputNames` | `(node) → Set<string>` |
 | `CollapseStore` | `class` |
 | `checkWorkflowAvailable` | `(item) → Promise<boolean>` |
+| `checkMetadataAvailable` | `(item) → Promise<boolean>` |
 | `openWorkflowFromMedia` | `(item) → Promise<boolean>` |
 | `version` | `string` |
+| `createSearchIndex` | `() → Promise` — asks, then builds the Gallery search index (used by Gallery) |
 
 ### Bus Event Conventions
 
@@ -296,9 +318,10 @@ Event names follow `<scope>:<action>` format:
 
 | Scope | Examples |
 |---|---|
-| `drawer:` | `opened`, `closed`, `graph-changed`, `tab-changed`, `back-button`, `back-handled`, `panel-resized`, `focus-changed`, `gadget-registered`, `gadget-unregistered`, `gadget-visibility-changed` |
-| `comfy:` | `executed` |
+| `drawer:` | `opened`, `closed`, `graph-changed`, `tab-changed`, `back-button`, `back-handled`, `panel-resized`, `focus-changed`, `gadget-registered`, `gadget-unregistered`, `gadget-visibility-changed`, `action-pin-changed`, `close-popovers`, `cache-cleared`, `index-build-started`, `index-sync-started`, `index-auto-sync-changed` |
+| `comfy:` | `executed`, `execution-success`, `execution-error` |
 | `deck:` | `generate-requested`, `cancel-requested` |
 | `dict:` | `suggest` request responder |
 | `fs:` | `moved`, `renamed`, `deleted`, `created` |
 | `settings:` | `highlight-changed` |
+| `home-widget:` | `changed` |

@@ -8,7 +8,7 @@
 |---|---|---|
 | Platform core | `web/js/core/` | Must NOT import gadget files |
 | Shared CSS | `web/css/` | Global or service-scoped styles; keep selectors prefixed |
-| Services | `web/js/services/` | Exposed through `window.ComfyDrawer`; built-in code may import stable shared modules |
+| Services | `web/js/services/` | Platform services; the public ones are exposed through `window.ComfyDrawer`. Built-in code may import stable shared modules. Services must not import gadgets or depend on gadget ids — the composition root (`drawer-platform.js`) passes such links in |
 | i18n | `web/locales/*.json` | Flat key-value pairs. `en.json` is fallback |
 | Built-in gadgets | `web/gadgets/<id>/` | CSS root/prefix scoped; `@layer gadget-<id>` is preferred for new or touched CSS |
 | Single-file gadgets | `web/js/ext-<id>.js` | CSS injected via `<style>` tag, scoped with a gadget root and preferably `@layer gadget-<id>` |
@@ -29,6 +29,24 @@ ext-<id>.js       # Single-file gadget (CSS embedded)
 
 - All files use ES Modules (implicit strict mode).
 - No `var`. Use `const` by default, `let` when reassignment needed.
+
+### Plain http and other hosts
+
+The page is regularly opened over plain http from a phone (a LAN or Tailscale address), which is not a secure context, and also runs without the ComfyUI frontend (`/drawer/app`). Both are enforced by tests:
+
+| Rule | Detail |
+|---|---|
+| No `crypto.randomUUID()` | Undefined outside secure contexts; use `Date.now()` + `Math.random()` ids |
+| Clipboard only through `utils.js` | `copyText()` (falls back to `execCommand`) and `readClipboardFiles()` (returns `null` without the async API — then take a `paste` event, e.g. a paste target where the browser's own menu offers Paste) |
+| ComfyUI frontend modules only in `comfy-drawer.js` | See ARCHITECTURE "Dependency Rules"; the rest of the platform reaches the host through `ComfyBridge` / `api-utils.js` |
+
+### Porting frontend behaviour
+
+Where Drawer reproduces something the ComfyUI frontend does internally (the headless prompt builder, the workflow tab/draft storage), name the frontend version it was ported from and pin the behaviour with tests built from the frontend's real output (`tests/fixtures/headless`, `tests/js/*_unit.mjs`), so a frontend update that changes it fails a test instead of silently diverging.
+
+### Line endings
+
+Keep each file's existing line endings (most are CRLF; a few files are LF or mixed). Edit tools that rewrite a whole file can flip them — check before committing.
 
 ### Class Fields
 
@@ -105,6 +123,7 @@ container.innerHTML = `<p>${_t('common.loading')}</p>`;
 | ModelViewer | `mv-` | `.mv-card`, `.mv-info` |
 | XYZ Plot | `xyzg-` (`xyz-` for a few shared/legacy sweep elements) | `.xyzg-axis`, `.xyzg-chip` |
 | Home | `hm-` | `.hm-gadget-card`, `.hm-info-grid` |
+| Logs | `lg-` | `.lg-lines`, `.lg-toolbar` |
 | MediaCard/Grid | `mc-` | `.mc-card`, `.mc-grid` |
 | MaskService | `ms-` | `.ms-overlay`, `.ms-toolbar` |
 | Platform | `comfy-drawer-` or `cd-` | `.comfy-drawer-panel`, `.cd-lightbox` |
@@ -217,7 +236,7 @@ el.addEventListener('contextmenu', (e) => {
 
 ### 3rd-Party Coupling
 
-No imports. Use Bus for loose coupling:
+No imports, and nothing that only works when another custom node is installed: Drawer must run on plain ComfyUI. Use Bus for optional, loose coupling that degrades gracefully. Backend code adds no Python packages — use ComfyUI's own requirements, or a system library through `ctypes` with a fallback:
 
 ```js
 // ✅ Bus request with graceful degradation
@@ -264,6 +283,8 @@ Available via ES import. The public subset is also exposed through `window.Comfy
 | `truncate(s, max?)` | Truncate string with `…` (default 20 chars) |
 | `getLinkedInputNames(node)` | Returns `Set<string>` of connected input names |
 | `normalizePath(p)` | Normalize OS-native path separators to `/` (ES import only) |
+| `copyText(text)` | Copy to the clipboard, also over plain http → `Promise<boolean>` (ES import only) |
+| `readClipboardFiles(typePrefix)` | Clipboard files of a type (e.g. `image/`) → `Promise<File[]|null>`; `null` = no async clipboard, take a paste event (ES import only) |
 | `CollapseStore(key)` | localStorage-backed collapse state manager |
 
 ### Naming Conventions

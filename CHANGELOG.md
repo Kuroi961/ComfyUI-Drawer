@@ -4,6 +4,7 @@
 
 ### Standalone Page
 
+- The standalone page keeps its open workflows and unsaved drafts in the ComfyUI frontend's own storage (`Comfy.Workflow.LastOpenPaths` / draft index v2), so ComfyUI and the page show the same tabs and the same unsaved edits in one browser (after a reload of the other one; a draft older than its file is dropped, as the frontend does). Tabs and drafts saved by earlier versions of the page are moved over once.
 - Run progress bar above the tab bar on both hosts (rgthree-style strip: workflow › node, the current node's steps and percent with the whole run as a thin line beneath, the number waiting), opening a popover with the queue (stop / remove) and recent results (open in the lightbox, error details); the standalone page also shows the percentage in the browser tab title. Runs queued from any client are followed — the server relays a trimmed copy of the per-prompt events ComfyUI sends only to the queuing client (`progress_relay.py`, `drawer.progress`), and `/drawer/workflows/names` names runs by their saved workflow.
 - ☰ menu action to switch hosts in the same tab: "Open ComfyUI" on the standalone page, "Open Drawer standalone" inside ComfyUI (both relative to the api base).
 - The XYZ Plot completion notice, the mask editor, the platform's search-index notices and Gallery now use the shared toast service; their inline-styled toasts (fixed colours, no stacking) and Gallery's `.gg-toast` fallback are removed.
@@ -15,6 +16,26 @@
 - New headless engine (`web/js/headless`) builds API prompts without the frontend: a port of frontend 1.55's `graphToPrompt` / `ExecutableNodeDTO` (subgraphs incl. per-instance values and id deduplication, bypass/mute, Reroute, KJ Set/Get), widget layout from `/object_info` (V3 DynamicCombo, seed controls, upload buttons, widgets added after a workflow was saved, extension widgets via `widgets_values_named`), dynamic prompts, `%date%` / `%Node.widget%` on save nodes, pysssss PresetText, control-after-generate, DrawerSeed and rgthree Seed. Verified against prompts captured from the real frontend (`tests/fixtures/headless`); anything it cannot reproduce exactly is refused with the reason, never sent differently.
 - Add a standalone Drawer page at `/drawer/app` that runs Home, Gallery and Model Viewer **without loading the ComfyUI frontend bundle**. It talks to the same server through a small `StandaloneApi` (base path and `Comfy-User` aware) and reads ComfyUI settings once for locale sync (falling back to the browser language when `Comfy.Locale` was never saved). The shell fills the viewport and never closes; Deck and XYZ Plot (graph-bound) are not registered and "Open as Workflow" is hidden. The redirect is relative, so it works behind a sub-path reverse proxy, and resolves the real `/extensions/<name>` mount instead of assuming the folder name.
 - Split the platform bootstrap out of `comfy-drawer.js` into host-agnostic `drawer-platform.js`; `comfy-drawer.js` is now only the ComfyUI extension entry (app/api hooks). `core/api-utils.js` no longer imports ComfyUI's `scripts/api.js` — the host installs its api via `setApiProvider()`. `ComfyBridge` and `DrawerShell` take an optional `{ standalone }` option; behaviour inside ComfyUI is unchanged.
+- Standalone page tab icon (`web/favicon.svg`, the drawer from the logo), so it is told apart from ComfyUI tabs.
+- Closing every tab on the standalone page also clears the frontend's last-active pointer, so ComfyUI does not reopen a workflow that was closed there.
+
+### Generation Panel
+
+- The queue popover is now a generation panel: **Run** / **Stop** / **Unload models** buttons and RAM / VRAM meters, fixed below the scrolling lists. VRAM comes from the new `/drawer/system/vram` (`gpu_memory.py`, NVML through `ctypes`, no package): `/system_stats` counts comfy-aimdo's evictable model weights as free, so it disagreed with Task Manager / nvidia-smi by several GB. Without NVML (other vendors, `--cpu`) the meter falls back to `/system_stats`.
+- Elapsed time of the running job. `progress_relay.py` adds the run's server start time (`started`) to the relayed events, so a page opened mid-run shows the real elapsed time.
+- Recent results open together in the lightbox and page through; a job with several outputs contributes every saved image and video.
+- The lists refresh while the panel stays open (a finished run appeared only after reopening it).
+- While idle, the progress strip shows the name of the open workflow.
+- Unload models uses the broom-sparkles icon.
+
+### Deck
+
+- Fix upload buttons (Load Image, video and audio loaders): on the standalone page they did nothing, and inside ComfyUI Deck stopped watching for the picked file after 15 s, so a slow pick never showed up. Deck now picks and uploads the file itself on both hosts, using the node definition's `*_upload` option to find the combo and the accepted types.
+- Paste from the clipboard next to upload buttons (saved under `input/pasted`, like the frontend's paste). Without the async clipboard API (plain http) a paste box takes the browser's own Paste. New `utils.readClipboardFiles()`.
+
+### Docs
+
+- README and user guide (en / ja / zh), ARCHITECTURE, CONVENTIONS and GADGET_API brought up to date: standalone page, tab bar and menu, generation panel, upload and paste, the dependency rules (nothing that needs another custom node, no new Python packages) and the plain-http rules.
 
 ## v2.1.10 - 2026-08-06
 

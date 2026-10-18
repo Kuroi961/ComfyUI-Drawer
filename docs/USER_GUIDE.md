@@ -24,6 +24,8 @@ Main entry points:
 - Logs: read the ComfyUI server console live, filter warnings and errors
 - Settings: themes, dictionaries, search index, cache, and maintenance
 
+Actions such as Workflow, the generation panel (Queue), Settings and Unload models live in the ☰ menu at the right end of the tab bar; pin the ones you use to show them in the tab bar. Drawer can also run on its own page without the ComfyUI frontend (see Standalone Page).
+
 ## Home
 
 Home is Drawer's dashboard. It shows the current Drawer version, ComfyUI/Python/PyTorch system information, storage usage, and changelog entries.
@@ -60,6 +62,10 @@ string | Label | multiline
 ```
 
 Combo options are read from the connected target widget. If you want a cleaner Deck layout, DrawerControls are often easier to manage than adding markers directly to many normal nodes.
+
+### Uploading Images
+
+Upload buttons of Load Image (and video / audio loaders) open a file picker; the clipboard button next to them pastes a file instead, saved under `input/pasted` like ComfyUI's own paste. Over plain http — a phone opening ComfyUI by a LAN or Tailscale address — the browser does not let pages read the clipboard directly, so a paste box opens: long-press it and choose Paste from the browser's own menu. A keyboard's clipboard panel cannot paste images into web pages.
 
 ## XYZ Plot
 
@@ -246,6 +252,40 @@ masterpiece, best quality
 
 Comments are removed from the execution prompt, but kept in the workflow metadata embedded in outputs. Wildcards inside comments are not expanded.
 
+## Logs
+
+Logs shows the ComfyUI server console — what the terminal window shows — inside Drawer, readable from a phone. Lines arrive live and progress bars redraw in place. Filter by All / Warnings / Errors (a whole Python traceback counts as one error), search with highlighting, and select lines (tap, long-press or Shift+click for a range) to copy them. The "Generation failed" toast has a View logs button that opens it.
+
+Logs reads ComfyUI's own in-memory log, which keeps only recent lines and is lost when the server stops. After a crash, look at the log file instead: with ComfyUI-Manager it is `user/comfyui.log`, and the previous runs are `comfyui.prev.log` and `comfyui.prev2.log`.
+
+## Tab Bar and Menu
+
+The tab bar shows gadgets on the left, then pinned actions and the ☰ menu. The ☰ menu lists every gadget (except Home) and every action — Workflow, Queue, Settings, Unload models, switching between ComfyUI and the standalone page, refresh and restart. Each row has a pin: pinned items show in the tab bar, the rest stay in the menu. XYZ Plot, Models and Logs start in the menu. Pins are remembered per browser.
+
+## Progress and the Generation Panel
+
+A thin strip above the tab bar follows the current run, whichever tab, phone or script queued it: workflow › node, the current node's steps, the whole run as a thin line beneath, and how many jobs are waiting. When nothing runs it shows the name of the open workflow.
+
+Tapping the strip (or the Queue action) opens the generation panel:
+
+- Running job: overall progress, elapsed time, stop
+- Pending jobs, which can be removed
+- Recent results: tap one to open all recent results in the lightbox and page through them; a batch contributes every image. Failed runs show their error
+- Fixed at the bottom: RAM and VRAM meters, and Run, Stop and Unload models buttons
+
+The meters refresh every few seconds while the panel is open. On NVIDIA GPUs, VRAM is read from the driver and matches Task Manager or nvidia-smi, including other programs on the same GPU. ComfyUI's own figure counts model weights it can evict as free, so it can look much lower.
+
+## Standalone Page
+
+`http://<comfyui-host>:8188/drawer/app` runs Drawer without the ComfyUI frontend: Home, Gallery, Model Viewer, Deck, XYZ Plot and Logs on a page that stays light on phones and with huge workflows.
+
+- Open workflows from the Workflow menu (☰ or pinned). It lists open workflows, the sidebar's bookmarks and all saved workflows
+- Edits stay unsaved until you save (Save, Save as, Ctrl+S / ⌘S). If the file changed elsewhere, you choose to overwrite or reload
+- Open tabs and unsaved edits are stored where the ComfyUI frontend stores them. In the same browser, ComfyUI and the standalone page therefore show the same tabs and unsaved changes; the other page picks them up when reloaded. Between devices, only saved files are shared
+- Prompts are built by Drawer and match what the frontend would send. Workflows it cannot reproduce exactly are refused with the reason
+- Gadgets from other custom nodes do not appear here: they are ComfyUI frontend extensions, and this page does not load the frontend
+- The ☰ menu switches between this page and ComfyUI in the same tab
+
 ## Mask Editor
 
 Mask Editor is a simple mask editing UI opened from an image context menu. Generated masks are saved under `input/drawer_masks` and can be applied directly to LoadImageMask nodes.
@@ -323,6 +363,9 @@ Especially useful on mobile:
 - Use Lightbox to review images and videos fullscreen
 - Use long-press to open Context Menu
 - Use Settings to manage dictionaries and the search index
+- Use the standalone page (`/drawer/app`) when the node editor is too heavy for the phone
+- Use the generation panel to run, stop and watch jobs, results and memory
+- Over plain http, paste images through the browser's long-press Paste (see Deck › Uploading Images)
 
 Popups are adjusted to fit within the viewport because mobile browser UI and screen dimensions vary widely.
 
@@ -357,6 +400,10 @@ Yes. Gallery and Context Menu can open images with workflow metadata as workflow
 ### Do comments and wildcard expansion remain in output metadata?
 
 Comments are removed from the execution prompt but preserved in workflow metadata. Wildcard expansion results are also reflected so they can be inspected from metadata.
+
+### Why don't gadgets from other custom nodes appear on the standalone page?
+
+They are registered from ComfyUI frontend extensions, and the standalone page does not load the frontend or other extensions' scripts. They appear in the drawer inside ComfyUI.
 
 ## Further Documentation
 

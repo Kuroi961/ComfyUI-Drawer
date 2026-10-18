@@ -36,6 +36,8 @@ app.registerExtension({
 
 > **Template**: Copy [`docs/gadget-template.js`](docs/gadget-template.js) to get started.
 
+> **Hosts**: a gadget registered from a ComfyUI extension (as above) appears in the drawer inside ComfyUI. The standalone page (`/drawer/app`) runs without the ComfyUI frontend, so extension code — and the gadgets it registers — does not load there; only the built-in gadgets do.
+
 ---
 
 ## GadgetBase
@@ -63,7 +65,7 @@ mount(container, bus, bridge)     ← Shell calls (DO NOT override)
 ┌── User interaction loop ──┐
 │ onActivate()               │ ← Tab selected
 │ onDeactivate()             │ ← Tab deselected
-│ onGraphChanged()           │ ← Workflow switched
+│ onGraphChanged()           │ ← Workflow switched (both hosts)
 │ onResize(height)           │ ← Panel resized
 └────────────────────────────┘
 
@@ -310,6 +312,7 @@ await bridge.handleFile(file);
 bridge.setWorkflowName('name');
 bridge.exportWorkflow();                  // → JSON
 bridge.workflowId;                        // Stable workflow identifier
+bridge.workflowName;                      // Active workflow's file name without .json, or ''
 const dispose = bridge.onGraphSwitch(({ newGraph, oldGraph }) => { ... });
 ```
 
@@ -351,6 +354,14 @@ bridge.addSetting({ id: 'MyGadget.Opt', name: 'Option', type: 'boolean', default
 bridge.onApiEvent('progress', handler);   // progress, executing, executed, execution_error
 bridge.offApiEvent('progress', handler);
 ```
+
+### Standalone page
+
+```js
+bridge.isStandalone;                      // true on /drawer/app (no ComfyUI frontend)
+```
+
+On the standalone page `bridge.app` is a `HeadlessApp` working on saved workflows: `bridge.canvas` is `null`, `onGraphSwitch()` does nothing (use `onGraphChanged()`), and `queuePromptSimple()` resolves `false` when the headless engine refuses a prompt it cannot build exactly like the frontend.
 
 ### Escape Hatch
 
@@ -529,9 +540,29 @@ Options:
 | `danger` | boolean | Uses danger styling for confirm and defaults variant to danger |
 | `onValidate` | function | `(data) => errorMessage|null`, blocks confirm when it returns a message |
 | `dismissOnBackdrop` | boolean | Whether clicking the backdrop cancels the dialog |
+| `dismissOnEscape` | boolean | Whether Escape cancels the dialog |
+| `showClose` | boolean | Whether to show the header close button |
 | `autoFocus` | boolean | Focus first input/confirm button on open |
+| `onOpen` | function | `({ close, body, dialog, backdrop }) => void`; `close(value)` resolves the dialog with `value` |
 
 Dialog chrome blocks text selection and native context menus. Editable controls (`input`, `textarea`, `select`, `contenteditable`) keep normal selection and right-click behavior.
+
+---
+
+## Toast
+
+```js
+const { showToast } = window.ComfyDrawer;
+
+showToast('Saved');
+showToast('Generation failed', {
+    variant: 'danger',             // 'info' | 'success' | 'warning' | 'danger'
+    duration: 8000,                // ms, default 2500 (max 30000)
+    action: { label: 'View logs', onClick: () => shell.open('logs') },
+});
+```
+
+Plain text only (escaped). Toasts stack at the bottom of the viewport, are not selectable and have no context menu. Use them for transient notices; use dialogs for anything that needs a decision.
 
 ---
 
@@ -568,9 +599,10 @@ this.addDisposable(cleanup);
 ## Workflow Utilities
 
 ```js
-const { checkWorkflowAvailable, openWorkflowFromMedia } = window.ComfyDrawer;
+const { checkWorkflowAvailable, checkMetadataAvailable, openWorkflowFromMedia } = window.ComfyDrawer;
 
 const hasWF = await checkWorkflowAvailable({ src: imageUrl });
+const hasMeta = await checkMetadataAvailable({ src: imageUrl }); // any readable metadata
 const ok = await openWorkflowFromMedia({ src: imageUrl, name: 'test.png' });
 ```
 
@@ -621,11 +653,14 @@ shell.addBurgerAction({
     action: (anchor) => { ... },  // anchor: the pinned tab or the ☰ button, for popovers
     order: 0,                     // optional: lower comes first
     pinned: false,                // optional: start in the tab bar
+    tabElement: myButton,         // optional: own element shown when pinned (handles its own clicks)
 });
 shell.isActionPinned('my-settings');
-shell.setActionPinned('my-settings', true);
+shell.setActionPinned('my-settings', true);   // emits drawer:action-pin-changed
 shell.addTabBarHeader(element); // a persistent row above the tabs
 ```
+
+The ☰ menu lists every gadget (except Home) and every action, each with a pin toggle; pinned ones also show in the tab bar. Pin choices and hidden gadgets are remembered per browser.
 
 ---
 

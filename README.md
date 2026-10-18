@@ -10,6 +10,7 @@
   <a href="#installation">Installation</a> •
   <a href="#sample-workflows">Samples</a> •
   <a href="#built-in-gadgets">Gadgets</a> •
+  <a href="#standalone-page">Standalone</a> •
   <a href="#workflow-utilities">Utilities</a> •
   <a href="#shared-ui-system">UI System</a> •
   <a href="#drawer-nodes">Nodes</a> •
@@ -124,6 +125,7 @@ Nodes are sorted by Y position from top to bottom. Groups are sorted by X positi
 - Groups are always shown as sections if they contain at least one visible node
 - Ungrouped nodes are collected at the end under Other
 - A bottom-left button can show nodes that do not contain `📝`
+- Upload buttons (Load Image, video, audio) open a file picker, and the clipboard button next to them pastes a file instead. Over plain http (a phone on a LAN or Tailscale address) a paste box opens: long-press it and choose **Paste** from the browser's menu — a keyboard's clipboard panel cannot paste images into web pages
 
 ---
 
@@ -217,22 +219,22 @@ The ComfyUI server console inside Drawer — what the terminal window shows, rea
 
 ## Standalone Page
 
-Run Drawer **without loading the ComfyUI frontend** — Home, Gallery, Model Viewer, **Deck** and **XYZ Plot** — handy when the full node editor is too heavy (large workflows, phones, a second monitor).
+Run Drawer **without loading the ComfyUI frontend** — Home, Gallery, Model Viewer, **Deck**, **XYZ Plot** and Logs — handy when the full node editor is too heavy (large workflows, phones, a second monitor).
 
 ```
 http://<comfyui-host>:8188/drawer/app
 ```
 
 - Talks to the same ComfyUI server directly; nothing extra to install or run
-- The workflow button in the tab bar opens a menu like ComfyUI's workflow sidebar: open workflows (switch / close) on top, then bookmarks — the same ones as the sidebar — and the saved workflows (`user/default/workflows`). Deck edits — values, bypass switches, seeds — are not written to the file until you save (Save in the menu, Ctrl+S / ⌘S); unsaved changes are marked with a dot and kept in the browser across reloads
-- If the file was changed elsewhere since it was opened (for example saved from a ComfyUI tab), you are asked whether to overwrite it or reload it. A ComfyUI tab that still has the workflow open keeps its old copy; saving there overwrites the standalone edits
-- "Open as Workflow" on a Gallery image opens its embedded workflow unsaved; use **Save as…** in the workflow picker to keep it
+- The **Workflow** menu (in ☰, or pinned to the tab bar) works like ComfyUI's workflow sidebar: open workflows (switch / close) on top, then bookmarks — the same ones as the sidebar — and the saved workflows (`user/default/workflows`)
+- Deck edits — values, bypass switches, seeds, uploaded images — are not written to the file until you save (Save in the menu, Ctrl+S / ⌘S); unsaved changes are marked with a dot
+- **Same tabs as ComfyUI**: open workflows and unsaved edits are stored where the ComfyUI frontend stores them, so in one browser ComfyUI and this page show the same tabs and the same unsaved changes (the other one picks them up when it is reloaded). Different devices share saved files only
+- If the file was changed elsewhere since it was opened, you are asked whether to overwrite it or reload it
+- "Open as Workflow" on a Gallery image opens its embedded workflow unsaved; use **Save as…** in the workflow menu to keep it
 - Prompts are built by Drawer itself and match what the ComfyUI frontend would send. A workflow that cannot be reproduced exactly is refused with the reason instead of being run differently — node types that are not installed, or a node whose saved values predate its current inputs or extension-added widgets (open and save the workflow once in ComfyUI to fix those)
-- Not supported: Comfy.org API nodes that need the account login of the ComfyUI frontend
+- Not supported: Comfy.org API nodes that need the account login of the ComfyUI frontend, and gadgets added by other custom nodes (they load as ComfyUI frontend extensions)
 - Settings, theme, dictionaries and the search index are shared with the in-ComfyUI Drawer
-- A progress bar above the tab bar (also inside ComfyUI) follows the running run — from any tab, phone or script — showing the workflow and node, the current node's steps (the thin line underneath is the whole run) and how many are waiting; tap it for the queue (stop / remove) and recent results. It can be hidden in Settings › Utility
-- Tab bar: gadgets on the left, a divider, then pinned menu items and the ☰ menu, centred together. XYZ Plot, Models and Logs start in the menu. Every gadget and menu item (Workflow, Queue, Settings, Unload models, …) has a pin in the ☰ menu to show it in the tab bar or keep it in the menu
-- The ☰ menu switches between this page and the ComfyUI frontend: "Open ComfyUI" here, "Open Drawer standalone" inside ComfyUI
+- The ☰ menu switches between this page and the ComfyUI frontend in the same tab: "Open ComfyUI" here, "Open Drawer standalone" inside ComfyUI
 
 ---
 
@@ -300,13 +302,28 @@ A fullscreen mask editor available from image context menus. It saves generated 
 
 ## Shared UI System
 
+### Tab Bar & Menu
+
+- Gadgets on the left, a divider, then pinned menu actions and the ☰ menu, centred together. XYZ Plot, Models and Logs start in the menu
+- The ☰ menu lists every gadget and action (Workflow, Queue, Settings, Unload models, switch host, …). Its pin toggle shows an item in the tab bar or keeps it in the menu; the choice is remembered per browser
+
+### Progress Strip & Generation Panel
+
+A thin strip above the tab bar (inside ComfyUI and on the standalone page) follows the current run — queued from any tab, phone or script: workflow › node, the current node's steps (the thin line beneath is the whole run) and how many are waiting. When nothing is running it shows the name of the open workflow. It can be hidden in Settings › Utility.
+
+Tap it, or the Queue action, for the generation panel:
+
+- The running job with overall progress, elapsed time and a stop button
+- Pending jobs (remove) and recent results. Tapping a result opens all recent results in the lightbox, every image of a batch included. The lists update while the panel stays open
+- Fixed at the bottom: RAM and VRAM use, and **Run**, **Stop** and **Unload models** buttons. On NVIDIA GPUs VRAM is what the driver reports — the same figure as Task Manager or nvidia-smi, other programs included
+
 ### Context Menu
 
 A right-click / long-press menu. It supports opening media in a new tab, sending images to LoadImage / LoadImageMask, opening media as a workflow, downloading, and gadget-specific custom menu actions.
 
 ### Lightbox
 
-A fullscreen media viewer for images, videos, and audio. It opens from Gallery, Deck, XYZ Plot, and shared media cards.
+A fullscreen media viewer for images, videos, and audio. It opens from Gallery, Deck, XYZ Plot, the generation panel's recent results, and shared media cards.
 
 - Keyboard navigation (←→ / A/D), swipe, and previous/next buttons
 - Click the current image, or use the context menu, to open media in a new tab
@@ -315,7 +332,7 @@ A fullscreen media viewer for images, videos, and audio. It opens from Gallery, 
 
 ### Popups & Dialogs
 
-Provides `showAlert`, `showConfirm`, `showPrompt`, and `showDialog`.
+Provides `showAlert`, `showConfirm`, `showPrompt`, and `showDialog`, plus `showToast` for short notices (optionally with an action button).
 
 ### File Picker
 
@@ -378,6 +395,7 @@ app.registerExtension({
 - `window.ComfyDrawer` exposes services such as `GadgetBase`, `bus`, `bridge`, `settings`, and `dict`
 - CSS can be injected with a `<style>` tag. Scoping with `@layer gadget-<id>` is recommended
 - The only external import needed is `app.js`; gadgets do not need to depend on Drawer internals
+- Gadgets registered this way appear in the drawer inside ComfyUI. The standalone page does not load other extensions' scripts, so they do not appear there
 - Python extensions can register Gallery metadata providers, search index contributors, metadata panel contributors, and dictionary providers. This lets existing custom metadata become searchable and visible in Drawer without forcing a Drawer-specific storage format
 
 See [GADGET_API.md](GADGET_API.md) for the complete API reference.
