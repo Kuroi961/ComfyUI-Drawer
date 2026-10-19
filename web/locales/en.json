@@ -333,7 +333,7 @@
       "tags": "Tags",
       "tagsHint": "e.g. close-up, glossy",
       "itemPaletteHint": "e.g. crimson, #202020",
-      "position": "Position (px, from top-left)",
+      "position": "Position (% of canvas, from top-left)",
       "boxN": "Box {n}",
       "moveUp": "Up",
       "moveDown": "Down",

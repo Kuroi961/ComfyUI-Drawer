@@ -333,7 +333,7 @@
       "tags": "标签",
       "tagsHint": "例：close-up, glossy",
       "itemPaletteHint": "例：crimson, #202020",
-      "position": "位置（px，自左上角）",
+      "position": "位置（占画布 %，自左上角）",
       "boxN": "框 {n}",
       "moveUp": "上移",
       "moveDown": "下移",

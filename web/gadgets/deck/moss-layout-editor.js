@@ -361,12 +361,19 @@ export function buildMossLayoutEditor(node, bridge) {
 
   // Numeric x/y/w/h inputs of the open detail panel, refreshed while dragging.
   let rectInputs = null;
+  // X/Y/W/H are shown as % of the canvas (the pixels follow the canvas size);
+  // the exact pixels are in each field's tooltip.
+  const rectPixels = (rect) => {
+    const [l, t, r, b] = rect.map(Math.round);
+    return [l, t, r - l, b - t];
+  };
   const syncRectInputs = () => {
     if (!rectInputs || selected < 0) return;
-    const [l, t, r, b] = layout.items[selected].rect.map(Math.round);
-    const vals = [l, t, r - l, b - t];
+    const px = rectPixels(layout.items[selected].rect);
     rectInputs.forEach((inp, k) => {
-      if (document.activeElement !== inp) inp.value = vals[k];
+      const dim = k % 2 ? height : width;
+      inp.title = `${px[k]} px`;
+      if (document.activeElement !== inp) inp.value = String(Math.round(px[k] / dim * 1000) / 10);
     });
   };
 
@@ -430,9 +437,14 @@ export function buildMossLayoutEditor(node, bridge) {
     const rectRow = el('div', 'dk-moss-rect');
     rectInputs = ['X', 'Y', 'W', 'H'].map((name, k) => {
       const inp = el('input', 'dk-number dk-moss-num');
-      inp.type = 'number'; inp.step = 1;
+      inp.type = 'number'; inp.step = 0.1; inp.min = 0; inp.max = 100;
       inp.addEventListener('change', () => {
-        const [x, y, w, h] = rectInputs.map(i => Math.round(Number(i.value) || 0));
+        const pct = Number(inp.value);
+        if (!Number.isFinite(pct)) { syncRectInputs(); return; }
+        // Only the edited field changes; the others keep their exact pixels.
+        const vals = rectPixels(it.rect);
+        vals[k] = Math.round(pct / 100 * (k % 2 ? height : width));
+        const [x, y, w, h] = vals;
         const l = Math.min(Math.max(0, x), width - MIN_BOX);
         const t = Math.min(Math.max(0, y), height - MIN_BOX);
         it.rect = [l, t, Math.min(width, l + Math.max(MIN_BOX, w)), Math.min(height, t + Math.max(MIN_BOX, h))];

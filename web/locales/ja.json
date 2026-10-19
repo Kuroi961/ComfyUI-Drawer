@@ -333,7 +333,7 @@
       "tags": "タグ",
       "tagsHint": "例: close-up, glossy",
       "itemPaletteHint": "例: crimson, #202020",
-      "position": "位置（px・左上基準）",
+      "position": "位置（キャンバス比 %・左上基準）",
       "boxN": "ボックス {n}",
       "moveUp": "前へ",
       "moveDown": "後へ",

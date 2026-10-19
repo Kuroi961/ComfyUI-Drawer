@@ -1100,7 +1100,9 @@
 .dk-moss-detail .dk-moss-row > .dk-moss-field:first-child { flex: 0 0 120px; }
 .dk-moss-rect { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .dk-moss-rect-cell { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.dk-moss-rect .dk-moss-num { width: 100%; min-width: 0; }
+.dk-moss-rect .dk-moss-num { width: 100%; min-width: 0; -moz-appearance: textfield; }
+.dk-moss-rect .dk-moss-num::-webkit-inner-spin-button,
+.dk-moss-rect .dk-moss-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .dk-moss-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .dk-moss-actions .danger { margin-left: auto; }
 .dk-moss-swatches { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
