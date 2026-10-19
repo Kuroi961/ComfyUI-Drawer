@@ -19,6 +19,12 @@ const SUMMARY_LISTS = ['meta', 'palette'];
 const ITEM_LISTS = ['tags', 'palette'];
 const MIN_BOX = 8;
 
+const SIZE_ICONS = {
+  linked: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  lastRun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>',
+  unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+};
+
 const splitList = (s) => String(s).split(',').map(v => v.trim()).filter(Boolean);
 const joinList = (v) => Array.isArray(v) ? v.join(', ') : (typeof v === 'string' ? v : '');
 
@@ -42,6 +48,7 @@ function parseLayout(text, width, height) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { error: 'invalidJson' };
   const space = data.bbox_coord_space ?? 'abs_centralized';
   const format = data.bbox_format ?? 'yxyx';
+  if (space === 'abs' && format === 'xyxy') return { error: 'draft', draft: data };
   if (space !== 'abs_centralized' || format !== 'yxyx') {
     return { error: 'unsupported', detail: `${space} / ${format}` };
   }
@@ -57,6 +64,42 @@ function parseLayout(text, width, height) {
     items.push({ ...rest, rect: [b[1] + hw, b[0] + hh, b[3] + hw, b[2] + hh] });
   }
   return { layout: { summary, items } };
+}
+
+/**
+ * Convert a MOSS-Image layout draft (top-left pixel xyxy boxes plus
+ * width/height, as written by the official prompt enhancer or an LLM) into an
+ * editable layout. Keeps the fields the official compiler keeps; fractional
+ * edges are enclosed (floor left/top, ceil right/bottom) like it does.
+ */
+function layoutFromDraft(draft, fallbackW, fallbackH) {
+  const size = (v, fb) => (Number.isInteger(v) && v > 0 ? v : fb);
+  const w = size(draft.width, fallbackW), h = size(draft.height, fallbackH);
+  const src = draft.summary && typeof draft.summary === 'object' ? draft.summary : {};
+  // Key order follows the draft, as the compiled JSON does.
+  const summary = {};
+  for (const k of Object.keys(src)) {
+    if (k === 'caption') summary.caption = typeof src.caption === 'string' ? src.caption : '';
+    else if (k === 'canvas') summary.canvas = src.canvas;
+    else if (SUMMARY_LISTS.includes(k)) summary[k] = typeof src[k] === 'string' ? [src[k]] : src[k];
+  }
+  if (summary.caption === undefined) summary.caption = '';
+  const items = [];
+  for (const it of Array.isArray(draft.items) ? draft.items : []) {
+    if (!it || typeof it !== 'object') continue;
+    const out = { label: LABELS.includes(it.label) ? it.label : 'object', caption: typeof it.caption === 'string' ? it.caption : '' };
+    if (typeof it.text === 'string') out.text = it.text;
+    for (const k of ITEM_LISTS) if (Array.isArray(it[k])) out[k] = it[k];
+    const b = Array.isArray(it.bbox) && it.bbox.length === 4 && it.bbox.every(Number.isFinite)
+      ? it.bbox : [w / 4, h / 4, w * 3 / 4, h * 3 / 4];
+    const clampX = (v) => Math.min(w, Math.max(0, v)), clampY = (v) => Math.min(h, Math.max(0, v));
+    out.rect = [
+      clampX(Math.floor(Math.min(b[0], b[2]))), clampY(Math.floor(Math.min(b[1], b[3]))),
+      clampX(Math.ceil(Math.max(b[0], b[2]))), clampY(Math.ceil(Math.max(b[1], b[3]))),
+    ];
+    items.push(out);
+  }
+  return { layout: { summary, items }, width: w, height: h };
 }
 
 function serializeLayout(layout, width, height) {
@@ -181,14 +224,15 @@ export function buildMossLayoutEditor(node, bridge) {
   // ── Summary ──
   const captionTa = el('textarea', 'dk-textarea dk-moss-caption');
   captionTa.rows = 3;
+  captionTa.placeholder = _t('deck.moss.captionHint');
   const metaInp = el('input', 'dk-input');
-  metaInp.placeholder = _t('deck.moss.listHint');
+  metaInp.placeholder = _t('deck.moss.metaHint');
   const paletteInp = el('input', 'dk-input');
-  paletteInp.placeholder = '#1e2a44, #f2c14e';
+  paletteInp.placeholder = _t('deck.moss.paletteHint');
   const paletteSw = el('div', 'dk-moss-swatches');
   const canvasSel = el('select', 'dk-select');
   for (const v of ['', ...CANVASES]) {
-    const o = el('option', '', v ? _t(`deck.moss.canvas_${v}`) : '—');
+    const o = el('option', '', _t(`deck.moss.canvas_${v || 'none'}`));
     o.value = v;
     canvasSel.appendChild(o);
   }
@@ -208,9 +252,9 @@ export function buildMossLayoutEditor(node, bridge) {
   }
   const addBtn = el('button', 'dk-moss-btn', _t('deck.moss.addBox'));
   addBtn.type = 'button';
-  const count = el('span', 'dk-moss-count');
   const sizeNote = el('span', 'dk-moss-size-note');
-  toolbar.append(el('span', 'dk-size-dim-label', 'W'), wInp, el('span', 'dk-size-dim-label', 'H'), hInp, sizeNote, count, addBtn);
+  sizeNote.setAttribute('role', 'img');
+  toolbar.append(el('span', 'dk-size-dim-label', 'W'), wInp, el('span', 'dk-size-dim-label', 'H'), hInp, sizeNote, addBtn);
 
   // ── Stage ──
   const stageWrap = el('div', 'dk-moss-stage-wrap');
@@ -247,7 +291,6 @@ export function buildMossLayoutEditor(node, bridge) {
     lastText = text;
     if (textW.value !== text) bridge.invokeWidgetCallback(node, textW, text);
     if (document.activeElement !== jsonTa) jsonTa.value = text;
-    count.textContent = _t('deck.moss.boxCount', { count: layout.items.length });
   };
 
   const setSummaryField = (key, value) => {
@@ -344,10 +387,14 @@ export function buildMossLayoutEditor(node, bridge) {
 
     const capTa = el('textarea', 'dk-textarea dk-moss-item-caption');
     capTa.rows = 2;
+    capTa.placeholder = _t('deck.moss.itemCaptionHint');
     capTa.value = it.caption ?? '';
     capTa.addEventListener('input', () => { it.caption = capTa.value; refreshItem(); commit(); });
 
-    const textInp = el('input', 'dk-input');
+    // Line breaks in the rendered text are kept, so this is a textarea.
+    const textInp = el('textarea', 'dk-textarea');
+    textInp.rows = 2;
+    textInp.placeholder = _t('deck.moss.textHint');
     textInp.value = it.text ?? '';
     textInp.addEventListener('input', () => { it.text = textInp.value; refreshItem(); commit(); });
     const textField = field(_t('deck.moss.text'), textInp);
@@ -367,8 +414,8 @@ export function buildMossLayoutEditor(node, bridge) {
       inp.placeholder = placeholder;
       return inp;
     };
-    const tagsInp = listInput('tags', _t('deck.moss.listHint'));
-    const palInp = listInput('palette', '#ffffff, #202020');
+    const tagsInp = listInput('tags', _t('deck.moss.tagsHint'));
+    const palInp = listInput('palette', _t('deck.moss.itemPaletteHint'));
     const palSw = el('div', 'dk-moss-swatches');
     renderSwatches(palSw, it.palette);
     for (const [key, inp] of [['tags', tagsInp], ['palette', palInp]]) {
@@ -459,17 +506,27 @@ export function buildMossLayoutEditor(node, bridge) {
     hInp.value = height;
     wInp.readOnly = hInp.readOnly = sizeSource !== 'widget';
     sizeNote.hidden = sizeSource === 'widget';
-    sizeNote.textContent = sizeSource === 'widget' ? '' : _t(`deck.moss.size_${sizeSource}`);
+    sizeNote.dataset.source = sizeSource;
+    sizeNote.innerHTML = SIZE_ICONS[sizeSource] ?? '';
+    sizeNote.title = sizeSource === 'widget' ? '' : _t(`deck.moss.size_${sizeSource}`);
+    sizeNote.setAttribute('aria-label', sizeNote.title);
     stageWrap.style.setProperty('--moss-ratio', `${width} / ${height}`);
     stageWrap.style.setProperty('--moss-aspect', String(width / height));
     if (document.activeElement !== jsonTa) jsonTa.value = String(textW.value ?? '');
     if (parseError) {
       notice.hidden = false;
-      notice.textContent = parseError.error === 'unsupported'
-        ? _t('deck.moss.unsupported', { format: parseError.detail })
-        : _t('deck.moss.invalidJson');
+      notice.replaceChildren(el('span', '', parseError.error === 'draft' ? _t('deck.moss.draft')
+        : parseError.error === 'unsupported' ? _t('deck.moss.unsupported', { format: parseError.detail })
+          : _t('deck.moss.invalidJson')));
+      if (parseError.error === 'draft') {
+        const btn = el('button', 'dk-moss-btn', _t('deck.moss.convertDraft'));
+        btn.type = 'button';
+        btn.addEventListener('click', () => convertDraft(parseError.draft));
+        notice.appendChild(btn);
+      }
+      notice.classList.toggle('dk-moss-notice--info', parseError.error === 'draft');
       editorBody.hidden = true;
-      jsonDetails.open = true;
+      jsonDetails.open = parseError.error !== 'draft';
       return;
     }
     notice.hidden = true;
@@ -480,7 +537,6 @@ export function buildMossLayoutEditor(node, bridge) {
     if (document.activeElement !== paletteInp) paletteInp.value = joinList(s.palette);
     renderSwatches(paletteSw, s.palette);
     canvasSel.value = CANVASES.includes(s.canvas) ? s.canvas : '';
-    count.textContent = _t('deck.moss.boxCount', { count: layout.items.length });
     if (selected >= layout.items.length) selected = layout.items.length - 1;
     renderBoxes();
     renderList();
@@ -522,6 +578,24 @@ export function buildMossLayoutEditor(node, bridge) {
     bridge.invokeWidgetCallback(node, widthW, nw);
     bridge.invokeWidgetCallback(node, heightW, nh);
     if (layout?.items.length) commit();
+  };
+
+  // Linked sizes win over the draft's; otherwise the draft sets width/height.
+  const convertDraft = (draft) => {
+    const converted = layoutFromDraft(draft, width, height);
+    layout = converted.layout;
+    parseError = null;
+    selected = -1;
+    width = converted.width; height = converted.height;
+    bridge.invokeWidgetCallback(node, widthW, width);
+    bridge.invokeWidgetCallback(node, heightW, height);
+    const size = resolveSize();
+    sizeSource = size.source;
+    if ((size.source === 'linked' || size.source === 'lastRun') && (size.w !== width || size.h !== height)) {
+      applySize(size.w, size.h);
+    }
+    commit();
+    renderAll();
   };
 
   const load = () => {
