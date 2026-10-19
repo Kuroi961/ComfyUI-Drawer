@@ -335,7 +335,10 @@
       "delete": "Delete",
       "json": "JSON",
       "invalidJson": "The text is not valid JSON. Fix it below to use the box editor.",
-      "unsupported": "Boxes use {format}; the editor supports abs_centralized / yxyx only. Edit the JSON below."
+      "unsupported": "Boxes use {format}; the editor supports abs_centralized / yxyx only. Edit the JSON below.",
+      "size_linked": "From the connected node",
+      "size_lastRun": "Size from the last run",
+      "size_unknown": "Can't compute the connected size; run once to use it"
     }
   },
   "modelviewer": {

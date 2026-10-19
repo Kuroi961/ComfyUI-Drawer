@@ -334,7 +334,9 @@ class DrawerMossLayout:
     In Deck the text is shown as the MOSS-Image layout (abs_centralized /
     yxyx boxes over a width x height canvas) and edited with a box editor,
     which writes the compact JSON back into `text`. width/height are the
-    canvas the boxes are placed in, so wire them to the latent.
+    canvas the boxes are placed in, so wire them to the latent. When they
+    are linked from a node Deck can't evaluate, the editor uses the size
+    reported by the last run (`moss_size`).
     """
 
     @classmethod
@@ -353,7 +355,7 @@ class DrawerMossLayout:
     CATEGORY = "Drawer"
 
     def execute(self, text, width, height):
-        return (text, width, height)
+        return {"ui": {"moss_size": [width, height]}, "result": (text, width, height)}
 
 
 NODE_CLASS_MAPPINGS["DrawerMossLayout"] = DrawerMossLayout

@@ -9,6 +9,8 @@
 //  prompt is just the caption text, so a plain caption stays plain text.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import { isDrawerControlsNode, parseDrawerControlDef } from '../../js/utils/drawer-controls.js';
+
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
 
 const LABELS = ['object', 'character', 'text'];
@@ -80,6 +82,67 @@ function serializeLayout(layout, width, height) {
   });
 }
 
+/* ── Linked width/height ──
+ * When width/height come from another node, compute that node's output the
+ * same way its Python does, for the nodes where that is possible from widget
+ * values alone. Anything else resolves to undefined. */
+
+const MAX_LINK_DEPTH = 8;
+
+// Python's round(): halves go to the even neighbour.
+const pyRound = (x) => {
+  const r = Math.round(x);
+  return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+};
+
+function inputValue(node, name, depth = 0) {
+  const slot = node.inputs?.findIndex(i => i.name === name) ?? -1;
+  const link = slot >= 0 ? node.getInputLink?.(slot) : null;
+  if (!link) return node.widgets?.find(w => w.name === name)?.value;
+  if (depth >= MAX_LINK_DEPTH) return undefined;
+  const src = node.graph?.getNodeById?.(link.origin_id);
+  return src ? outputValue(src, link.origin_slot, depth + 1) : undefined;
+}
+
+function outputValue(node, slot, depth) {
+  if (node.mode !== 0) return undefined;
+  const type = String(node.type || '');
+  const name = node.outputs?.[slot]?.name;
+  const num = (key) => Number(inputValue(node, key, depth));
+
+  if (type === 'Reroute') return inputValue(node, node.inputs?.[0]?.name, depth);
+  if (type === 'PrimitiveNode') return node.widgets?.[0]?.value;
+  if (type === 'ResolutionSelector') {
+    const m = /^(\d+):(\d+)/.exec(String(inputValue(node, 'aspect_ratio', depth) ?? ''));
+    const mp = num('megapixels'), multiple = num('multiple');
+    if (!m || !Number.isFinite(mp) || !(multiple > 0)) return undefined;
+    const [rw, rh] = [Number(m[1]), Number(m[2])];
+    const scale = Math.sqrt(mp * 1024 * 1024 / (rw * rh));
+    return pyRound((slot === 0 ? rw : rh) * scale / multiple) * multiple;
+  }
+  if (type === 'DrawerSize') {
+    const round16 = (v) => Math.max(64, pyRound(v / 16) * 16);
+    const ratio = String(inputValue(node, 'ratio_', depth) ?? 'custom');
+    if (ratio === 'custom') return round16(num(slot === 0 ? 'width_' : 'height_'));
+    const [rw, rh] = ratio.split(':').map(Number);
+    const scale = Math.sqrt(num('megapixels_') * 1024 * 1024 / (rw * rh));
+    return round16((slot === 0 ? rw : rh) * scale);
+  }
+  if (isDrawerControlsNode(node)) {
+    const raw = inputValue(node, `value_${slot + 1}`, depth);
+    const def = parseDrawerControlDef(inputValue(node, `def_${slot + 1}`, depth));
+    if (def?.type === 'int') return Math.trunc(parseFloat(raw || 0));
+    if (def?.type === 'float') return parseFloat(raw || 0);
+    return raw;
+  }
+  // Primitive Int/Float, constant nodes, DrawerMossLayout: an input named like the output.
+  if (name === 'INT' || name === 'FLOAT') return inputValue(node, 'value', depth);
+  if (name && (node.inputs?.some(i => i.name === name) || node.widgets?.some(w => w.name === name))) {
+    return inputValue(node, name, depth);
+  }
+  return undefined;
+}
+
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -111,6 +174,7 @@ export function buildMossLayoutEditor(node, bridge) {
   let selected = -1;
   let lastText = null;
   let drag = null;
+  let sizeSource = 'widget';
 
   const root = el('div', 'dk-widget dk-moss');
 
@@ -145,7 +209,8 @@ export function buildMossLayoutEditor(node, bridge) {
   const addBtn = el('button', 'dk-moss-btn', _t('deck.moss.addBox'));
   addBtn.type = 'button';
   const count = el('span', 'dk-moss-count');
-  toolbar.append(el('span', 'dk-size-dim-label', 'W'), wInp, el('span', 'dk-size-dim-label', 'H'), hInp, count, addBtn);
+  const sizeNote = el('span', 'dk-moss-size-note');
+  toolbar.append(el('span', 'dk-size-dim-label', 'W'), wInp, el('span', 'dk-size-dim-label', 'H'), hInp, sizeNote, count, addBtn);
 
   // ── Stage ──
   const stageWrap = el('div', 'dk-moss-stage-wrap');
@@ -392,6 +457,9 @@ export function buildMossLayoutEditor(node, bridge) {
   const renderAll = () => {
     wInp.value = width;
     hInp.value = height;
+    wInp.readOnly = hInp.readOnly = sizeSource !== 'widget';
+    sizeNote.hidden = sizeSource === 'widget';
+    sizeNote.textContent = sizeSource === 'widget' ? '' : _t(`deck.moss.size_${sizeSource}`);
     stageWrap.style.setProperty('--moss-ratio', `${width} / ${height}`);
     stageWrap.style.setProperty('--moss-aspect', String(width / height));
     if (document.activeElement !== jsonTa) jsonTa.value = String(textW.value ?? '');
@@ -419,6 +487,43 @@ export function buildMossLayoutEditor(node, bridge) {
     renderDetail();
   };
 
+  /**
+   * The canvas the prompt is meant for. Linked width/height are computed from
+   * the source node when possible, else taken from this node's last run.
+   * The node's own width/height widgets keep the size the boxes were placed
+   * on, so a changed source size can rescale them.
+   */
+  const resolveSize = () => {
+    const own = [Number(widthW.value) || 1024, Number(heightW.value) || 1024];
+    const linked = ['width', 'height'].map(name => {
+      const slot = node.inputs?.findIndex(i => i.name === name) ?? -1;
+      return slot >= 0 && node.getInputLink?.(slot) != null;
+    });
+    if (!linked[0] && !linked[1]) return { w: own[0], h: own[1], source: 'widget' };
+    const live = ['width', 'height'].map((name, k) => (linked[k] ? Number(inputValue(node, name)) : own[k]));
+    if (live.every(v => Number.isInteger(v) && v > 0)) return { w: live[0], h: live[1], source: 'linked' };
+    const ran = bridge.nodeOutputs?.[String(node.id)]?.moss_size;
+    if (Array.isArray(ran) && ran.length === 2) {
+      const [w, h] = live.map((v, k) => (Number.isInteger(v) && v > 0 ? v : Number(ran[k])));
+      if (w > 0 && h > 0) return { w, h, source: 'lastRun' };
+    }
+    return { w: own[0], h: own[1], source: 'unknown' };
+  };
+
+  // Boxes keep their relative place when the canvas size changes.
+  const applySize = (nw, nh) => {
+    if (layout) {
+      for (const it of layout.items) {
+        const [l, t, r, b] = it.rect;
+        it.rect = [l * nw / width, t * nh / height, r * nw / width, b * nh / height].map(Math.round);
+      }
+    }
+    width = nw; height = nh;
+    bridge.invokeWidgetCallback(node, widthW, nw);
+    bridge.invokeWidgetCallback(node, heightW, nh);
+    if (layout?.items.length) commit();
+  };
+
   const load = () => {
     width = Math.max(16, Number(widthW.value) || 1024);
     height = Math.max(16, Number(heightW.value) || 1024);
@@ -426,6 +531,9 @@ export function buildMossLayoutEditor(node, bridge) {
     const parsed = parseLayout(lastText, width, height);
     parseError = parsed.error ? parsed : null;
     layout = parsed.layout ?? null;
+    const size = resolveSize();
+    sizeSource = size.source;
+    if (size.w !== width || size.h !== height) applySize(size.w, size.h);
     renderAll();
   };
 
@@ -438,21 +546,12 @@ export function buildMossLayoutEditor(node, bridge) {
   });
   canvasSel.addEventListener('change', () => setSummaryField('canvas', canvasSel.value));
 
-  // ── Events: size (boxes keep their relative place) ──
+  // ── Events: size ──
   const resize = () => {
+    if (sizeSource !== 'widget') return;
     const nw = Math.max(16, Math.round((Number(wInp.value) || width) / 16) * 16);
     const nh = Math.max(16, Math.round((Number(hInp.value) || height) / 16) * 16);
-    if (nw === width && nh === height) { renderAll(); return; }
-    if (layout) {
-      for (const it of layout.items) {
-        const [l, t, r, b] = it.rect;
-        it.rect = [l * nw / width, t * nh / height, r * nw / width, b * nh / height].map(Math.round);
-      }
-    }
-    width = nw; height = nh;
-    bridge.invokeWidgetCallback(node, widthW, nw);
-    bridge.invokeWidgetCallback(node, heightW, nh);
-    if (layout) commit();
+    if (nw !== width || nh !== height) applySize(nw, nh);
     renderAll();
   };
   wInp.addEventListener('change', resize);
@@ -569,7 +668,9 @@ export function buildMossLayoutEditor(node, bridge) {
     element: root,
     sync() {
       if (drag) return;
-      const changed = String(textW.value ?? '') !== lastText
+      const size = resolveSize();
+      const changed = String(textW.value ?? '') !== lastText || size.source !== sizeSource
+        || size.w !== width || size.h !== height
         || Number(widthW.value) !== width || Number(heightW.value) !== height;
       if (changed) load();
     },

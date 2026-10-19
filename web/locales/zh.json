@@ -335,7 +335,10 @@
       "delete": "删除",
       "json": "JSON",
       "invalidJson": "文本不是有效的 JSON。在下方修正后即可使用框编辑器。",
-      "unsupported": "框坐标格式为 {format}，编辑器仅支持 abs_centralized / yxyx，请直接编辑下方 JSON。"
+      "unsupported": "框坐标格式为 {format}，编辑器仅支持 abs_centralized / yxyx，请直接编辑下方 JSON。",
+      "size_linked": "来自连接的节点",
+      "size_lastRun": "上次运行的尺寸",
+      "size_unknown": "无法计算连接的尺寸，运行一次后即可使用"
     }
   },
   "modelviewer": {

@@ -335,7 +335,10 @@
       "delete": "削除",
       "json": "JSON",
       "invalidJson": "テキストが正しいJSONではありません。下で修正するとボックスエディタが使えます。",
-      "unsupported": "ボックスの座標形式が {format} です。エディタは abs_centralized / yxyx のみ対応のため、下のJSONを直接編集してください。"
+      "unsupported": "ボックスの座標形式が {format} です。エディタは abs_centralized / yxyx のみ対応のため、下のJSONを直接編集してください。",
+      "size_linked": "接続元の値",
+      "size_lastRun": "前回実行時のサイズ",
+      "size_unknown": "接続元のサイズを計算できません。一度実行すると反映されます"
     }
   },
   "modelviewer": {
