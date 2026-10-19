@@ -320,3 +320,41 @@ class DrawerSize:
 
 NODE_CLASS_MAPPINGS["DrawerSize"] = DrawerSize
 NODE_DISPLAY_NAME_MAPPINGS["DrawerSize"] = "📝 Size (Drawer)"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Drawer MOSS Layout — MOSS-Image layout prompt with a Deck-side box editor
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class DrawerMossLayout:
+    """Text node for MOSS-Image layout prompts.
+
+    On canvas it is a plain multiline text node: `text` is output unchanged.
+    In Deck the text is shown as the MOSS-Image layout (abs_centralized /
+    yxyx boxes over a width x height canvas) and edited with a box editor,
+    which writes the compact JSON back into `text`. width/height are the
+    canvas the boxes are placed in, so wire them to the latent.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"multiline": True, "default": ""}),
+                "width": ("INT", {"default": 1024, "min": 16, "max": 16384, "step": 16}),
+                "height": ("INT", {"default": 1024, "min": 16, "max": 16384, "step": 16}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "INT", "INT")
+    RETURN_NAMES = ("prompt", "width", "height")
+    FUNCTION = "execute"
+    CATEGORY = "Drawer"
+
+    def execute(self, text, width, height):
+        return (text, width, height)
+
+
+NODE_CLASS_MAPPINGS["DrawerMossLayout"] = DrawerMossLayout
+NODE_DISPLAY_NAME_MAPPINGS["DrawerMossLayout"] = "📝 MOSS Layout (Drawer)"

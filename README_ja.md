@@ -344,6 +344,7 @@ soft backlight, floating particles
 | **DrawerControls1 / 4 / 8 / 12** | コンパクトなパラメータハブ。接続済みの出力だけが Deck 上の `int` / `float` / `combo` / `bool` / `string` コントロールとして表示されます。単行は `string \| ラベル`、複数行は `string \| ラベル \| multiline` を使い、combo 候補は接続先 widget から取得されます |
 | **DrawerConcat** | 可変長のテキスト入力を任意の区切り文字で結合 |
 | **DrawerSize** | 解像度プリセット（横長/縦長/正方形）から width/height を出力 |
+| **DrawerMossLayout** | MOSS-Image のレイアウトプロンプト（テキスト）と width/height を出力。Deck では BBOX・キャプション・メタ情報をボックスエディタで編集 |
 | **DrawerSwitch** | 任意データ型の A/B スイッチ。B が接続済みかつ非空なら B、そうでなければ A を返す。ComfyUI V3 API による遅延評価で、不要な側のサブグラフは実行されない |
 | **DrawerSwitchChain** | 可変長のフォールバックチェーン。後ろ側の接続済み・非空値が優先される |
 

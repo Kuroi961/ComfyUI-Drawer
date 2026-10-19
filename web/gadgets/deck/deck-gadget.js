@@ -14,6 +14,7 @@ import { showDialog } from '../../js/services/dialog.js';
 import { showToast } from '../../js/services/toast.js';
 import { escapeHTML, getLinkedInputNames, cleanDrawerTitle, parseDrawerGroupMarkers, parseDrawerNodeMarkers, copyText, readClipboardFiles } from '../../js/utils.js';
 import { enumerateDrawerControls, isDrawerControlsNode } from '../../js/utils/drawer-controls.js';
+import { buildMossLayoutEditor } from './moss-layout-editor.js';
 
 /** @private Locale helper — falls back to key on missing translation. */
 const _t = (key, params) => (window.ComfyDrawer?.t?.(key, params)) ?? key;
@@ -1469,6 +1470,10 @@ export class DeckGadget extends GadgetBase {
     else if (nodeType === 'DrawerSize') {
       hasContent = this.#buildSizeWidget(node, body);
     }
+    // Special: MOSS-Image layout (DrawerMossLayout)
+    else if (nodeType === 'DrawerMossLayout') {
+      hasContent = this.#buildMossLayoutWidget(node, body);
+    }
     // Special: PreviewAny — skip widgets (display-only duplicates of output)
     // The output text from #buildNodeOutput below handles display.
     else if (nodeType === 'PreviewAny') {
@@ -2513,6 +2518,18 @@ export class DeckGadget extends GadgetBase {
     }
 
     return rendered;
+  }
+
+
+  /* ═══ MOSS Layout Widget (DrawerMossLayout) ═══ */
+
+  #buildMossLayoutWidget(node, body) {
+    const editor = buildMossLayoutEditor(node, this.bridge);
+    if (!editor) return false;
+    body.appendChild(editor.element);
+    // Canvas → Deck sync: only syncExtra runs for this binding type.
+    this.bindings.push({ widget: node.widgets.find(w => w.name === 'text'), el: editor.element, type: 'moss', syncExtra: () => editor.sync() });
+    return true;
   }
 
 

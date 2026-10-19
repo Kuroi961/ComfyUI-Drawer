@@ -354,6 +354,7 @@ soft backlight, floating particles
 | **DrawerControls1 / 4 / 8 / 12** | 紧凑参数中枢。只有已连接的输出会在 Deck 上显示为 `int` / `float` / `combo` / `bool` / `string` 控件。单行文本使用 `string \| 标签`，多行文本使用 `string \| 标签 \| multiline`。combo 候选项会从连接目标 widget 读取 |
 | **DrawerConcat** | 将可变数量的文本输入用指定分隔符连接 |
 | **DrawerSize** | 从横向、纵向、正方形等分辨率预设输出 width/height |
+| **DrawerMossLayout** | 输出 MOSS-Image 布局提示词文本和 width/height；在 Deck 中可用框编辑器编辑 bbox、描述和元信息 |
 | **DrawerSwitch** | 任意数据类型的 A/B 开关。B 已连接且非空时返回 B，否则返回 A。使用 ComfyUI V3 API 的延迟求值，因此不需要的一侧不会执行 |
 | **DrawerSwitchChain** | 可变长度 fallback 链。越靠后的已连接非空值优先 |
 

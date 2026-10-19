@@ -949,3 +949,177 @@
   height: 22px;
   display: block;
 }
+
+/* ── MOSS Layout widget ── */
+.dk-moss { display: flex; flex-direction: column; gap: 10px; }
+.dk-moss-body { display: flex; flex-direction: column; gap: 10px; }
+.dk-moss-body[hidden], .dk-moss-notice[hidden], .dk-moss-field[hidden] { display: none; }
+.dk-moss-field { min-width: 0; flex: 1; }
+.dk-moss-row { display: flex; gap: 8px; align-items: flex-start; }
+.dk-moss .dk-textarea { padding-bottom: 7px !important; min-height: 0; resize: vertical; }
+.dk-moss-summary { display: flex; flex-direction: column; gap: 8px; }
+.dk-moss-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dk-moss-num { width: 76px; text-align: center; padding: 6px 4px; }
+.dk-moss-count { flex: 1; font-size: 11px; color: var(--cd-text-dim); text-align: right; }
+.dk-moss-btn {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--cd-accent-subtle);
+  color: var(--cd-text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dk-moss-btn:hover { background: var(--cd-accent-dim); }
+.dk-moss-btn:disabled { opacity: 0.4; cursor: default; }
+.dk-moss-btn.danger { color: var(--cd-danger, #cc3355); }
+
+.dk-moss-stage-wrap {
+  width: 100%;
+  max-width: calc(60vh * var(--moss-aspect, 1));
+  margin: 0 auto;
+}
+.dk-moss-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--moss-ratio, 1 / 1);
+  background-color: var(--cd-s1, var(--cd-shell-1));
+  background-image:
+    linear-gradient(to right, transparent calc(33.333% - 0.5px), var(--cd-divider) calc(33.333% - 0.5px), var(--cd-divider) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--cd-divider) calc(66.666% - 0.5px), var(--cd-divider) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(33.333% - 0.5px), var(--cd-divider) calc(33.333% - 0.5px), var(--cd-divider) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--cd-divider) calc(66.666% - 0.5px), var(--cd-divider) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+  border-radius: 6px;
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: crosshair;
+  outline: none;
+}
+.dk-moss-box {
+  --moss-color: #4f8cff;
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--moss-color);
+  background: color-mix(in srgb, var(--moss-color) 14%, transparent);
+  border-radius: 3px;
+  cursor: move;
+  touch-action: none;
+}
+.dk-moss-box.selected {
+  background: color-mix(in srgb, var(--moss-color) 26%, transparent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  z-index: 1;
+}
+.dk-moss-character { --moss-color: #ff8a4c; }
+.dk-moss-text { --moss-color: #3ec98a; }
+.dk-moss-tag {
+  position: absolute;
+  top: 0; left: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  gap: 4px;
+  padding: 1px 5px;
+  background: var(--moss-color);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  border-radius: 0 0 3px 0;
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dk-moss-tag-text { font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
+.dk-moss-handle {
+  position: absolute;
+  width: 14px; height: 14px;
+  background: #fff;
+  border: 2px solid var(--moss-color);
+  border-radius: 50%;
+  box-sizing: border-box;
+  touch-action: none;
+  z-index: 2;
+}
+.dk-moss-handle::after { content: ''; position: absolute; inset: -10px; }
+.dk-moss-handle-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.dk-moss-handle-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.dk-moss-handle-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.dk-moss-handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+
+.dk-moss-list { display: flex; flex-direction: column; gap: 2px; }
+.dk-moss-empty { font-size: 11px; color: var(--cd-text-dim); text-align: center; padding: 4px; }
+.dk-moss-list-row {
+  --moss-color: #4f8cff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cd-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.dk-moss-list-row:hover { background: var(--cd-accent-subtle); }
+.dk-moss-list-row.selected { background: var(--cd-accent-dim); }
+.dk-moss-list-num {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--moss-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+}
+.dk-moss-list-label { flex-shrink: 0; font-size: 11px; color: var(--cd-text-dim); }
+.dk-moss-list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dk-moss-detail:empty { display: none; }
+.dk-moss-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--cd-accent-subtle);
+}
+.dk-moss-detail-title { font-size: 12px; font-weight: 600; color: var(--cd-text); }
+.dk-moss-detail .dk-moss-row > .dk-moss-field:first-child { flex: 0 0 120px; }
+.dk-moss-rect { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.dk-moss-rect-cell { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.dk-moss-rect .dk-moss-num { width: 100%; min-width: 0; }
+.dk-moss-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dk-moss-actions .danger { margin-left: auto; }
+.dk-moss-swatches { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.dk-moss-swatches:empty { display: none; }
+.dk-moss-swatch {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.5);
+}
+.dk-moss-notice {
+  font-size: 12px;
+  color: var(--cd-danger, #cc3355);
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--cd-danger-subtle, rgba(204, 51, 85, 0.13));
+}
+.dk-moss-json > summary {
+  font-size: 11px;
+  color: var(--cd-text-dim);
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 6px;
+}
+.dk-moss-json-ta { font-family: monospace; font-size: 11px; min-height: 120px !important; }
+
+@media (max-width: 480px) {
+  .dk-moss-row { flex-direction: column; align-items: stretch; }
+  .dk-moss-detail .dk-moss-row > .dk-moss-field:first-child { flex: none; }
+}

@@ -354,6 +354,7 @@ Supports English, Japanese, and Chinese (Simplified). The language automatically
 | **DrawerControls1 / 4 / 8 / 12** | Compact parameter hubs. Only connected outputs appear as Deck controls: `int`, `float`, `combo`, `bool`, or `string`. Use `string \| Label` for single-line text and `string \| Label \| multiline` for multiline text. Combo options are read from the connected target widget |
 | **DrawerConcat** | Joins variable-length text inputs with a configurable delimiter |
 | **DrawerSize** | Resolution presets for landscape, portrait, and square outputs |
+| **DrawerMossLayout** | MOSS-Image layout prompt text with width/height; Deck shows a box editor for its bboxes, captions and meta |
 | **DrawerSwitch** | Universal A/B switch for any data type. If B is connected and non-empty, B is returned; otherwise A is returned. Uses ComfyUI V3 API lazy evaluation so the unnecessary branch is not executed |
 | **DrawerSwitchChain** | Variable-length fallback chain. The last connected non-empty value wins |
 
