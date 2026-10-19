@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.0 - 2026-10-19
+
+- New **📝 MOSS Layout (Drawer)** node for MOSS-Image layout prompts: a plain text node on the canvas (text, width, height pass through); in Deck a box editor to draw, move and resize boxes and edit each box's type, caption, rendered text, tags and palette, plus the summary caption, meta, canvas and palette. Positions are shown as % of the canvas.
+- Linked width/height (Resolution Selector, Drawer Size, Drawer Controls, primitives) size the editor canvas, and boxes follow when the size changes; other sources use the size from the last run.
+- Pasting a layout draft (abs / xyxy from the top-left) offers "Convert and edit", which compiles it like the official compile_prompt.py.
+
 ## v2.2.0 - 2026-10-18
 
 ### Standalone Page
