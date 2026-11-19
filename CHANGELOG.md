@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.3.1 - 2026-11-19
+
+- Security fixes for MarkdownNote rendering in Deck, the model routes and CivitAI preview downloads. Updating is recommended.
+- Comment stripping now applies to multiline text inputs only (in DrawerControls, slots defined as `string | … | multiline`), so values such as `#FFFFFF` or `//nas/share/out` in other nodes are no longer emptied. Wildcard expansion is unchanged.
+
 ## v2.3.0 - 2026-10-19
 
 - New **📝 MOSS Layout (Drawer)** node for MOSS-Image layout prompts: a plain text node on the canvas (text, width, height pass through); in Deck a box editor to draw, move and resize boxes and edit each box's type, caption, rendered text, tags and palette, plus the summary caption, meta, canvas and palette. Positions are shown as % of the canvas.
