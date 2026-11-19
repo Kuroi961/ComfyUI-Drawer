@@ -3140,11 +3140,14 @@ export class DeckGadget extends GadgetBase {
    * accepted as `[text](url)` hrefs. Anything else (e.g. `javascript:`,
    * `data:`) becomes plain text. Browsers decode HTML entities BEFORE scheme
    * parsing, so escaping `:` is not enough — the scheme must be filtered.
+   *
+   * Note text comes from the workflow file, so it is untrusted: quotes are
+   * escaped too (an href must not be able to close its own attribute), and
+   * links are built in a single pass so a generated `<a>` is never re-scanned.
    */
   #renderMarkdown(md) {
-    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // esc() only touches &/</> so the only entity we need to undo for the
-    // scheme check is &amp;.
+    // None of the accepted prefixes contains an entity, so undoing &amp; is
+    // enough for the scheme check.
     const isSafeHref = (raw) => {
       const decoded = String(raw || '').replace(/&amp;/g, '&').trim();
       if (!decoded) return false;
@@ -3159,7 +3162,7 @@ export class DeckGadget extends GadgetBase {
     const codeBlocks = [];
     md = md.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
       const idx = codeBlocks.length;
-      codeBlocks.push(`<pre class="dk-md-code"><code>${esc(code.trimEnd())}</code></pre>`);
+      codeBlocks.push(`<pre class="dk-md-code"><code>${escapeHTML(code.trimEnd())}</code></pre>`);
       return `\x00CB${idx}\x00`;
     });
 
@@ -3173,9 +3176,7 @@ export class DeckGadget extends GadgetBase {
     };
 
     const inline = (line) => {
-      let s = esc(line);
-      // Code blocks placeholder restore
-      s = s.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[+i] || '');
+      let s = escapeHTML(line);
       // Inline code
       s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
       // Bold + Italic
@@ -3187,14 +3188,18 @@ export class DeckGadget extends GadgetBase {
       // Links [text](url) — only safe schemes; otherwise emit the original
       // Markdown source as plain text so the user can see what was rejected
       // (rather than a stray "click)" with the trailing paren orphaned).
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, text, url) => {
-        if (!isSafeHref(url)) return full;
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
-      });
-      // Auto-link bare URLs (scheme already constrained by the regex)
-      s = s.replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g,
-                    '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
-      return s;
+      // Bare URLs are auto-linked in the same pass (scheme constrained by the
+      // regex, stopping at an escaped quote): a second pass would match URLs
+      // inside the href it just wrote and break out of the attribute. \x00
+      // keeps a code block placeholder (restored last, with its own quotes)
+      // out of hrefs.
+      const link = (href, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      s = s.replace(/\[([^\]]+)\]\(([^)\x00]+)\)|(^|[\s(])(https?:\/\/(?:(?!&quot;|&#39;)[^\s)<\x00])+)/g,
+        (full, text, url, lead, bare) => {
+          if (bare !== undefined) return lead + link(bare, bare);
+          return isSafeHref(url) ? link(url, text) : full;
+        });
+      return s.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[+i] || '');
     };
 
     for (const rawLine of lines) {

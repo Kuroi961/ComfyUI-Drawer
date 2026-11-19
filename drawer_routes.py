@@ -349,6 +349,31 @@ async def get_third_party_dict_status(request):
 #  Model Paths — per-category models grouped by source directory
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# Registered in folder_paths, but they hold code and config rather than models.
+_NON_MODEL_CATEGORIES = frozenset({"custom_nodes", "configs"})
+
+
+def _model_folders(category):
+    """Return (base paths, extensions) of a model category, or None."""
+    category = folder_paths.map_legacy(category)
+    if category in _NON_MODEL_CATEGORIES:
+        return None
+    return folder_paths.folder_names_and_paths.get(category)
+
+
+def _model_path(category, filename):
+    """Resolve a model file, limited to what ComfyUI lists for the category.
+
+    The category comes from the URL, so it is checked here rather than trusting
+    the categories the Model Viewer shows: folder_paths.get_full_path alone
+    resolves any file under any registered folder, custom_nodes included.
+    """
+    folders = _model_folders(category)
+    if folders is None or not folder_paths.filter_files_extensions([filename], folders[1]):
+        return None
+    return folder_paths.get_full_path(category, filename)
+
+
 @_routes.get("/drawer/models/paths/{category}")
 async def get_model_paths(request):
     """Return models grouped by their source base path for a given category.
@@ -359,14 +384,11 @@ async def get_model_paths(request):
     ]
     """
     def scan(category):
-        category = folder_paths.map_legacy(category)
-
-        if category not in folder_paths.folder_names_and_paths:
+        folders = _model_folders(category)
+        if folders is None:
             return []
 
-        paths_and_exts = folder_paths.folder_names_and_paths[category]
-        base_paths = paths_and_exts[0]
-        extensions = paths_and_exts[1]
+        base_paths, extensions = folders[0], folders[1]
 
         result = []
         for idx, base_path in enumerate(base_paths, start=1):
@@ -2136,6 +2158,20 @@ _ALLOWED_PREVIEW_CONTENT_TYPES = (
     "video/mp4", "video/webm",
 )
 _MAX_PREVIEW_DOWNLOAD_BYTES = 32 * 1024 * 1024
+_MAX_PREVIEW_REDIRECTS = 5
+
+
+def _is_civitai_url(url):
+    """True for an https URL on a CivitAI host.
+
+    The preview URL is read from a .civitai.info sidecar, which can arrive with
+    a downloaded model, so it must not be able to point the server at other
+    hosts (LAN addresses, cloud metadata endpoints).
+    """
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == domain or host.endswith("." + domain) for domain in ("civitai.com", "civitai.red"))
 
 
 async def _download_preview_to_file(url, dest_path, *,
@@ -2143,6 +2179,8 @@ async def _download_preview_to_file(url, dest_path, *,
                                     timeout_seconds=30):
     """Download an image/video preview to dest_path with safety guards.
 
+    - Only https URLs on CivitAI hosts, re-checked on every redirect
+      (image.civitai.com redirects to its blob host).
     - Hard size cap on the response stream (no unbounded read()).
     - Content-Type allowlist (rejects HTML/JS/etc. masquerading as a preview).
     - Image bytes are verified through open_image_checked(verify=True) so
@@ -2158,17 +2196,27 @@ async def _download_preview_to_file(url, dest_path, *,
     received = 0
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
-                if resp.status != 200:
-                    return False, f"http_{resp.status}"
-                content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-                if content_type and content_type not in _ALLOWED_PREVIEW_CONTENT_TYPES:
-                    return False, "bad_content_type"
-                async for chunk in resp.content.iter_chunked(64 * 1024):
-                    received += len(chunk)
-                    if received > max_bytes:
-                        return False, "too_large"
-                    buf.write(chunk)
+            for _ in range(_MAX_PREVIEW_REDIRECTS + 1):
+                if not _is_civitai_url(url):
+                    return False, "host_not_allowed"
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds),
+                                       allow_redirects=False) as resp:
+                    if resp.status in (301, 302, 303, 307, 308):
+                        url = urllib.parse.urljoin(url, resp.headers.get("Location", ""))
+                        continue
+                    if resp.status != 200:
+                        return False, f"http_{resp.status}"
+                    content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                    if content_type and content_type not in _ALLOWED_PREVIEW_CONTENT_TYPES:
+                        return False, "bad_content_type"
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        received += len(chunk)
+                        if received > max_bytes:
+                            return False, "too_large"
+                        buf.write(chunk)
+                    break
+            else:
+                return False, "too_many_redirects"
     except asyncio.TimeoutError:
         return False, "timeout"
     except Exception as e:
@@ -2518,7 +2566,7 @@ async def model_thumbnail(request):
         return web.json_response({"error": "filename required"}, status=400)
 
     # Resolve model to absolute path via folder_paths (covers custom paths)
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.Response(status=404)
 
@@ -2558,7 +2606,7 @@ async def model_info(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2627,7 +2675,7 @@ async def save_trigger_words(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2664,7 +2712,7 @@ async def save_model_comment(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2698,7 +2746,7 @@ async def delete_model_preview(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2777,7 +2825,7 @@ async def upload_model_preview(request):
     else:
         return web.json_response({"error": "unsupported image format"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2823,7 +2871,7 @@ async def delete_model(request):
             status=503,
         )
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path or not os.path.isfile(model_path):
         return web.json_response({"error": "not found"}, status=404)
 
@@ -2936,7 +2984,7 @@ async def set_preview_from_output(request):
     if not filename or not image_value:
         return web.json_response({"error": "filename and image required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "model not found"}, status=404)
 
@@ -3012,11 +3060,11 @@ async def create_model_folder(request):
         return web.json_response({"error": "invalid folder name"}, status=400)
 
     # Get the first base folder for this category
-    paths = folder_paths.get_folder_paths(category)
-    if not paths:
+    folders = _model_folders(category)
+    if folders is None or not folders[0]:
         return web.json_response({"error": "category not found"}, status=404)
 
-    base_dir = os.path.realpath(paths[0])
+    base_dir = os.path.realpath(folders[0][0])
     target_dir = os.path.realpath(
         os.path.join(base_dir, subfolder, name) if subfolder else os.path.join(base_dir, name)
     )
@@ -3061,7 +3109,7 @@ async def civitai_sync(request):
     if not filename:
         return web.json_response({"error": "filename required"}, status=400)
 
-    model_path = folder_paths.get_full_path(category, filename)
+    model_path = _model_path(category, filename)
     if not model_path:
         return web.json_response({"error": "not found"}, status=404)
 
@@ -3300,17 +3348,16 @@ async def civitai_batch_sync(request):
         await response.write(line.encode("utf-8"))
 
     # Get all model files in this category
-    try:
-        all_models = folder_paths.get_filename_list(category)
-    except Exception:
+    if _model_folders(category) is None:
         await send_event({"type": "complete", "total": 0, "synced": 0, "skipped": 0, "failed": 0, "error": "Invalid category"})
         return response
+    all_models = folder_paths.get_filename_list(category)
 
     # Pre-scan: count how many already have .civitai.info
     to_process = []
     pre_skipped = 0
     for filename in all_models:
-        model_path = folder_paths.get_full_path(category, filename)
+        model_path = _model_path(category, filename)
         if not model_path:
             continue
         civitai_path = model_path + ".civitai.info"

@@ -257,7 +257,7 @@ https://github.com/user-attachments/assets/34237d5e-cd92-4a8e-a638-cb6d98256536
 - **注释语法** — 使用 `//`、`#`、`/* */` 注释 prompt 的一部分
 - **无需节点** — 通配符展开和注释移除会在入队时自动应用
 
-可在设置面板中创建、编辑、启用或禁用词典。无需在工作流中添加通配符节点、词典节点或预处理节点。普通 prompt 节点、通过 DrawerControls 传入的文本，以及其他字符串 widget，都会在 ComfyUI 入队时自动使用注释移除和通配符展开。
+可在设置面板中创建、编辑、启用或禁用词典。无需在工作流中添加通配符节点、词典节点或预处理节点。通配符展开会在 ComfyUI 入队时自动应用于普通 prompt 节点、通过 DrawerControls 传入的文本，以及其他所有字符串 widget。注释移除只应用于多行文本 widget（在 DrawerControls 中为定义成 `string | … | multiline` 的槽位），其他 widget 中的 `#FFFFFF`、`//server/share` 等值会保持原样。
 
 **Prompt 处理规则：**
 

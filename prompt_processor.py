@@ -9,6 +9,7 @@ import random
 import re
 
 from aiohttp import web
+import nodes
 import server
 
 from .request_guards import require_same_origin
@@ -85,6 +86,38 @@ def _needs_processing(text, comments_on=True):
     if comments_on:
         return '/*' in text or '//' in text or '#' in text or '__' in text
     return '__' in text
+
+
+def _multiline_inputs(node, class_cache):
+    """Names of the node's multiline text inputs, the only ones comments are stripped from.
+
+    Any other string input may hold a value the comment syntax would swallow:
+    "#FFFFFF", "#favorites/model.safetensors", "//nas/share/out".
+    """
+    class_type = node.get("class_type", "")
+
+    # DrawerControls declares every slot as a single-line STRING; the slot's
+    # definition ("string | Prompt | multiline") says which ones hold prompt text.
+    if class_type.startswith("DrawerControls"):
+        names = set()
+        for key, value in node["inputs"].items():
+            if key.startswith("def_") and isinstance(value, str):
+                parts = [part.strip().lower() for part in value.split("|")]
+                if parts[0] == "string" and parts[2:3] == ["multiline"]:
+                    names.add("value_" + key[4:])
+        return names
+
+    if class_type not in class_cache:
+        names = set()
+        node_class = nodes.NODE_CLASS_MAPPINGS.get(class_type)
+        if node_class is not None:
+            input_types = node_class.INPUT_TYPES()
+            for section in ("required", "optional"):
+                for name, spec in input_types.get(section, {}).items():
+                    if len(spec) > 1 and spec[0] == "STRING" and spec[1].get("multiline"):
+                        names.add(name)
+        class_cache[class_type] = names
+    return class_cache[class_type]
 
 
 def _find_prompt_seed(prompt):
@@ -174,6 +207,7 @@ def expand_wildcards(json_data):
 
     meta_log = {}
     prompt_changed = False
+    multiline_cache = {}
 
     for node_id in sorted(prompt.keys(), key=lambda x: int(x) if x.isdigit() else float('inf')):
         node = prompt.get(node_id)
@@ -187,11 +221,12 @@ def expand_wildcards(json_data):
             if not isinstance(value, str) or not _needs_processing(value, _comments_enabled):
                 continue
 
+            strip_comments = _comments_enabled and key in _multiline_inputs(node, multiline_cache)
             exec_text = _process_prompt_text(
                 value,
                 rng_prompt,
                 wc_map,
-                keep_comments=not _comments_enabled,
+                keep_comments=not strip_comments,
             )
             meta_text = _process_prompt_text(value, rng_meta, wc_map, keep_comments=True)
 

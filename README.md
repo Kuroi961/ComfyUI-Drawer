@@ -257,7 +257,7 @@ https://github.com/user-attachments/assets/34237d5e-cd92-4a8e-a638-cb6d98256536
 - **Comment syntax** — Use `//`, `#`, and `/* */` to comment out parts of prompts
 - **No nodes required** — Wildcards and comment stripping are applied automatically when the prompt is queued
 
-Dictionaries can be created, edited, and toggled from the Settings panel. You do not need to add wildcard, dictionary, or preprocessing nodes to the workflow. Normal prompt nodes, text passed through DrawerControls, and other string widgets can use comment stripping and wildcard expansion automatically when ComfyUI queues the prompt.
+Dictionaries can be created, edited, and toggled from the Settings panel. You do not need to add wildcard, dictionary, or preprocessing nodes to the workflow. Wildcard expansion is applied to normal prompt nodes, text passed through DrawerControls, and every other string widget when ComfyUI queues the prompt. Comment stripping is applied to multiline text widgets only (in DrawerControls, slots defined as `string | … | multiline`), so values such as `#FFFFFF` or `//server/share` in other widgets are left alone.
 
 **Prompt processing behavior:**
 

@@ -241,7 +241,7 @@ masterpiece, __style__, 1girl
 
 ### コメント
 
-Drawer は prompt 内のコメントをキュー投入時に取り除けます。ワイルドカードと同様に、ノードや配線は不要で、キュー投入時の prompt payload に含まれる文字列入力が除去対象です。
+Drawer は prompt 内のコメントをキュー投入時に取り除けます。ワイルドカードと同様に、ノードや配線は不要です。除去対象は複数行テキストの入力だけです（DrawerControls では `string | … | multiline` と定義したスロット）。それ以外の入力にある `#FFFFFF` や `//server/share` のような値はそのまま残ります。
 
 ```text
 masterpiece, best quality

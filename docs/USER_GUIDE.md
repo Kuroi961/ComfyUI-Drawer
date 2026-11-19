@@ -241,7 +241,7 @@ Recursive wildcard expansion is not performed. If a candidate contains another `
 
 ### Comments
 
-Drawer can remove comments from prompt text when the prompt is queued. Like wildcards, this needs no nodes or wiring, and string inputs in the prompt payload are processed.
+Drawer can remove comments from prompt text when the prompt is queued. Like wildcards, this needs no nodes or wiring. Only multiline text inputs are processed (in DrawerControls, slots defined as `string | … | multiline`); values such as `#FFFFFF` or `//server/share` in other inputs are left alone.
 
 ```text
 masterpiece, best quality

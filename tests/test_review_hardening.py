@@ -2254,6 +2254,148 @@ class GpuMemoryTests(unittest.TestCase):
         self.assertIn("readJson('/drawer/system/vram')", progress)
 
 
+def _load_route_functions(*names):
+    """Run selected drawer_routes helpers without importing the module, which
+    needs a live PromptServer."""
+    import ast
+    import urllib.parse
+    source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+    wanted = [node for node in ast.parse(source).body
+              if getattr(node, "name", None) in names
+              or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in names)]
+    namespace = {"folder_paths": folder_paths, "urllib": urllib}
+    exec(compile(ast.Module(wanted, []), "drawer_routes.py", "exec"), namespace)
+    return namespace
+
+
+class ModelCategoryGuardTests(unittest.TestCase):
+    """The model routes take the category from the URL. folder_paths also
+    registers custom_nodes (no extension filter), so an unchecked category
+    let DELETE /drawer/model/custom_nodes trash any file under it."""
+
+    def setUp(self):
+        from unittest import mock
+        self.routes = _load_route_functions("_NON_MODEL_CATEGORIES", "_model_folders", "_model_path")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        for folder, name in (("loras", "style.safetensors"), ("loras", "notes.txt"), ("custom_nodes", "node.py")):
+            os.makedirs(os.path.join(self.tmp.name, folder), exist_ok=True)
+            Path(self.tmp.name, folder, name).write_bytes(b"x")
+        patch = mock.patch.dict(folder_paths.folder_names_and_paths, {
+            "loras": ([os.path.join(self.tmp.name, "loras")], {".safetensors"}),
+            "custom_nodes": ([os.path.join(self.tmp.name, "custom_nodes")], set()),
+        })
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_model_files_resolve(self):
+        self.assertEqual(self.routes["_model_path"]("loras", "style.safetensors"),
+                         os.path.join(self.tmp.name, "loras", "style.safetensors"))
+
+    def test_non_model_categories_are_refused(self):
+        self.assertIsNotNone(folder_paths.get_full_path("custom_nodes", "node.py"))
+        self.assertIsNone(self.routes["_model_path"]("custom_nodes", "node.py"))
+        self.assertIsNone(self.routes["_model_folders"]("custom_nodes"))
+        self.assertIsNone(self.routes["_model_folders"]("configs"))
+        self.assertIsNone(self.routes["_model_folders"]("no_such_category"))
+
+    def test_files_outside_the_category_extensions_are_refused(self):
+        self.assertIsNotNone(folder_paths.get_full_path("loras", "notes.txt"))
+        self.assertIsNone(self.routes["_model_path"]("loras", "notes.txt"))
+
+    def test_every_model_route_goes_through_the_guard(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("folder_paths.get_full_path("), 1)
+        self.assertNotIn("folder_paths.get_folder_paths(category)", source)
+
+
+class CivitaiPreviewHostTests(unittest.TestCase):
+    """The preview URL comes from a .civitai.info sidecar that can ship with a
+    model, so the server only fetches it from CivitAI over https."""
+
+    def test_only_https_civitai_hosts_are_fetched(self):
+        allowed = _load_route_functions("_is_civitai_url")["_is_civitai_url"]
+        self.assertTrue(allowed("https://image.civitai.com/x/y/original=true/1.jpeg"))
+        self.assertTrue(allowed("https://blobs-b2.civitai.com/file/blobs/ABC"))
+        self.assertTrue(allowed("https://civitai.red/a.png"))
+        for url in ("http://image.civitai.com/a.png",
+                    "https://169.254.169.254/latest/meta-data/",
+                    "https://127.0.0.1:8188/drawer/reboot",
+                    "https://civitai.com.evil.example/a.png",
+                    "https://evilcivitai.com/a.png",
+                    "https://image.civitai.com@127.0.0.1/a.png",
+                    "file:///etc/passwd",
+                    ""):
+            self.assertFalse(allowed(url), url)
+
+    def test_redirects_are_rechecked(self):
+        source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
+        self.assertIn("allow_redirects=False", source)
+        self.assertIn('return False, "host_not_allowed"', source)
+
+
+class PromptCommentScopeTests(unittest.TestCase):
+    """Comment syntax is stripped from multiline text inputs only. Applied to
+    every string input it emptied values like "#FFFFFF" in other nodes."""
+
+    class TextNode:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {"required": {"text": ("STRING", {"multiline": True}),
+                                 "color": ("STRING", {"default": ""}),
+                                 "ckpt_name": (["#favorites/model.safetensors"],)},
+                    "optional": {"path": ("STRING",)}}
+
+    def setUp(self):
+        from unittest import mock
+        fake_nodes = types.ModuleType("nodes")
+        fake_nodes.NODE_CLASS_MAPPINGS = {"TextNode": self.TextNode}
+        with mock.patch.dict(sys.modules, {"nodes": fake_nodes, "server": types.ModuleType("server")}):
+            self.processor = _load_repo_module("prompt_processor")
+        for name, value in (("_comments_enabled", True),
+                            ("_read_manifest", lambda: [{"id": "w", "title": "animal", "type": "wildcard"}]),
+                            ("_read_wildcard_entries", lambda dict_id: ["cat"])):
+            patch = mock.patch.object(self.processor, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def _inputs(self, class_type, inputs):
+        data = {"prompt": {"1": {"class_type": class_type, "inputs": inputs}}}
+        return self.processor.expand_wildcards(data)["prompt"]["1"]["inputs"]
+
+    def test_multiline_text_is_stripped(self):
+        out = self._inputs("TextNode", {"text": "# note\n1girl, // hair\nsmile /* x */, __animal__"})
+        self.assertEqual(out["text"], "\n1girl, \nsmile , cat")
+
+    def test_other_string_inputs_keep_comment_like_values(self):
+        values = {"color": "#FFFFFF", "ckpt_name": "#favorites/model.safetensors", "path": "//nas/share/out"}
+        self.assertEqual(self._inputs("TextNode", dict(values)), values)
+        self.assertEqual(self._inputs("UnknownNode", dict(values)), values)
+
+    def test_wildcards_still_expand_in_other_string_inputs(self):
+        self.assertEqual(self._inputs("TextNode", {"path": "out/__animal__"})["path"], "out/cat")
+
+    def test_drawer_controls_follow_the_slot_definition(self):
+        out = self._inputs("DrawerControls4", {
+            "value_1": "1girl, // hair", "def_1": "string | Prompt | multiline",
+            "value_2": "#FFFFFF", "def_2": "string | Color",
+            "value_3": "#favorites/model.safetensors", "def_3": "combo | Checkpoint",
+        })
+        self.assertEqual((out["value_1"], out["value_2"], out["value_3"]),
+                         ("1girl, ", "#FFFFFF", "#favorites/model.safetensors"))
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required for the headless engine tests")
+class MarkdownNoteRenderTests(unittest.TestCase):
+    """MarkdownNote text comes from the workflow file (PNG-embedded ones
+    included) and is rendered into Deck with innerHTML."""
+
+    def test_links_cannot_add_attributes(self):
+        result = subprocess.run(["node", "tests/js/markdown_note_unit.mjs"], cwd=REPO_ROOT,
+                                capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 @unittest.skipUnless(shutil.which("node"), "node is required for the headless engine tests")
 class HeadlessEngineTests(unittest.TestCase):
     """web/js/headless rebuilds API prompts without the ComfyUI frontend.

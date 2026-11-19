@@ -241,7 +241,7 @@ masterpiece, __style__, 1girl
 
 ### 注释
 
-Drawer 可以在入队时从 prompt 文本中移除注释。和通配符一样，它不需要节点或连线，会处理 prompt payload 中的字符串输入。
+Drawer 可以在入队时从 prompt 文本中移除注释。和通配符一样，它不需要节点或连线。只处理多行文本输入（在 DrawerControls 中为定义成 `string | … | multiline` 的槽位），其他输入中的 `#FFFFFF`、`//server/share` 等值会保持原样。
 
 ```text
 masterpiece, best quality
