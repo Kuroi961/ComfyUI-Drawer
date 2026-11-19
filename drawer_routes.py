@@ -51,6 +51,8 @@ from .fs_utils import (
     ftype as _ftype,
     is_plain_name as _is_plain_name,
     is_supported_media_name as _is_supported_media_name,
+    model_folders as _model_folders,
+    model_path as _model_path,
     resolve_root as _resolve_root,
     safe_path as _safe_path,
     summarize_tree as _summarize_tree,
@@ -78,7 +80,7 @@ from .media_metadata import (
 from .prompt_processor import setup_prompt_processing
 from . import gpu_memory
 from . import progress_relay
-from .request_guards import require_same_origin as _require_same_origin
+from .request_guards import is_civitai_url as _is_civitai_url, require_same_origin as _require_same_origin
 from .search_query import (
     extract_searchable_parts as _extract_searchable_parts,
     parse_search_scopes as _parse_search_scopes,
@@ -348,31 +350,6 @@ async def get_third_party_dict_status(request):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Model Paths — per-category models grouped by source directory
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# Registered in folder_paths, but they hold code and config rather than models.
-_NON_MODEL_CATEGORIES = frozenset({"custom_nodes", "configs"})
-
-
-def _model_folders(category):
-    """Return (base paths, extensions) of a model category, or None."""
-    category = folder_paths.map_legacy(category)
-    if category in _NON_MODEL_CATEGORIES:
-        return None
-    return folder_paths.folder_names_and_paths.get(category)
-
-
-def _model_path(category, filename):
-    """Resolve a model file, limited to what ComfyUI lists for the category.
-
-    The category comes from the URL, so it is checked here rather than trusting
-    the categories the Model Viewer shows: folder_paths.get_full_path alone
-    resolves any file under any registered folder, custom_nodes included.
-    """
-    folders = _model_folders(category)
-    if folders is None or not folder_paths.filter_files_extensions([filename], folders[1]):
-        return None
-    return folder_paths.get_full_path(category, filename)
-
 
 @_routes.get("/drawer/models/paths/{category}")
 async def get_model_paths(request):
@@ -2159,19 +2136,6 @@ _ALLOWED_PREVIEW_CONTENT_TYPES = (
 )
 _MAX_PREVIEW_DOWNLOAD_BYTES = 32 * 1024 * 1024
 _MAX_PREVIEW_REDIRECTS = 5
-
-
-def _is_civitai_url(url):
-    """True for an https URL on a CivitAI host.
-
-    The preview URL is read from a .civitai.info sidecar, which can arrive with
-    a downloaded model, so it must not be able to point the server at other
-    hosts (LAN addresses, cloud metadata endpoints).
-    """
-    parsed = urllib.parse.urlsplit(url)
-    host = (parsed.hostname or "").lower()
-    return parsed.scheme == "https" and any(
-        host == domain or host.endswith("." + domain) for domain in ("civitai.com", "civitai.red"))
 
 
 async def _download_preview_to_file(url, dest_path, *,

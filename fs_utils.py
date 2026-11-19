@@ -26,6 +26,9 @@ ROOT_LABELS = {
 
 STORAGE_SKIP_DIRS = {".git", ".thumbs", "__pycache__"}
 
+# Registered in folder_paths, but they hold code and config rather than models.
+NON_MODEL_CATEGORIES = frozenset({"custom_nodes", "configs"})
+
 
 def ftype(ext):
     if ext in IMAGE_EXTS:
@@ -123,6 +126,27 @@ def safe_path(root, *parts):
     except ValueError:
         return None
     return real
+
+
+def model_folders(category):
+    """Return (base paths, extensions) of a model category, or None."""
+    category = folder_paths.map_legacy(category)
+    if category in NON_MODEL_CATEGORIES:
+        return None
+    return folder_paths.folder_names_and_paths.get(category)
+
+
+def model_path(category, filename):
+    """Resolve a model file, limited to what ComfyUI lists for the category.
+
+    The category comes from the URL, so it is checked here rather than trusting
+    the categories the Model Viewer shows: folder_paths.get_full_path alone
+    resolves any file under any registered folder, custom_nodes included.
+    """
+    folders = model_folders(category)
+    if folders is None or not folder_paths.filter_files_extensions([filename], folders[1]):
+        return None
+    return folder_paths.get_full_path(category, filename)
 
 
 def is_plain_name(name):

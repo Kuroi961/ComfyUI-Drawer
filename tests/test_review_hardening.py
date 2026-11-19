@@ -2254,20 +2254,6 @@ class GpuMemoryTests(unittest.TestCase):
         self.assertIn("readJson('/drawer/system/vram')", progress)
 
 
-def _load_route_functions(*names):
-    """Run selected drawer_routes helpers without importing the module, which
-    needs a live PromptServer."""
-    import ast
-    import urllib.parse
-    source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
-    wanted = [node for node in ast.parse(source).body
-              if getattr(node, "name", None) in names
-              or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in names)]
-    namespace = {"folder_paths": folder_paths, "urllib": urllib}
-    exec(compile(ast.Module(wanted, []), "drawer_routes.py", "exec"), namespace)
-    return namespace
-
-
 class ModelCategoryGuardTests(unittest.TestCase):
     """The model routes take the category from the URL. folder_paths also
     registers custom_nodes (no extension filter), so an unchecked category
@@ -2275,7 +2261,6 @@ class ModelCategoryGuardTests(unittest.TestCase):
 
     def setUp(self):
         from unittest import mock
-        self.routes = _load_route_functions("_NON_MODEL_CATEGORIES", "_model_folders", "_model_path")
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         for folder, name in (("loras", "style.safetensors"), ("loras", "notes.txt"), ("custom_nodes", "node.py")):
@@ -2289,23 +2274,23 @@ class ModelCategoryGuardTests(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def test_model_files_resolve(self):
-        self.assertEqual(self.routes["_model_path"]("loras", "style.safetensors"),
+        self.assertEqual(fs_utils.model_path("loras", "style.safetensors"),
                          os.path.join(self.tmp.name, "loras", "style.safetensors"))
 
     def test_non_model_categories_are_refused(self):
         self.assertIsNotNone(folder_paths.get_full_path("custom_nodes", "node.py"))
-        self.assertIsNone(self.routes["_model_path"]("custom_nodes", "node.py"))
-        self.assertIsNone(self.routes["_model_folders"]("custom_nodes"))
-        self.assertIsNone(self.routes["_model_folders"]("configs"))
-        self.assertIsNone(self.routes["_model_folders"]("no_such_category"))
+        self.assertIsNone(fs_utils.model_path("custom_nodes", "node.py"))
+        self.assertIsNone(fs_utils.model_folders("custom_nodes"))
+        self.assertIsNone(fs_utils.model_folders("configs"))
+        self.assertIsNone(fs_utils.model_folders("no_such_category"))
 
     def test_files_outside_the_category_extensions_are_refused(self):
         self.assertIsNotNone(folder_paths.get_full_path("loras", "notes.txt"))
-        self.assertIsNone(self.routes["_model_path"]("loras", "notes.txt"))
+        self.assertIsNone(fs_utils.model_path("loras", "notes.txt"))
 
     def test_every_model_route_goes_through_the_guard(self):
         source = (REPO_ROOT / "drawer_routes.py").read_text(encoding="utf-8")
-        self.assertEqual(source.count("folder_paths.get_full_path("), 1)
+        self.assertNotIn("folder_paths.get_full_path(", source)
         self.assertNotIn("folder_paths.get_folder_paths(category)", source)
 
 
@@ -2314,7 +2299,7 @@ class CivitaiPreviewHostTests(unittest.TestCase):
     model, so the server only fetches it from CivitAI over https."""
 
     def test_only_https_civitai_hosts_are_fetched(self):
-        allowed = _load_route_functions("_is_civitai_url")["_is_civitai_url"]
+        allowed = _load_repo_module("request_guards").is_civitai_url
         self.assertTrue(allowed("https://image.civitai.com/x/y/original=true/1.jpeg"))
         self.assertTrue(allowed("https://blobs-b2.civitai.com/file/blobs/ABC"))
         self.assertTrue(allowed("https://civitai.red/a.png"))

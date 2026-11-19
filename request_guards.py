@@ -25,6 +25,19 @@ def _source_host(value):
     return f"{host}:{port}"
 
 
+def is_civitai_url(url):
+    """True for an https URL on a CivitAI host.
+
+    The preview URL is read from a .civitai.info sidecar, which can arrive with
+    a downloaded model, so it must not be able to point the server at other
+    hosts (LAN addresses, cloud metadata endpoints).
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == domain or host.endswith("." + domain) for domain in ("civitai.com", "civitai.red"))
+
+
 def require_same_origin(request):
     """Reject browser cross-origin state-changing requests.
 
