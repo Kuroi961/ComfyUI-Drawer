@@ -463,7 +463,7 @@
   margin-top: 10px;
   -webkit-appearance: none;
   appearance: none;
-  background: var(--cd-s2, var(--cd-shell-2));
+  background: var(--cd-track);
   border: none;
   border-radius: 3px;
   outline: none;
@@ -492,7 +492,7 @@
 }
 .dk-slider::-moz-range-track {
   height: 4px;
-  background: var(--cd-s2, var(--cd-shell-2));
+  background: var(--cd-track);
   border-radius: 2px;
 }
 

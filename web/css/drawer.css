@@ -43,6 +43,9 @@
     --cd-divider:    rgba(255,255,255,0.09);  /* translucent separator / border */
     --cd-text:       #e0e0e0;   /* main text                     (derived)    */
     --cd-text-dim:   #858585;   /* dim / label text              (derived)    */
+    /* Slider rail. Mixed from the text color because --cd-s2 sits within
+       ~1.5% lightness of --cd-shell on light shells and disappears there.   */
+    --cd-track:      color-mix(in srgb, var(--cd-text-dim) 35%, transparent);
 
     /* Legacy aliases — CSS files that still reference old names still work  */
     --cd-shell-deep: var(--cd-panel);
@@ -64,6 +67,20 @@
     --gg-text:        var(--cd-text);
     --gg-bg-base:     var(--cd-panel);
 
+}
+
+/* ── Native controls follow the shell theme ───────────────────────────────
+   Number spinners, checkboxes, date pickers and scrollbars are drawn by the
+   browser from color-scheme, which otherwise comes from the host page (dark
+   in the ComfyUI frontend) whatever the shell color is. Scoped to Drawer's
+   own body-level containers so the host page is left alone.                */
+.cd-theme-light :is(.comfy-drawer, .cd-dialog-backdrop, .cd-picker-backdrop, .cd-ctxmenu, .dc-dropdown, .gg-crumb-dropdown, .mv-crumb-dropdown) {
+    color-scheme: light;
+    accent-color: var(--cd-accent);
+}
+.cd-theme-dark :is(.comfy-drawer, .cd-dialog-backdrop, .cd-picker-backdrop, .cd-ctxmenu, .dc-dropdown, .gg-crumb-dropdown, .mv-crumb-dropdown) {
+    color-scheme: dark;
+    accent-color: var(--cd-accent);
 }
 
 /* ── Light theme: invert mask-service & stepper button box-shadows ────────── */

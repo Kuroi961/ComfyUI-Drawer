@@ -165,7 +165,7 @@
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
-    background: var(--cd-s2);
+    background: var(--cd-track);
     border-radius: 2px;
     outline: none;
     cursor: pointer;

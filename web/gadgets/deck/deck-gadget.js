@@ -2486,30 +2486,26 @@ export class DeckGadget extends GadgetBase {
         inp.value = format(valueW.value || 0);
         const plus = document.createElement('button');
         plus.className = 'dk-stepper'; plus.textContent = '+';
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dk-slider';
+        slider.min = def.min; slider.max = def.max; slider.step = def.step;
+        slider.value = inp.value;
         const commit = (value) => {
           let n = Number(value);
           if (!Number.isFinite(n)) return;
           n = Math.max(def.min, Math.min(def.max, n));
           n = def.type === 'int' ? Math.round(n) : Number(n.toFixed(Math.max(0, def.round)));
           inp.value = format(n);
+          slider.value = inp.value;
           setValue(n);
         };
         minus.addEventListener('click', () => commit(Number(inp.value || 0) - def.step));
         plus.addEventListener('click', () => commit(Number(inp.value || 0) + def.step));
         inp.addEventListener('change', () => commit(inp.value));
+        slider.addEventListener('input', () => commit(slider.value));
         wrap.append(minus, inp, plus);
         container.appendChild(wrap);
-
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.className = 'dk-slider';
-        slider.min = def.min; slider.max = def.max; slider.step = def.step;
-        slider.value = inp.value;
-        slider.addEventListener('input', () => {
-          commit(slider.value);
-          slider.value = inp.value;
-        });
-        inp.addEventListener('change', () => { slider.value = inp.value; });
         container.appendChild(slider);
       }
 

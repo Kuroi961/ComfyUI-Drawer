@@ -578,7 +578,6 @@
         height: 34px;
         padding: 0 8px;
         font-size: 13px;
-        color-scheme: dark;
     }
 
     .gadget-gallery .gg-date-range input::-webkit-calendar-picker-indicator {
