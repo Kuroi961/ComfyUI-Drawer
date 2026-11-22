@@ -418,8 +418,11 @@ button.cd-meta-chip {
 
 button.cd-meta-chip:hover,
 button.cd-meta-chip.active {
-    border-color: var(--cd-accent);
     background: color-mix(in srgb, var(--cd-accent) 20%, var(--cd-s1));
+}
+
+button.cd-meta-chip.active {
+    border-color: var(--cd-accent);
 }
 
 .cd-meta-type-controls {
@@ -471,8 +474,7 @@ button.cd-meta-chip.active {
 }
 
 .cd-meta-allowed-chip:hover {
-    border-color: var(--cd-accent);
-    color: var(--cd-text);
+    background: color-mix(in srgb, var(--cd-accent) 26%, var(--cd-s2));
 }
 
 textarea.cd-meta-node-list {

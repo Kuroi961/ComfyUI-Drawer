@@ -823,7 +823,6 @@
   flex-shrink: 0;
 }
 .dk-size-swap:hover {
-  border-color: var(--cd-accent);
   background: var(--cd-accent-subtle);
   color: var(--cd-text);
 }
@@ -912,7 +911,6 @@
   text-align: left;
 }
 .dk-image-picker-btn:hover {
-  border-color: var(--cd-accent);
   background: var(--cd-s2, var(--cd-shell-2));
 }
 .dk-image-picker-btn:active {

@@ -89,7 +89,6 @@
 
     .gadget-modelviewer .mv-search-trigger:hover {
         color: var(--mv-text-1);
-        border-color: var(--mv-accent-dim);
     }
 
     /* ── Search back button (← arrow) ── */
@@ -557,12 +556,10 @@
 
     .mv-info-preview-action:hover {
         background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.5);
     }
 
     .mv-info-preview-action.delete:hover {
         background: var(--cd-danger-subtle);
-        border-color: var(--cd-danger);
     }
 
     .mv-info-name {
@@ -673,7 +670,6 @@
     }
 
     .mv-info-trigger-add:hover {
-        border-color: var(--mv-accent);
         color: var(--mv-accent);
     }
 
@@ -890,7 +886,6 @@
 
     .mv-info-card .mv-info-sync-btn:hover {
         color: var(--mv-text-1, var(--cd-text));
-        border-color: var(--mv-accent-dim, var(--cd-accent-dim));
     }
 
     .mv-info-card .mv-info-sync-btn:disabled {
@@ -949,7 +944,6 @@
 
     .mv-info-embedding-copy-btn:hover {
         background: var(--cd-s2);
-        border-color: var(--cd-accent-mid);
         color: var(--mv-text-1);
     }
 
@@ -986,7 +980,6 @@
 
     .gadget-modelviewer .mv-sync-btn:hover {
         color: var(--mv-text-1);
-        border-color: var(--mv-accent-dim);
     }
 
     .gadget-modelviewer .mv-sync-btn.syncing {

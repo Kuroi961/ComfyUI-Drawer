@@ -373,7 +373,6 @@
 }
 
 .xyzg-swap-btn:hover {
-    border-color: var(--cd-accent);
     color: var(--cd-text);
     background: var(--cd-accent-subtle);
 }
@@ -406,7 +405,6 @@
 }
 
 .xyzg-chip:hover {
-    border-color: var(--cd-accent);
     color: var(--cd-text);
 }
 

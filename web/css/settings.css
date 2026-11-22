@@ -619,7 +619,6 @@
 
 .cd-settings-action-danger:hover {
     background:   var(--cd-danger-subtle);
-    border-color: var(--cd-danger-low);
     color:        var(--cd-danger);
 }
 
@@ -645,7 +644,6 @@
 }
 
 .cd-settings-color-swatch:hover {
-    border-color: var(--cd-divider);
     transform: scale(1.08);
 }
 
@@ -680,7 +678,6 @@
 
 .cd-settings-color-reset:hover {
     background: var(--cd-s1);
-    border-color: var(--cd-divider);
     color: var(--cd-text-dim);
 }
 

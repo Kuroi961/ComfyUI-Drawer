@@ -208,7 +208,6 @@
 
     .gadget-gallery .gg-search-trigger:hover {
         color: var(--gg-text-1);
-        border-color: var(--gg-accent-dim);
     }
 
     .gadget-gallery .gg-search-trigger:disabled {
@@ -329,7 +328,6 @@
 
     .gadget-gallery .gg-sort-select:hover {
         color: var(--gg-text-1);
-        border-color: var(--gg-accent-dim);
     }
 
     .gadget-gallery .gg-sort-select option {
@@ -413,7 +411,6 @@
 
     .gadget-gallery .gg-scope-trigger:hover {
         color: var(--gg-text-1);
-        border-color: var(--gg-accent-dim);
     }
 
     .gadget-gallery .gg-scope-trigger.active {
@@ -612,7 +609,6 @@
 
     .gadget-gallery .gg-filter-clear:hover {
         background: var(--gg-bg-hover);
-        border-color: var(--gg-text-3);
         color: var(--gg-text-1);
     }
 
@@ -642,7 +638,6 @@
 
     .gadget-gallery .gg-autoplay-toggle:hover {
         color: var(--gg-text-1);
-        border-color: var(--gg-accent-dim);
     }
 
     .gadget-gallery .gg-autoplay-toggle.active {
@@ -857,7 +852,6 @@
     }
 
     .gadget-gallery .gg-index-action:hover {
-        border-color: color-mix(in srgb, var(--gg-accent) 55%, var(--gg-border));
         color: var(--gg-accent);
     }
 
@@ -887,7 +881,6 @@
 
     .gadget-gallery .gg-index-dismiss:hover {
         color: var(--gg-text);
-        border-color: var(--gg-border-2);
     }
 
     .gadget-gallery .gg-index-status.error {
@@ -1203,7 +1196,6 @@
     .gadget-gallery .gg-sel-all:hover {
         color: var(--gg-text-1);
         background: var(--gg-bg-hover);
-        border-color: var(--gg-accent-dim);
     }
 
     .gadget-gallery .gg-sel-all svg {
